@@ -31,6 +31,22 @@ def test_return_air_maps_to_aspirator():
     assert detect_component_type("Plug fan Return air") == ("Aspiratör", "return_fan")
 
 
+def test_exhaust_air_maps_to_aspirator():
+    assert detect_component_type("Plug fan Exhaust air") == ("Aspiratör", "exhaust_fan")
+
+
+def test_exhaust_air_rated_power_15kw_2x1_is_extracted():
+    text = "Plug fan Exhaust air Section length [mm] 1.641,0 Motor data Rated Power [kW] 15,000 x (2x1)"
+    result = extract_rated_motor_power_from_page(text, 7)
+    assert result is not None
+    assert result.page_number == 7
+    assert result.value_kw == 15.0
+    assert result.raw_value == "15,000"
+    assert result.quantity == "2x1"
+    assert result.component_type == "Aspiratör"
+    assert result.component_role == "exhaust_fan"
+
+
 def test_quantity_spacing_and_multiplication_symbol_are_normalized():
     result = extract_rated_motor_power_from_page(
         "Motor Data Supply air Anma gücü [kW]: 3.000 x ( 1 × 1 )", 6
