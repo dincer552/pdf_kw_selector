@@ -1,7 +1,8 @@
-"""Stage 1: find the page containing the requested motor power.
+"""Stage 1: find and extract the explicit motor-rated power from PDF 1.
 
-This module intentionally stops before PDF-to-PDF matching. It answers one
-question reliably: where is the explicit motor-rated-power field in PDF 1?
+The selector is intentionally field-specific. It must prefer the value belonging
+immediately to ``Anma gücü [kW]`` and must not confuse it with nearby shaft power,
+VSD power, cooling capacity, or aggregate power values.
 """
 
 from __future__ import annotations
@@ -13,14 +14,10 @@ from pathlib import Path
 from pdf_kw_selector import normalize_power
 
 
-# The target in the sample PDF is:
-#   Anma gücü [kW] 3,000 x (1x1)
-# Keep this separate from generic "kW" extraction because the same page contains
-# shaft power and VSD powers that are valid kW values but are not motor rating.
 RATED_POWER_RE = re.compile(
     r"anma\s*g[üu]c[üu]\s*\[?\s*kW\s*\]?\s*[:\-]?\s*"
     r"(?P<value>\d+(?:[.,]\d+)?)"
-    r"(?:\s*[x×]\s*\(?(?P<quantity>\d+(?:[.,]\d+)?)\)?\s*)?",
+    r"(?:\s*[x×]\s*\(?(?P<quantity>\d+(?:[.,]\d+)?(?:\s*[x×]\s*\d+(?:[.,]\d+)?)?)\)?\s*)?",
     re.IGNORECASE,
 )
 
@@ -32,6 +29,7 @@ PAGE_POSITIVE_TERMS = {
     "supply air": 10,
     "nominal rpm": 8,
     "model / miktar": 8,
+    "fan motor power": 45,
 }
 
 PAGE_NEGATIVE_TERMS = {
@@ -60,7 +58,7 @@ class MotorPowerResult:
     page_number: int
     value_kw: float
     raw_value: str
-    quantity: float | None
+    quantity: str | None
     field: str
     confidence: str
     source_text: str
@@ -88,7 +86,6 @@ def _page_score(text: str) -> tuple[int, tuple[str, ...]]:
             score += weight
             matched.append(f"{weight}:{term}")
 
-    # An explicit rated-power label is the strongest possible page signal.
     if RATED_POWER_RE.search(lowered):
         score += 80
         matched.append("+explicit rated power")
@@ -123,8 +120,7 @@ def extract_rated_motor_power_from_page(text: str, page_number: int) -> MotorPow
         float(match.group("value").replace(",", ".")),
         "kw",
     )
-    quantity_raw = match.group("quantity")
-    quantity = float(quantity_raw.replace(",", ".")) if quantity_raw else None
+    quantity = match.group("quantity")
 
     start = max(0, match.start() - 70)
     end = min(len(cleaned), match.end() + 70)
@@ -152,3 +148,14 @@ def find_rated_motor_power_in_pdf(path: str | Path) -> MotorPowerResult | None:
         if result is not None:
             return result
     return None
+
+
+if __name__ == "__main__":
+    import argparse
+    import json
+
+    parser = argparse.ArgumentParser(description="Find rated motor power in PDF 1")
+    parser.add_argument("pdf", help="PDF file")
+    args = parser.parse_args()
+    result = find_rated_motor_power_in_pdf(args.pdf)
+    print(json.dumps(result.to_dict() if result else None, ensure_ascii=False, indent=2))
