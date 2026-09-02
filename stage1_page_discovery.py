@@ -1,12 +1,13 @@
-"""Stage 1: discover the correct motor-power page and fan direction.
+"""Stage 1: discover rated motor-power pages and fan direction.
 
 Project rules:
 - Supply air -> Vantilatör (Vant)
-- Return air -> Aspiratör (Asp)
+- Exhaust air -> Aspiratör (Asp)
+- Return air is NOT used as the exhaust-fan direction in Systemair PDFs.
 - 1x1 -> one physical motor; 2x1 -> two; 3x1 -> three.
 
-The selector targets the explicit ``Anma gücü [kW]`` field rather than
-arbitrary nearby kW values.
+The selector targets the explicit ``Rated Power [kW]`` / ``Anma gücü [kW]``
+field rather than arbitrary nearby kW values.
 """
 
 from __future__ import annotations
@@ -19,21 +20,23 @@ from motor_database import expand_motor_group
 from pdf_kw_selector import normalize_power
 
 RATED_POWER_RE = re.compile(
-    r"anma\s*g[üu]c[üu]\s*\[?\s*kW\s*\]?\s*[:=\-]?\s*"
+    r"(?:anma\s*g[üu]c[üu]|rated\s*power)\s*\[?\s*kW\s*\]?\s*[:=\-]?\s*"
     r"(?P<value>\d+(?:[.,]\d+)?)"
     r"(?:\s*[x×]\s*\(?\s*(?P<quantity>\d+(?:[.,]\d+)?(?:\s*[x×]\s*\d+)?)\s*\)?)?",
     re.IGNORECASE,
 )
 
 PAGE_POSITIVE_TERMS = {
-    "anma gücü": 60, "motor data": 35, "fan data": 25, "plug fan": 20,
-    "supply air": 15, "return air": 15, "nominal rpm": 8,
+    "anma gücü": 60, "rated power": 60, "motor data": 35, "fan data": 25,
+    "plug fan": 20, "supply air": 15, "exhaust air": 15, "nominal rpm": 8,
     "model / miktar": 8, "fan motor power": 45,
 }
 PAGE_NEGATIVE_TERMS = {
     "cooling capacity": -25, "heating capacity": -25, "shaft power": -15,
     "vfd dahil": -12, "vfd hariç": -12, "unit total power": -20,
+    "tot. abs. power": -15,
 }
+
 
 @dataclass(frozen=True)
 class PageCandidate:
@@ -41,7 +44,10 @@ class PageCandidate:
     score: int
     text: str
     matched_terms: tuple[str, ...] = ()
-    def to_dict(self) -> dict: return asdict(self)
+
+    def to_dict(self) -> dict:
+        return asdict(self)
+
 
 @dataclass(frozen=True)
 class MotorPowerResult:
@@ -55,7 +61,9 @@ class MotorPowerResult:
     component_type: str | None = None
     component_role: str | None = None
     equipment_id: str | None = None
-    def to_dict(self) -> dict: return asdict(self)
+
+    def to_dict(self) -> dict:
+        return asdict(self)
 
 
 def _clean(text: str) -> str:
@@ -67,12 +75,15 @@ def _page_score(text: str) -> tuple[int, tuple[str, ...]]:
     score, matched = 0, []
     for term, weight in PAGE_POSITIVE_TERMS.items():
         if term in lowered:
-            score += weight; matched.append(f"+{term}")
+            score += weight
+            matched.append(f"+{term}")
     for term, weight in PAGE_NEGATIVE_TERMS.items():
         if term in lowered:
-            score += weight; matched.append(f"{weight}:{term}")
+            score += weight
+            matched.append(f"{weight}:{term}")
     if RATED_POWER_RE.search(lowered):
-        score += 80; matched.append("+explicit rated power")
+        score += 80
+        matched.append("+explicit rated power")
     return score, tuple(matched)
 
 
@@ -91,18 +102,21 @@ def _normalize_quantity(quantity: str | None) -> str | None:
 
 
 def detect_component_type(text: str) -> tuple[str | None, str | None]:
-    """Supply air means Vantilatör; Return air means Aspiratör.
+    """Map the local airflow direction to the project's motor component type.
 
-    If both occur on the same page, do not guess globally. A later component
-    block parser will resolve the local table/section.
+    Systemair's AHU PDF uses ``Supply air`` for the supply fan and
+    ``Exhaust air`` for the exhaust fan. ``Return air`` is deliberately not
+    mapped to the exhaust fan because it can describe a different airflow
+    concept elsewhere in the document.
     """
     lowered = _clean(text).lower()
     supply = bool(re.search(r"\bsupply\s+air\b", lowered))
-    return_air = bool(re.search(r"\breturn\s+air\b", lowered))
-    if supply and not return_air:
+    exhaust = bool(re.search(r"\bexhaust\s+air\b", lowered))
+
+    if supply and not exhaust:
         return "Vantilatör", "supply_fan"
-    if return_air and not supply:
-        return "Aspiratör", "return_fan"
+    if exhaust and not supply:
+        return "Aspiratör", "exhaust_fan"
     return None, None
 
 
@@ -120,25 +134,51 @@ def extract_rated_motor_power_from_page(text: str, page_number: int) -> MotorPow
     value = normalize_power(float(raw_value.replace(",", ".")), "kw")
     quantity = _normalize_quantity(match.group("quantity"))
     component_type, component_role = detect_component_type(cleaned)
-    start = max(0, match.start() - 100)
-    end = min(len(cleaned), match.end() + 100)
+    start = max(0, match.start() - 120)
+    end = min(len(cleaned), match.end() + 120)
     return MotorPowerResult(
-        page_number=page_number, value_kw=value, raw_value=raw_value,
-        quantity=quantity, field="fan_motor_power", confidence="high",
-        source_text=cleaned[start:end], component_type=component_type,
-        component_role=component_role, equipment_id=extract_equipment_id(cleaned),
+        page_number=page_number,
+        value_kw=value,
+        raw_value=raw_value,
+        quantity=quantity,
+        field="fan_motor_power",
+        confidence="high",
+        source_text=cleaned[start:end],
+        component_type=component_type,
+        component_role=component_role,
+        equipment_id=extract_equipment_id(cleaned),
     )
 
 
-def find_rated_motor_power_in_pdf(path: str | Path) -> MotorPowerResult | None:
-    """Rank pages and return the first explicit rated motor-power result."""
+def find_rated_motor_powers_in_pdf(path: str | Path) -> list[MotorPowerResult]:
+    """Find all distinct rated-power fan sections in PDF 1.
+
+    A Systemair unit can have both a Supply air fan and an Exhaust air fan.
+    Results are kept separate by airflow direction and source page.
+    """
     from pypdf import PdfReader
+
     pages = [page.extract_text() or "" for page in PdfReader(str(path)).pages]
+    results: list[MotorPowerResult] = []
+    seen: set[tuple[int, str | None, float, str | None]] = set()
+
     for candidate in discover_motor_power_page(pages):
         result = extract_rated_motor_power_from_page(candidate.text, candidate.page_number)
-        if result:
-            return result
-    return None
+        if result is None or result.component_role is None:
+            continue
+        key = (result.page_number, result.component_role, result.value_kw, result.quantity)
+        if key in seen:
+            continue
+        seen.add(key)
+        results.append(result)
+
+    return sorted(results, key=lambda item: item.page_number)
+
+
+def find_rated_motor_power_in_pdf(path: str | Path) -> MotorPowerResult | None:
+    """Backward-compatible single-result API: return the first fan result."""
+    results = find_rated_motor_powers_in_pdf(path)
+    return results[0] if results else None
 
 
 def build_stage1_motor_records(result: MotorPowerResult):
@@ -146,18 +186,26 @@ def build_stage1_motor_records(result: MotorPowerResult):
     if not result.component_type or not result.quantity or not result.equipment_id:
         return []
     return expand_motor_group(
-        equipment_id=result.equipment_id, equipment_type="AHU",
-        component_type=result.component_type, group=result.quantity,
-        power_kw=result.value_kw, source_page=result.page_number,
+        equipment_id=result.equipment_id,
+        equipment_type="AHU",
+        component_type=result.component_type,
+        group=result.quantity,
+        power_kw=result.value_kw,
+        source_page=result.page_number,
     )
 
+
 if __name__ == "__main__":
-    import argparse, json
+    import argparse
+    import json
+
     parser = argparse.ArgumentParser(description="Find rated motor power in PDF 1")
     parser.add_argument("pdf", help="PDF file")
     args = parser.parse_args()
-    result = find_rated_motor_power_in_pdf(args.pdf)
-    output = result.to_dict() if result else None
-    if result:
-        output["motors"] = [r.to_dict() for r in build_stage1_motor_records(result)]
+    results = find_rated_motor_powers_in_pdf(args.pdf)
+    output = []
+    for result in results:
+        item = result.to_dict()
+        item["motors"] = [r.to_dict() for r in build_stage1_motor_records(result)]
+        output.append(item)
     print(json.dumps(output, ensure_ascii=False, indent=2))
