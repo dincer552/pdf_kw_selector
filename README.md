@@ -2,25 +2,52 @@
 
 Engineering PDF'lerinden **doğru kW bilgisini bulup iki farklı PDF'deki karşılığını doğrulamak** için geliştirilen aşamalı doğrulama motoru.
 
-## v0.1.0 — Windows Test Sürümü
+## v0.1.1 — Windows Test Sürümü
 
 Bu sürümde **PDF 1 / Stage 1 masaüstü arayüzü** kullanılabilir durumdadır.
 
 ```text
-PDF Seç → ANALİZ ET → Doğru Sayfa → Anma gücü [kW]
-                         ↓
-                 Supply / Return
-                         ↓
-                    1x1 / 2x1 / 3x1
-                         ↓
-              Vant 1 / Vant 2 / Asp 1...
+PDF Seç → ANALİZ ET → Fan bölümlerini bul → Rated Power [kW]
+                                      ↓
+                         Supply air / Exhaust air
+                                      ↓
+                              1x1 / 2x1 / 3x1
+                                      ↓
+                     Vant 1 / Vant 2 / Asp 1...
 ```
 
-`desktop_app.py` Windows'ta Tkinter ile çalışan offline test arayüzüdür. PDF 1 seçildiğinde doğru teknik sayfayı arar, `Anma gücü [kW]` değerini çıkarır, Supply air / Return air sınıflandırmasını gösterir ve fiziksel motor listesini ekrana getirir. Sonuç JSON olarak da kaydedilebilir.
+`desktop_app.py` Windows'ta Tkinter ile çalışan offline test arayüzüdür. PDF 1 seçildiğinde fan teknik bloklarını arar, `Rated Power [kW]` / `Anma gücü [kW]` değerini çıkarır, Supply air / Exhaust air sınıflandırmasını gösterir ve fiziksel motor listesini ekrana getirir. Sonuç JSON olarak da kaydedilebilir.
 
-Windows EXE build workflow'u `PDF_KW_Selector_v0.1.0.exe` üretir.
+### Gerçek Systemair PDF terminolojisi
 
-> v0.1.0 yalnızca PDF 1 / Stage 1 testidir. PDF 2 karşılaştırması sonraki sürümde aktif edilecektir.
+Bu projedeki Systemair örneğinde dönüş tarafı motor/fan yönü **`Exhaust air`** olarak geçmektedir. Bu nedenle kodda:
+
+```text
+Supply air  → Vantilatör → Vant
+Exhaust air → Aspiratör  → Asp
+```
+
+olarak sabitlenmiştir. `Return air` artık aspiratör yönü olarak kullanılmaz.
+
+Örnek gerçek PDF:
+
+```text
+Page 7  — Plug fan / Supply air
+Rated Power [kW] 22,000 x (2x1)
+→ Vant 1 = 22 kW
+→ Vant 2 = 22 kW
+
+Page 10 — Plug fan / Exhaust air
+Rated Power [kW] 15,000 x (2x1)
+→ Asp 1 = 15 kW
+→ Asp 2 = 15 kW
+```
+
+Bu değerler PDF'nin kendi teknik tablolarındaki `Rated Power [kW]` satırlarından alınır; `shaft power` ve `Tot. Abs. power` gibi diğer güç alanları motor gücü yerine seçilmez.
+
+Windows EXE build workflow'u `PDF_KW_Selector_v0.1.1.exe` üretir.
+
+> v0.1.1 yalnızca PDF 1 / Stage 1 testidir. PDF 2 karşılaştırması sonraki sürümde aktif edilecektir.
 
 ---
 
@@ -43,11 +70,11 @@ MATCH / MISMATCH / NOT_FOUND / AMBIGUOUS / REVIEW_REQUIRED
 ## Motor sınıflandırma
 
 ```text
-Supply air → Vantilatör → Vant
-Return air → Aspiratör  → Asp
+Supply air  → Vantilatör → Vant
+Exhaust air → Aspiratör  → Asp
 ```
 
-Aynı sayfada iki yön bulunursa sistem tüm sayfaya bakarak tahmin yapmaz; ilgili fan bloğunun lokal bağlamı çözülecektir.
+`Return air` tek başına aspiratör yönü olarak kabul edilmez. Sistemair örneğinde gerçek fan bloğu `Exhaust air` başlığı altında yer almaktadır.
 
 ## Motor sayısı
 
@@ -57,7 +84,7 @@ Aynı sayfada iki yön bulunursa sistem tüm sayfaya bakarak tahmin yapmaz; ilgi
 3x1 → 3 motor
 ```
 
-Örneğin `Supply air + 2x1` → `Vant 1`, `Vant 2`; `Return air + 3x1` → `Asp 1`, `Asp 2`, `Asp 3`.
+Örneğin `Supply air + 2x1` → `Vant 1`, `Vant 2`; `Exhaust air + 3x1` → `Asp 1`, `Asp 2`, `Asp 3`.
 
 ## Database
 
@@ -79,30 +106,37 @@ Karşılaştırma ileride ham PDF metni üzerinden değil, iki normalize databas
 
 1. PDF'nin bütün sayfaları taranır.
 2. Motor/fan teknik blokları puanlanır.
-3. `Anma gücü [kW]` alanı aranır.
-4. `Supply air` → Vantilatör, `Return air` → Aspiratör.
+3. `Rated Power [kW]` / `Anma gücü [kW]` alanı aranır.
+4. `Supply air` → Vantilatör, `Exhaust air` → Aspiratör.
 5. `1x1 / 2x1 / 3x1` fiziksel motor kayıtlarına genişletilir.
-6. Her motor database'e ayrı kayıt olarak yazılır.
+6. Her fiziksel motor database'e ayrı kayıt olarak yazılır.
 
-Mevcut test PDF'sindeki hedef:
+Gerçek Systemair test PDF'sindeki hedef:
 
 ```text
-Anma gücü [kW] 3,000 x (1x1)
-→ 3.0 kW
-→ Vant 1
+Page 7:
+Supply air + Rated Power [kW] 22,000 x (2x1)
+→ Vant 1 = 22.0 kW
+→ Vant 2 = 22.0 kW
+
+Page 10:
+Exhaust air + Rated Power [kW] 15,000 x (2x1)
+→ Asp 1 = 15.0 kW
+→ Asp 2 = 15.0 kW
 ```
 
-`Shaft Power`, VSD dahil/hariç güç gibi diğer kW alanları `Anma gücü` yerine seçilmez.
+`Shaft Power`, `Tot. Abs. power, excluding VSD`, `Tot. Abs. power, including VSD` gibi diğer kW alanları `Rated Power` yerine seçilmez.
 
 ---
 
 # MEVCUT KOD
 
-- `stage1_page_discovery.py` → PDF 1 sayfa + rated motor power keşfi.
+- `stage1_page_discovery.py` → PDF 1 fan bölümü + rated motor power keşfi.
 - `motor_database.py` → motor gruplarını fiziksel motor kayıtlarına genişletir.
 - `local_database.py` → lokal SQLite depolama.
-- `desktop_app.py` → v0.1.0 masaüstü test arayüzü.
+- `desktop_app.py` → v0.1.1 masaüstü test arayüzü.
 - `.github/workflows/build-windows.yml` → Windows EXE üretimi.
+- `tests/test_stage1.py` → Supply/Exhaust regression testleri.
 
 ---
 
@@ -110,16 +144,18 @@ Anma gücü [kW] 3,000 x (1x1)
 
 ## Faz 1 — PDF 1
 
-- [x] `Anma gücü [kW]` hedefleme
+- [x] `Rated Power [kW]` / `Anma gücü [kW]` hedefleme
 - [x] doğru sayfa puanlama
 - [x] `1x1 / 2x1 / 3x1`
 - [x] fiziksel motor kayıtları
 - [x] SQLite database modeli
 - [x] Supply air → Vantilatör
-- [x] Return air → Aspiratör
+- [x] Exhaust air → Aspiratör
+- [x] Return air'in aspiratör yönü olarak kaldırılması
+- [x] Supply + Exhaust fanlarını aynı PDF'de ayrı keşfetme
 - [x] Windows masaüstü test arayüzü
 - [x] Windows EXE build workflow
-- [ ] gerçek PDF'den çoklu Vant/Asp komponentlerini otomatik keşfet
+- [ ] gerçek PDF'den daha fazla fan/komponent varyasyonunu otomatik keşfet
 - [ ] PDF 1 database'ini tamamen doldur
 
 ## Faz 2 — PDF 2
@@ -137,37 +173,3 @@ Anma gücü [kW] 3,000 x (1x1)
 - [ ] NOT_FOUND / AMBIGUOUS / REVIEW_REQUIRED
 - [ ] tolerans
 - [ ] kaynak sayfaları
-
-## Faz 4 — Tam arayüz
-
-```text
-PDF 1 seç
-PDF 2 seç
-   ↓
-PDF 1 Motor Database
-   ↓
-PDF 2 Motor Database
-   ↓
-Karşılaştırma
-   ↓
-Sonuç tablosu
-```
-
-## Faz 5 — Final Windows EXE
-
-Windows'ta çift tıklayarak çalıştırılabilen final uygulama.
-
----
-
-# SÜRÜMLEME
-
-Her ana aşama gerçek PDF ile test edilir ve ayrı sürüm oluşturulur:
-
-```text
-v0.1.0 → PDF 1 masaüstü test
-v0.2.0 → PDF 2 keşif
-v0.3.0 → database karşılaştırma
-v0.4.0 → çoklu motor / çoklu AHU
-...
-v1.0.0 → final
-```
