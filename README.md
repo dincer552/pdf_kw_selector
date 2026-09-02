@@ -2,6 +2,36 @@
 
 Engineering PDF'lerinden **doğru kW bilgisini bulup iki farklı PDF'deki karşılığını doğrulamak** için geliştirilen aşamalı doğrulama motoru.
 
+## v0.1.0 — Windows Test Sürümü
+
+Bu sürümde **PDF 1 / Stage 1 masaüstü arayüzü** kullanılabilir durumdadır.
+
+Windows'ta arayüz:
+
+```text
+PDF Seç
+   ↓
+ANALİZ ET
+   ↓
+Doğru sayfa
+   ↓
+Anma gücü [kW]
+   ↓
+Supply air / Return air
+   ↓
+1x1 / 2x1 / 3x1
+   ↓
+Vant 1 / Vant 2 / Asp 1 / ...
+```
+
+Arayüz `desktop_app.py` ile çalışır. PDF 1 seçildiğinde doğru teknik sayfayı arar, `Anma gücü [kW]` değerini çıkarır ve fiziksel motor listesini ekranda gösterir. Sonuç ayrıca JSON olarak kaydedilebilir.
+
+Windows EXE, GitHub Actions workflow'u ile `PDF_KW_Selector_v0.1.0.exe` adıyla oluşturulur.
+
+> v0.1.0 henüz PDF 2 karşılaştırmasını aktif etmez. Bu sürümün amacı PDF 1 motor keşfini gerçek PDF'lerle kullanıcı arayüzünden test etmektir.
+
+---
+
 ## Ana hedef
 
 Sisteme iki PDF verilir. Sistem kW değerlerini doğrudan tüm PDF'den toplamaz ve ilk bulduğu kW değerini karşılaştırmaz.
@@ -30,11 +60,22 @@ Temel kural: **Önce PDF 1'i oku ve normalize et → sonra PDF 2'yi aynı yapıy
 
 ---
 
+# MOTOR SINIFLANDIRMA KURALI
+
+PDF'deki hava yönü fan tipini belirler:
+
+```text
+Supply air  → Vantilatör → Vant
+Return air  → Aspiratör  → Asp
+```
+
+Program aynı sayfada iki yön bulunuyorsa tüm sayfaya bakarak tahmin yapmaz; ilgili fan bloğunun lokal bağlamını çözmesi gerekir.
+
 # MOTOR SAYISI KURALI — `1x1`, `2x1`, `3x1`
 
 PDF'lerde motor grubu `NxM` biçiminde gösterilebilir.
 
-Bu projede ilk sayı fiziksel motor adedini ifade eder:
+İlk sayı fiziksel motor adedidir:
 
 ```text
 1x1 → 1 motor
@@ -42,46 +83,26 @@ Bu projede ilk sayı fiziksel motor adedini ifade eder:
 3x1 → 3 motor
 ```
 
-Örneğin PDF'de:
+Örneğin:
 
 ```text
-Vantilatör   2x1
+Supply air + 2x1
+→ Vant 1
+→ Vant 2
 ```
-
-görülürse database'e:
 
 ```text
-Vant 1
-Vant 2
+Return air + 3x1
+→ Asp 1
+→ Asp 2
+→ Asp 3
 ```
-
-olarak iki ayrı motor kaydı yazılır.
-
-PDF'de:
-
-```text
-Aspiratör   3x1
-```
-
-görülürse:
-
-```text
-Asp 1
-Asp 2
-Asp 3
-```
-
-olarak üç ayrı motor kaydı oluşturulur.
-
-`x1` kısmı grubun kaynak gösterimini korur; fiziksel motor sayısını belirleyen sayı soldaki ilk sayıdır.
 
 ---
 
 # DATABASE MİMARİSİ
 
-Motorların karşılaştırılması ham PDF metninden yapılmayacaktır. PDF analizi sonucu önce **normalize edilmiş yerel SQLite database** oluşturulacaktır.
-
-Database tablosu:
+Motorların karşılaştırılması ham PDF metninden yapılmayacaktır. PDF analizi sonucu normalize edilmiş lokal SQLite database kayıtları oluşturulacaktır.
 
 ```text
 motors
@@ -101,8 +122,7 @@ confidence
 Örnek:
 
 ```text
-Equipment: AHU1
-
+AHU1
 Vant 1 | 3.0 kW | 2x1 | Page 6
 Vant 2 | 3.0 kW | 2x1 | Page 6
 Asp 1  | 2.2 kW | 3x1 | Page 7
@@ -110,185 +130,48 @@ Asp 2  | 2.2 kW | 3x1 | Page 7
 Asp 3  | 2.2 kW | 3x1 | Page 7
 ```
 
-Bu database uygulamanın bilgisayarında lokal tutulacaktır. İnternet bağlantısı gerektirmeyecektir.
-
-`local_database.py` SQLite bağlantısını, tablo oluşturmayı, motor listesini yazmayı ve okumayı sağlar. `motor_database.py` ise motor gruplarını fiziksel motor kayıtlarına genişletir.
+Database lokal tutulur; normal kullanımda internet gerekmez.
 
 ---
 
-# AŞAMA 1 — PDF 1'DE MOTORLARI BUL
+# AŞAMA 1 — PDF 1
 
-Sistem önce PDF 1'i analiz eder.
+1. PDF'nin bütün sayfaları taranır.
+2. Motor/fan teknik blokları puanlanır.
+3. `Anma gücü [kW]` açık alanı aranır.
+4. `Supply air` görülürse Vantilatör, `Return air` görülürse Aspiratör sınıflandırılır.
+5. `1x1 / 2x1 / 3x1` fiziksel motor kayıtlarına genişletilir.
+6. Her motor database'e ayrı kayıt olarak yazılır.
 
-## 1. Doğru sayfayı bul
-
-Tüm sayfalar taranır ve hedef teknik bilgiye göre puanlanır.
-
-Örneğin mevcut test PDF'inde sayfa 6 `Fan Data`, `Motor Data` ve `Anma gücü [kW] 3,000` bilgilerini aynı teknik blokta içerdiği için doğru adaydır. fileciteturn42file0L165-L180
-
-## 2. Komponenti bul
-
-PDF'de bulunan fan/aspiratör bilgisi komponent olarak çıkarılır.
-
-Hedef isimler ilerleyen sürümlerde genişletilebilir:
-
-```text
-Vantilatör
-Vant
-Supply Fan
-Fan
-Plug Fan
-
-Aspiratör
-Asp
-Exhaust Fan
-Extract Fan
-```
-
-## 3. Motor grubunu bul
-
-Komponentin yanında bulunan `1x1`, `2x1`, `3x1` vb. grup bilgisi bulunur.
-
-## 4. Doğru kW alanını bul
-
-Örneğin:
+Mevcut örnek PDF'de hedef değer:
 
 ```text
 Anma gücü [kW] 3,000 x (1x1)
+→ 3.0 kW
+→ Vant 1
 ```
 
-hedef motor gücüdür.
-
-Aynı sayfadaki:
-
-```text
-Shaft Power              2,090 kW
-Tot. abs. güç VSD hariç  2,3998 kW
-Tot. abs. VSD dahil güç  2,474 kW
-```
-
-ayrı teknik alanlar olduğu için motorun `Anma gücü` değeri yerine seçilmeyecektir. fileciteturn42file0L179-L187
-
-## 5. Motor kayıtlarını oluştur
-
-Örneğin:
-
-```text
-Vantilatör 2x1 + Anma gücü 3.0 kW
-```
-
-şu database kayıtlarına dönüşür:
-
-```text
-Vant 1 → 3.0 kW
-Vant 2 → 3.0 kW
-```
-
-Aynı şekilde:
-
-```text
-Aspiratör 3x1 + Anma gücü 2.2 kW
-```
-
-şuna dönüşür:
-
-```text
-Asp 1 → 2.2 kW
-Asp 2 → 2.2 kW
-Asp 3 → 2.2 kW
-```
+Shaft Power, VSD dahil/hariç güç gibi başka kW alanları `Anma gücü` yerine kullanılmaz.
 
 ---
 
-# AŞAMA 2 — PDF 2'DE AYNI MOTORLARI BUL
+# AŞAMA 2 — PDF 2
 
-PDF 1 database'e dönüştürüldükten sonra PDF 2 analiz edilir.
-
-PDF 2'de de aynı yapı oluşturulur:
-
-```text
-Equipment
-  ↓
-Component
-  ↓
-Motor index
-  ↓
-Power type
-  ↓
-kW
-  ↓
-Database
-```
-
-Eşleştirme sırasında:
-
-```text
-AHU1 / Vant 1
-AHU1 / Vant 2
-AHU1 / Asp 1
-AHU1 / Asp 2
-AHU1 / Asp 3
-```
-
-gibi komponent indeksleri korunacaktır.
-
-Bu sayede aynı AHU'da birden fazla motor olduğunda motorların sırası karışmayacaktır.
+PDF 1 database kayıtları hedef alınarak PDF 2'de aynı ekipman/komponent/motor indeksleri aranacaktır.
 
 ---
 
-# AŞAMA 3 — KARŞILAŞTIRMA DATABASE ÜZERİNDEN
+# AŞAMA 3 — KARŞILAŞTIRMA
 
-Karşılaştırma artık PDF'nin ham metnine bakarak yapılmayacak.
-
-İki database kaydı karşılaştırılacaktır:
+İki normalize edilmiş database karşılaştırılır:
 
 ```text
-PDF1 DATABASE                    PDF2 DATABASE
-
-AHU1 / Vant 1 / 3.0 kW    ↔    AHU1 / Vant 1 / 3.0 kW
-AHU1 / Vant 2 / 3.0 kW    ↔    AHU1 / Vant 2 / 4.0 kW
-AHU1 / Asp 1  / 2.2 kW    ↔    AHU1 / Asp 1  / 2.2 kW
+AHU1 / Vant 1 / 3.0 kW ↔ AHU1 / Vant 1 / 3.0 kW ✓
+AHU1 / Vant 2 / 3.0 kW ↔ AHU1 / Vant 2 / 4.0 kW ✗
+AHU1 / Asp 1  / 2.2 kW ↔ AHU1 / Asp 1  / 2.2 kW ✓
 ```
 
-Sonuç:
-
-```text
-Vant 1    3.0 → 3.0 kW    ✓ MATCH
-Vant 2    3.0 → 4.0 kW    ✗ MISMATCH
-Asp 1     2.2 → 2.2 kW    ✓ MATCH
-```
-
-Bunun avantajı, PDF 2'de aynı sayfada bulunan `Unit Total Power` gibi başka kW değerlerinin karşılaştırma tablosuna yanlışlıkla girmemesidir. Test PDF'inde `Supply Fan Motor Power: 3 kW` ve `Unit Total Power: 4 kW` aynı dokümanda bulunduğu için bu ayrım zorunludur. fileciteturn13file3L174-L200
-
----
-
-# EŞLEŞTİRME ANAHTARI
-
-Her fiziksel motorun sabit bir karşılaştırma anahtarı olacaktır:
-
-```text
-Equipment ID
-+ Component Type
-+ Component Index
-```
-
-Örnek:
-
-```text
-AHU1 + vantilatör + 1 → Vant 1
-AHU1 + vantilatör + 2 → Vant 2
-AHU1 + aspiratör + 1 → Asp 1
-AHU1 + aspiratör + 2 → Asp 2
-AHU1 + aspiratör + 3 → Asp 3
-```
-
-İlerleyen aşamalarda model, hava debisi, motor modeli ve diğer teknik özellikler bu anahtara destekleyici eşleştirme sinyalleri olarak eklenecektir.
-
----
-
-# BELİRSİZLİK KURALI
-
-Sistem zorla motor eşleştirmeyecektir.
+Sonuç durumları:
 
 ```text
 MATCH
@@ -298,21 +181,6 @@ AMBIGUOUS
 REVIEW_REQUIRED
 ```
 
-Bir PDF'de `2x1` görülüyor fakat hangi kW'nin bu gruba ait olduğu güvenilir biçimde belirlenemiyorsa sonuç `REVIEW_REQUIRED` olacaktır.
-
-Birden fazla motor adayı varsa sistem en yakın sayıyı seçip sessizce devam etmek yerine adayları ve güven skorlarını saklayacaktır.
-
----
-
-# MEVCUT KOD DURUMU
-
-- `stage1_page_discovery.py` → PDF 1'de doğru sayfa ve `Anma gücü [kW]` alanını bulur.
-- `motor_database.py` → `1x1`, `2x1`, `3x1` gruplarını fiziksel motor kayıtlarına genişletir.
-- `local_database.py` → normalize edilmiş motor listesini lokal SQLite database'e kaydeder.
-- `tests/test_stage1.py` → gerçek PDF senaryosundaki 3.000 kW çıkarımını korur.
-- `tests/test_motor_database.py` → Vant/Asp motor genişletmesini test eder.
-- `tests/test_local_database.py` → database'e ayrı motor kayıtlarının yazılmasını test eder.
-
 ---
 
 # GELİŞTİRME SIRASI
@@ -320,16 +188,17 @@ Birden fazla motor adayı varsa sistem en yakın sayıyı seçip sessizce devam 
 ## Faz 1 — PDF 1 keşif ve motor database'i
 
 - [x] kW değerlerini normalize et
-- [x] ekipman ID normalizasyonu
-- [x] aggregate/toplam güçleri ayır
 - [x] `Anma gücü [kW]` alanını hedefle
 - [x] doğru sayfayı puanla
 - [x] `1x1 / 2x1 / 3x1` motor grubunu parse et
 - [x] fiziksel motor kayıtlarına genişlet
 - [x] lokal SQLite database modelini oluştur
-- [x] Vant/Asp etiketleme temelini oluştur
+- [x] Supply air → Vantilatör
+- [x] Return air → Aspiratör temel kuralı
+- [x] Windows masaüstü test arayüzü
+- [x] Windows EXE build workflow
 - [ ] gerçek PDF'den çoklu Vant/Asp komponentlerini otomatik keşfet
-- [ ] PDF 1 database'ini gerçek parser çıktısıyla doldur
+- [ ] PDF 1 database'ini gerçek parser çıktısıyla tamamen doldur
 
 ## Faz 2 — PDF 2 keşif
 
@@ -349,7 +218,7 @@ Birden fazla motor adayı varsa sistem en yakın sayıyı seçip sessizce devam 
 - [ ] tolerans sistemi
 - [ ] kaynak sayfalarını raporla
 
-## Faz 4 — Web arayüzü
+## Faz 4 — Tam arayüz
 
 ```text
 PDF 1 seç
@@ -364,14 +233,21 @@ AŞAMA 3 — Database Comparison
 Sonuç tablosu
 ```
 
-## Faz 5 — Windows EXE
+## Faz 5 — Final Windows EXE
 
-Final uygulama tek dosya/kurulum paketi şeklinde hazırlanacak ve Windows'ta **çift tıklayarak** çalıştırılabilecek.
+Final uygulama Windows'ta çift tıklayarak çalıştırılabilecek kurulum/EXE paketi olacaktır.
 
 ---
 
-# TEMEL MİMARİ KURALI
+# SÜRÜMLEME KURALI
 
-> **PDF'leri ham kW sayıları olarak değil, ekipman → komponent → fiziksel motor → teknik alan → kW kayıtları olarak database'e dönüştür. Daha sonra iki database'i karşılaştır.**
+Her ana aşamanın sonunda test yapılıp ayrı bir sürüm oluşturulacaktır.
 
-Bu mimari çok motorlu HVAC/AHU projelerinde motorların birbirine karışmasını önlemek ve ileride yüzlerce motoru güvenilir biçimde karşılaştırabilmek için kullanılacaktır.
+```text
+v0.1.0 → PDF 1 masaüstü test
+v0.2.0 → PDF 2 keşif
+v0.3.0 → database karşılaştırma
+v0.4.0 → çoklu motor/çoklu AHU
+...
+v1.0.0 → final
+```
