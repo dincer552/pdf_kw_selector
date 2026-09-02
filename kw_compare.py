@@ -89,8 +89,22 @@ def _field_for_line(line: str) -> str | None:
 
 
 def _equipment_for_line(line: str, fallback: str | None) -> str | None:
-    match = EQUIPMENT_RE.search(line)
-    if match:
+    """Find an equipment identifier without mistaking labels such as 'Power 3' for one."""
+    field = _field_for_line(line)
+    field_match = None
+    if field:
+        # Locate the first semantic field label. Equipment identifiers that occur
+        # after that label are usually numeric field values (e.g. 'Power 3').
+        normalized = _normalize_text(line)
+        aliases = FIELD_ALIASES[field]
+        positions = [normalized.find(_normalize_text(alias)) for alias in aliases]
+        positions = [p for p in positions if p >= 0]
+        if positions:
+            field_match = min(positions)
+
+    for match in EQUIPMENT_RE.finditer(line):
+        if field_match is not None and match.start() >= field_match:
+            continue
         return normalize_equipment_id(match.group(0))
     return fallback
 
