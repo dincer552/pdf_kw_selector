@@ -13,508 +13,365 @@ PDF 1
   ↓
 AŞAMA 1 — PDF 1'de doğru sayfayı bul
   ↓
-PDF 1'de doğru ekipman / motor / teknik alanı bul
+PDF 1'de doğru ekipman / komponent / teknik alanı bul
   ↓
-PDF 1 kW değerini çıkar
+PDF 1 motor listesini oluştur
   ↓
-AŞAMA 2 — PDF 2'de doğru sayfayı bul
+AŞAMA 2 — PDF 2'de karşılık gelen ekipman / komponent / sayfaları bul
   ↓
-PDF 2'de PDF 1'de bulunan ekipmanın karşılığını bul
+PDF 2 motor listesini oluştur
   ↓
-PDF 2 kW değerini çıkar
-  ↓
-AŞAMA 3 — KARŞILAŞTIR
+AŞAMA 3 — DATABASE ÜZERİNDEN KARŞILAŞTIR
   ↓
 Eşleşiyor / Farklı / Bulunamadı / Belirsiz
 ```
 
-Bu sıra projenin temel mimari kuralıdır: **önce PDF 1, sonra PDF 2, en son karşılaştırma.**
+Temel kural: **Önce PDF 1'i oku ve normalize et → sonra PDF 2'yi aynı yapıya dönüştür → en son iki normalize edilmiş motor listesini karşılaştır.**
 
 ---
 
-## Neden sadece `kW` aramak yeterli değil?
+# MOTOR SAYISI KURALI — `1x1`, `2x1`, `3x1`
 
-Gerçek mühendislik PDF'lerinde aynı dokümanda birçok farklı kW bulunabilir. Test PDF'inde aynı AHU için fan motor gücü **3 kW**, cooling capacity **44,63 kW**, VSD dahil güç yaklaşık **2,474 kW**, VSD hariç güç yaklaşık **2,3998 kW** ve shaft power **2,090 kW** olarak ayrı teknik alanlarda yer alıyor. fileciteturn13file0L17-L34 fileciteturn13file2L115-L145
+PDF'lerde motor grubu `NxM` biçiminde gösterilebilir.
 
-Diğer PDF'de ise `Supply Fan Motor Power: 3 kW` ile `Unit Total Power: 4 kW` aynı dokümanda bulunuyor. Bu nedenle `4 kW` fan motor gücü olarak seçilmemelidir. fileciteturn13file3L174-L200
+Bu projede ilk sayı fiziksel motor adedini ifade eder:
 
-Sonuç olarak sistem yalnızca sayı aramayacak; **kW değerinin hangi ekipmana, hangi komponent'e ve hangi teknik alana ait olduğunu belirleyecek.**
+```text
+1x1 → 1 motor
+2x1 → 2 motor
+3x1 → 3 motor
+```
+
+Örneğin PDF'de:
+
+```text
+Vantilatör   2x1
+```
+
+görülürse database'e:
+
+```text
+Vant 1
+Vant 2
+```
+
+olarak iki ayrı motor kaydı yazılır.
+
+PDF'de:
+
+```text
+Aspiratör   3x1
+```
+
+görülürse:
+
+```text
+Asp 1
+Asp 2
+Asp 3
+```
+
+olarak üç ayrı motor kaydı oluşturulur.
+
+`x1` kısmı grubun kaynak gösterimini korur; fiziksel motor sayısını belirleyen sayı soldaki ilk sayıdır.
 
 ---
 
-# AŞAMA 1 — PDF 1'de doğru kW bilgisini bul
+# DATABASE MİMARİSİ
 
-İlk motorumuz **PDF 1** olacaktır.
+Motorların karşılaştırılması ham PDF metninden yapılmayacaktır. PDF analizi sonucu önce **normalize edilmiş yerel SQLite database** oluşturulacaktır.
 
-### 1.1 Doküman kimliğini çıkar
-
-Önce PDF 1'den:
-
-- Proje adı
-- Birim / ekipman numarası
-- Ekipman tipi
-- Model
-- Fan modeli
-- Fan adedi
-- Hava debisi
-- Teknik alan başlıkları
-
-çıkarılır.
-
-Test PDF'inde `AHU-1`, `FLNG 30x30`, `RH35C.1R/SM12-B28`, `6.000 m³/h` gibi bilgiler ilk sayfada bulunuyor. fileciteturn13file0L10-L26
-
-### 1.2 Doğru sayfayı bul
-
-Sistem `kW` kelimesini bulduğu ilk sayfayı seçmeyecek.
-
-Her sayfa hedef teknik bilgi açısından puanlanacak:
+Database tablosu:
 
 ```text
-Sayfa 1 → Genel AHU bilgileri
-Sayfa 2 → Ecodesign
-Sayfa 3 → Geometrik çizim
-...
-Sayfa 6 → Fan Data / Motor Data       ← yüksek aday
+motors
+────────────────────────────────────────────
+equipment_id
+equipment_type
+component_type
+component_index
+component_label
+power_kw
+source_group
+motor_count
+source_page
+confidence
 ```
-
-Test PDF'inde sayfa 6'da `Fan Data`, `Motor Data` ve `Anma gücü [kW] 3,000` aynı teknik blok içinde bulunuyor. fileciteturn13file2L115-L133
-
-### 1.3 Doğru teknik alanı bul
-
-Bulunan kW adayları anlamlarına göre sınıflandırılacak:
-
-```text
-fan_motor_power
-motor_power
-unit_total_power
-cooling_capacity
-heating_capacity
-shaft_power
-vfd_power
-other
-```
-
-Hedef `fan_motor_power` ise `cooling_capacity`, `unit_total_power`, `shaft_power` vb. değerler fan motor gücü adayı olmayacak.
-
-### 1.4 PDF 1 sonucu
-
-Her bulunan motor ayrı kayıt olarak tutulacak:
-
-```text
-Document: PDF-1
-Equipment: AHU-1
-Normalized Equipment: AHU1
-Role: Supply Fan
-Motor: RH35C.1R/SM12-B28
-Quantity: 1x1
-Power Type: fan_motor_power
-Power: 3.000 kW
-Page: 6
-Confidence: high
-```
-
-**Sayfa numarası, teknik alan ve çevresindeki metin mutlaka saklanacaktır.** Böylece sonuç daha sonra denetlenebilir olacaktır.
-
----
-
-# AŞAMA 2 — PDF 2'de aynı motorun kW bilgisini bul
-
-PDF 1'de hedef motor belirlendikten sonra sistem PDF 2'ye geçer.
-
-Burada amaç PDF 2'de herhangi bir kW bulmak değil, **PDF 1'de bulunan aynı ekipman/komponent'in karşılığını bulmaktır.**
-
-### 2.1 Ekipman eşleştirme
-
-Öncelik sırasıyla:
-
-1. Ekipman ID
-2. Normalize edilmiş ekipman ID
-3. Komponent rolü (`supply_fan`, `return_fan` vb.)
-4. Fan/motor modeli
-5. Model numarası
-6. Hava debisi
-7. Motor adedi
-8. Teknik açıklama
-
-kullanılacaktır.
-
-Örneğin:
-
-```text
-AHU-1
-AHU_01
-AHU 001
-```
-
-aynı ekipman olarak:
-
-```text
-AHU1
-```
-
-şeklinde normalize edilir.
-
-Mevcut kodda ekipman ID normalizasyonu temel olarak zaten bulunmaktadır. fileciteturn6file0L1-L2
-
-### 2.2 PDF 2 doğru sayfasını bul
-
-Eşleşen ekipman bulunduğunda PDF 2'de bu ekipmana ait sayfalar puanlanır.
-
-Örneğin test PDF'inin ilk sayfasında `AHU_01`, `6.000 m³/h`, `3 kW (1x1)`, `4 kW`, `Supply Fan Motor Power` ve `Unit Total Power` birlikte bulunuyor. fileciteturn13file3L157-L200
-
-Bu yüzden sistem sadece `3` ve `4` sayılarını görmeyecek; **hangi teknik alanın hangi değere ait olduğunu** belirleyecek.
-
-### 2.3 Aynı teknik alanı seç
-
-PDF 1 hedefi:
-
-```text
-AHU1 / Supply Fan / fan_motor_power
-```
-
-ise PDF 2'de de aynı kombinasyon aranacak:
-
-```text
-AHU1 / Supply Fan / fan_motor_power
-```
-
-`Unit Total Power` gibi başka bir alan aynı ekipmana ait olsa bile fan motor gücüyle eşleştirilmeyecek.
-
-### 2.4 PDF 2 sonucu
-
-```text
-Document: PDF-2
-Equipment: AHU_01
-Normalized Equipment: AHU1
-Role: Supply Fan
-Power Type: fan_motor_power
-Power: 3.000 kW
-Page: 1
-Confidence: high
-```
-
----
-
-# AŞAMA 3 — İKİ BULUNAN VERİYİ KARŞILAŞTIR
-
-Karşılaştırma motoru ancak ilk iki aşama tamamlandıktan sonra çalışacaktır.
 
 Örnek:
 
 ```text
-PDF 1
-AHU1 / Supply Fan / fan_motor_power / 3.000 kW
+Equipment: AHU1
 
-PDF 2
-AHU1 / Supply Fan / fan_motor_power / 3.000 kW
+Vant 1 | 3.0 kW | 2x1 | Page 6
+Vant 2 | 3.0 kW | 2x1 | Page 6
+Asp 1  | 2.2 kW | 3x1 | Page 7
+Asp 2  | 2.2 kW | 3x1 | Page 7
+Asp 3  | 2.2 kW | 3x1 | Page 7
+```
+
+Bu database uygulamanın bilgisayarında lokal tutulacaktır. İnternet bağlantısı gerektirmeyecektir.
+
+`local_database.py` SQLite bağlantısını, tablo oluşturmayı, motor listesini yazmayı ve okumayı sağlar. `motor_database.py` ise motor gruplarını fiziksel motor kayıtlarına genişletir.
+
+---
+
+# AŞAMA 1 — PDF 1'DE MOTORLARI BUL
+
+Sistem önce PDF 1'i analiz eder.
+
+## 1. Doğru sayfayı bul
+
+Tüm sayfalar taranır ve hedef teknik bilgiye göre puanlanır.
+
+Örneğin mevcut test PDF'inde sayfa 6 `Fan Data`, `Motor Data` ve `Anma gücü [kW] 3,000` bilgilerini aynı teknik blokta içerdiği için doğru adaydır. fileciteturn42file0L165-L180
+
+## 2. Komponenti bul
+
+PDF'de bulunan fan/aspiratör bilgisi komponent olarak çıkarılır.
+
+Hedef isimler ilerleyen sürümlerde genişletilebilir:
+
+```text
+Vantilatör
+Vant
+Supply Fan
+Fan
+Plug Fan
+
+Aspiratör
+Asp
+Exhaust Fan
+Extract Fan
+```
+
+## 3. Motor grubunu bul
+
+Komponentin yanında bulunan `1x1`, `2x1`, `3x1` vb. grup bilgisi bulunur.
+
+## 4. Doğru kW alanını bul
+
+Örneğin:
+
+```text
+Anma gücü [kW] 3,000 x (1x1)
+```
+
+hedef motor gücüdür.
+
+Aynı sayfadaki:
+
+```text
+Shaft Power              2,090 kW
+Tot. abs. güç VSD hariç  2,3998 kW
+Tot. abs. VSD dahil güç  2,474 kW
+```
+
+ayrı teknik alanlar olduğu için motorun `Anma gücü` değeri yerine seçilmeyecektir. fileciteturn42file0L179-L187
+
+## 5. Motor kayıtlarını oluştur
+
+Örneğin:
+
+```text
+Vantilatör 2x1 + Anma gücü 3.0 kW
+```
+
+şu database kayıtlarına dönüşür:
+
+```text
+Vant 1 → 3.0 kW
+Vant 2 → 3.0 kW
+```
+
+Aynı şekilde:
+
+```text
+Aspiratör 3x1 + Anma gücü 2.2 kW
+```
+
+şuna dönüşür:
+
+```text
+Asp 1 → 2.2 kW
+Asp 2 → 2.2 kW
+Asp 3 → 2.2 kW
+```
+
+---
+
+# AŞAMA 2 — PDF 2'DE AYNI MOTORLARI BUL
+
+PDF 1 database'e dönüştürüldükten sonra PDF 2 analiz edilir.
+
+PDF 2'de de aynı yapı oluşturulur:
+
+```text
+Equipment
+  ↓
+Component
+  ↓
+Motor index
+  ↓
+Power type
+  ↓
+kW
+  ↓
+Database
+```
+
+Eşleştirme sırasında:
+
+```text
+AHU1 / Vant 1
+AHU1 / Vant 2
+AHU1 / Asp 1
+AHU1 / Asp 2
+AHU1 / Asp 3
+```
+
+gibi komponent indeksleri korunacaktır.
+
+Bu sayede aynı AHU'da birden fazla motor olduğunda motorların sırası karışmayacaktır.
+
+---
+
+# AŞAMA 3 — KARŞILAŞTIRMA DATABASE ÜZERİNDEN
+
+Karşılaştırma artık PDF'nin ham metnine bakarak yapılmayacak.
+
+İki database kaydı karşılaştırılacaktır:
+
+```text
+PDF1 DATABASE                    PDF2 DATABASE
+
+AHU1 / Vant 1 / 3.0 kW    ↔    AHU1 / Vant 1 / 3.0 kW
+AHU1 / Vant 2 / 3.0 kW    ↔    AHU1 / Vant 2 / 4.0 kW
+AHU1 / Asp 1  / 2.2 kW    ↔    AHU1 / Asp 1  / 2.2 kW
 ```
 
 Sonuç:
 
 ```text
-AHU1
-Supply Fan Motor Power
-
-PDF 1: 3.000 kW — Page 6
-PDF 2: 3.000 kW — Page 1
-
-STATUS: MATCH
+Vant 1    3.0 → 3.0 kW    ✓ MATCH
+Vant 2    3.0 → 4.0 kW    ✗ MISMATCH
+Asp 1     2.2 → 2.2 kW    ✓ MATCH
 ```
+
+Bunun avantajı, PDF 2'de aynı sayfada bulunan `Unit Total Power` gibi başka kW değerlerinin karşılaştırma tablosuna yanlışlıkla girmemesidir. Test PDF'inde `Supply Fan Motor Power: 3 kW` ve `Unit Total Power: 4 kW` aynı dokümanda bulunduğu için bu ayrım zorunludur. fileciteturn13file3L174-L200
 
 ---
 
-# ÇOKLU MOTOR / ÇOKLU EKİPMAN
+# EŞLEŞTİRME ANAHTARI
 
-Bu proje tek motorlu örnek için yapılmıyor. Gelecekte bir PDF içinde onlarca AHU ve her AHU içinde birden fazla motor olabilir.
+Her fiziksel motorun sabit bir karşılaştırma anahtarı olacaktır:
+
+```text
+Equipment ID
++ Component Type
++ Component Index
+```
 
 Örnek:
 
 ```text
-AHU-01 → Supply Fan → 3 kW
-AHU-01 → Return Fan  → 2.2 kW
-AHU-02 → Supply Fan → 5.5 kW
-AHU-02 → Return Fan  → 4 kW
-AHU-03 → Supply Fan → 7.5 kW
+AHU1 + vantilatör + 1 → Vant 1
+AHU1 + vantilatör + 2 → Vant 2
+AHU1 + aspiratör + 1 → Asp 1
+AHU1 + aspiratör + 2 → Asp 2
+AHU1 + aspiratör + 3 → Asp 3
 ```
 
-Sistem bunları tek bir `kW listesi` olarak tutmayacak.
-
-Her motor ayrı bir komponent kaydı olacaktır:
-
-```text
-AHU1
- ├── Supply Fan
- │    └── Motor → 3.0 kW
- └── Return Fan
-      └── Motor → 2.2 kW
-
-AHU2
- ├── Supply Fan
- │    └── Motor → 5.5 kW
- └── Return Fan
-      └── Motor → 4.0 kW
-```
-
-PDF 2 de aynı yapıya dönüştürülecek ve motorlar tek tek eşleştirilecektir:
-
-```text
-PDF1 AHU1 / Supply Fan → PDF2 AHU1 / Supply Fan
-PDF1 AHU1 / Return Fan → PDF2 AHU1 / Return Fan
-PDF1 AHU2 / Supply Fan → PDF2 AHU2 / Supply Fan
-PDF1 AHU2 / Return Fan → PDF2 AHU2 / Return Fan
-```
-
-Böylece aynı AHU içindeki Supply Fan ile Return Fan birbirine karıştırılmayacaktır.
+İlerleyen aşamalarda model, hava debisi, motor modeli ve diğer teknik özellikler bu anahtara destekleyici eşleştirme sinyalleri olarak eklenecektir.
 
 ---
 
-# MOTOR EŞLEŞTİRME SKORU
+# BELİRSİZLİK KURALI
 
-Bir motorun PDF 2'deki karşılığını bulurken birden fazla özellik birlikte değerlendirilecek:
-
-```text
-Ekipman ID                    → çok güçlü
-Komponent rolü                → çok güçlü
-Fan/motor modeli              → çok güçlü
-Teknik alan                   → çok güçlü
-Motor adedi                   → güçlü
-Hava debisi                   → güçlü
-Model numarası                → orta/güçlü
-Sayfa/tablo bağlamı           → destekleyici
-Metin yakınlığı               → son destek
-```
-
-Örneğin:
+Sistem zorla motor eşleştirmeyecektir.
 
 ```text
-AHU1 + Supply Fan + Motor Power
+MATCH
+MISMATCH
+NOT_FOUND
+AMBIGUOUS
+REVIEW_REQUIRED
 ```
 
-ile:
+Bir PDF'de `2x1` görülüyor fakat hangi kW'nin bu gruba ait olduğu güvenilir biçimde belirlenemiyorsa sonuç `REVIEW_REQUIRED` olacaktır.
 
-```text
-AHU1 + Return Fan + Motor Power
-```
-
-aynı AHU'ya ait olsa bile aynı komponent kabul edilmeyecektir.
-
-Birden fazla aday yakın skor alırsa sistem zorla seçim yapmayacak ve sonucu `AMBIGUOUS` olarak işaretleyecektir.
+Birden fazla motor adayı varsa sistem en yakın sayıyı seçip sessizce devam etmek yerine adayları ve güven skorlarını saklayacaktır.
 
 ---
 
-# SAYFA BULMA MOTORU
+# MEVCUT KOD DURUMU
 
-Sayfa keşfi ayrı bir katman olacaktır:
-
-```text
-PDF
- ↓
-Page Scanner
- ↓
-Page Feature Extraction
- ↓
-Target Page Scoring
- ↓
-Relevant Pages
-```
-
-`fan_motor_power` için örnek sinyaller:
-
-```text
-"Motor Data"             + yüksek
-"Fan Data"               + yüksek
-"Motor Power"             + yüksek
-"Supply Fan"              + yüksek
-"Anma gücü"               + yüksek
-"kW"                      + düşük/orta
-"Cooling Capacity"        - yüksek
-"Heating Capacity"        - yüksek
-"Unit Total Power"        - yüksek
-```
-
-Böylece **sayfa seçimi**, **teknik alan seçimi** ve **değer seçimi** birbirinden ayrılmış olacaktır.
-
----
-
-# VERİ MODELİ
-
-İleride her motor yaklaşık olarak şu yapıda tutulacaktır:
-
-```json
-{
-  "equipment_id": "AHU1",
-  "equipment_type": "AHU",
-  "component_role": "supply_fan",
-  "component_id": "AHU1-SF1",
-  "fan_model": "RH35C.1R/SM12-B28",
-  "motor_power_kw": 3.0,
-  "quantity": 1,
-  "source": {
-    "document": "PDF-1",
-    "page": 6,
-    "field": "fan_motor_power"
-  },
-  "confidence": 0.96
-}
-```
-
-Bu veri modeli karşılaştırma motorundan bağımsız tutulacaktır.
-
----
-
-# HATA DURUMLARI
-
-Sistem hiçbir durumda zorla eşleştirme yapmamalıdır.
-
-### MATCH
-
-```text
-PDF1: 3.0 kW
-PDF2: 3.0 kW
-→ MATCH
-```
-
-### MISMATCH
-
-```text
-PDF1: 3.0 kW
-PDF2: 4.0 kW
-→ MISMATCH
-```
-
-### NOT_FOUND
-
-```text
-PDF1: AHU2 / Supply Fan / 5.5 kW
-PDF2: karşılık bulunamadı
-→ NOT_FOUND
-```
-
-### AMBIGUOUS
-
-```text
-PDF2'de aynı motor için birden fazla güçlü aday
-→ AMBIGUOUS
-```
-
-### REVIEW_REQUIRED
-
-```text
-kW bulundu fakat teknik anlamı güvenilir biçimde belirlenemedi
-→ REVIEW_REQUIRED
-```
+- `stage1_page_discovery.py` → PDF 1'de doğru sayfa ve `Anma gücü [kW]` alanını bulur.
+- `motor_database.py` → `1x1`, `2x1`, `3x1` gruplarını fiziksel motor kayıtlarına genişletir.
+- `local_database.py` → normalize edilmiş motor listesini lokal SQLite database'e kaydeder.
+- `tests/test_stage1.py` → gerçek PDF senaryosundaki 3.000 kW çıkarımını korur.
+- `tests/test_motor_database.py` → Vant/Asp motor genişletmesini test eder.
+- `tests/test_local_database.py` → database'e ayrı motor kayıtlarının yazılmasını test eder.
 
 ---
 
 # GELİŞTİRME SIRASI
 
-## Faz 1 — Temel çıkarma
+## Faz 1 — PDF 1 keşif ve motor database'i
 
 - [x] kW değerlerini normalize et
 - [x] ekipman ID normalizasyonu
 - [x] aggregate/toplam güçleri ayır
-- [x] temel fan motoru aday seçimi
-- [x] `W → kW` dönüşümü
+- [x] `Anma gücü [kW]` alanını hedefle
+- [x] doğru sayfayı puanla
+- [x] `1x1 / 2x1 / 3x1` motor grubunu parse et
+- [x] fiziksel motor kayıtlarına genişlet
+- [x] lokal SQLite database modelini oluştur
+- [x] Vant/Asp etiketleme temelini oluştur
+- [ ] gerçek PDF'den çoklu Vant/Asp komponentlerini otomatik keşfet
+- [ ] PDF 1 database'ini gerçek parser çıktısıyla doldur
 
-## Faz 2 — PDF 1 keşif motoru
+## Faz 2 — PDF 2 keşif
 
-- [ ] PDF'yi sayfa bazında parse et
-- [ ] Her sayfaya hedef alan skorları ver
-- [ ] Hedef ekipmanı bul
-- [ ] İlgili fan/motor sayfasını seç
-- [ ] Doğru `power_type` alanını seç
-- [ ] Sayfa + alan + bağlamı kaydet
+- [ ] PDF 1 database kayıtlarını hedef olarak kullan
+- [ ] PDF 2'de aynı ekipmanları bul
+- [ ] aynı komponentleri bul
+- [ ] motor indekslerini eşleştir
+- [ ] PDF 2 database'ini oluştur
 
-## Faz 3 — PDF 2 keşif motoru
+## Faz 3 — Database karşılaştırma
 
-- [ ] PDF 1 sonucundaki ekipmanı PDF 2'de ara
-- [ ] Ekipman ID normalize et
-- [ ] Komponent rolünü eşleştir
-- [ ] Fan/motor modelini eşleştir
-- [ ] İlgili PDF 2 sayfasını seç
-- [ ] Aynı `power_type` alanını bul
-
-## Faz 4 — Çoklu motor eşleştirme
-
-- [ ] PDF 1'de bütün motor komponentlerini çıkar
-- [ ] PDF 2'de bütün motor komponentlerini çıkar
-- [ ] Component ID üret
-- [ ] Motorları birebir eşleştir
-- [ ] Duplicate/ambiguous durumlarını yakala
-- [ ] Eşleşme güven skoru üret
-
-## Faz 5 — Karşılaştırma
-
-- [ ] Aynı komponenti doğrula
-- [ ] kW değerlerini karşılaştır
-- [ ] Tolerans sistemi ekle
+- [ ] PDF1/PDF2 database'lerini karşılaştır
 - [ ] MATCH / MISMATCH
 - [ ] NOT_FOUND
 - [ ] AMBIGUOUS
 - [ ] REVIEW_REQUIRED
+- [ ] tolerans sistemi
+- [ ] kaynak sayfalarını raporla
 
-## Faz 6 — Web arayüzü
+## Faz 4 — Web arayüzü
 
 ```text
-┌─────────────────────────────────────────────┐
-│ PDF KW VERIFICATION                         │
-│                                             │
-│ PDF 1: [ Dosya seç ]                        │
-│ PDF 2: [ Dosya seç ]                        │
-│                                             │
-│              [ ANALİZ ET ]                  │
-└─────────────────────────────────────────────┘
-
-                 ↓
-
-AŞAMA 1   PDF 1 doğru sayfa/kW aranıyor... ✓
-AŞAMA 2   PDF 2 karşılık/kW aranıyor...    ✓
-AŞAMA 3   Eşleşmeler karşılaştırılıyor...  ✓
-
-                 ↓
-
-AHU1 / Supply Fan
-PDF 1       3.0 kW   Page 6
-PDF 2       3.0 kW   Page 1
-SONUÇ       ✓ MATCH
+PDF 1 seç
+PDF 2 seç
+     ↓
+AŞAMA 1 — PDF 1 Motor Listesi
+     ↓
+AŞAMA 2 — PDF 2 Motor Listesi
+     ↓
+AŞAMA 3 — Database Comparison
+     ↓
+Sonuç tablosu
 ```
 
-Kullanıcı sonuçta **PDF adı + sayfa + ekipman + komponent + teknik alan + bulunan kW + eşleşme skoru** bilgilerini görebilmelidir.
+## Faz 5 — Windows EXE
+
+Final uygulama tek dosya/kurulum paketi şeklinde hazırlanacak ve Windows'ta **çift tıklayarak** çalıştırılabilecek.
 
 ---
 
-# Mevcut kod
+# TEMEL MİMARİ KURALI
 
-Mevcut kodda temel kW aday seçimi, bağlam puanlama, ekipman ID normalizasyonu ve aggregate alanları cezalandırma mantığı bulunuyor. fileciteturn6file0L1-L2
+> **PDF'leri ham kW sayıları olarak değil, ekipman → komponent → fiziksel motor → teknik alan → kW kayıtları olarak database'e dönüştür. Daha sonra iki database'i karşılaştır.**
 
-Yeni mimaride bu katman korunacak fakat üstüne ayrı olarak:
-
-```text
-Page Discovery
-      ↓
-Equipment Discovery
-      ↓
-Component Discovery
-      ↓
-Technical Field Classification
-      ↓
-KW Extraction
-      ↓
-PDF-1 ↔ PDF-2 Component Matching
-      ↓
-KW Validation
-```
-
-katmanları kurulacaktır.
-
-## Temel mimari kural
-
-> **Önce PDF 1'de doğru ekipmanı ve doğru sayfayı bul → PDF 1'de doğru teknik kW alanını bul → PDF 2'de aynı ekipman/komponenti bul → PDF 2'de aynı teknik kW alanını bul → en son iki değeri karşılaştır.**
-
-Sistem hiçbir zaman:
-
-> `PDF'deki bütün kW'ları çıkar → sayıları sırayla karşılaştır`
-
-mantığıyla çalışmayacaktır.
-
-Bu ayrım, özellikle çoklu motor bulunan büyük HVAC/AHU projelerinde güvenilirliğin temelidir.
+Bu mimari çok motorlu HVAC/AHU projelerinde motorların birbirine karışmasını önlemek ve ileride yüzlerce motoru güvenilir biçimde karşılaştırabilmek için kullanılacaktır.
