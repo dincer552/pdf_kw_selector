@@ -1,8 +1,8 @@
 """Desktop test GUI for PDF kW Selector - Stage 1.
 
 Offline Windows-friendly Tkinter interface. This release focuses on PDF 1:
-find the correct page, detect Supply/Return direction, extract Anma gücü [kW],
-and expand 1x1/2x1/3x1 into physical motor records.
+find the correct fan sections, detect Supply/Exhaust direction, extract
+Rated Power / Anma gücü [kW], and expand 1x1/2x1/3x1 into physical motors.
 """
 from __future__ import annotations
 
@@ -11,9 +11,9 @@ import tkinter as tk
 from pathlib import Path
 from tkinter import filedialog, messagebox, ttk
 
-from stage1_page_discovery import build_stage1_motor_records, find_rated_motor_power_in_pdf
+from stage1_page_discovery import build_stage1_motor_records, find_rated_motor_powers_in_pdf
 
-VERSION = "v0.1.0"
+VERSION = "v0.1.1"
 
 
 class App(tk.Tk):
@@ -23,7 +23,7 @@ class App(tk.Tk):
         self.geometry("980x650")
         self.minsize(850, 560)
         self.pdf1: Path | None = None
-        self.result = None
+        self.results = []
         self._build()
 
     def _build(self) -> None:
@@ -52,10 +52,13 @@ class App(tk.Tk):
         self.status = ttk.Label(result_frame, text="PDF seçip ANALİZ ET düğmesine basın.", font=("Segoe UI", 11, "bold"))
         self.status.pack(anchor="w", pady=(0, 10))
 
-        cols = ("motor", "type", "kw", "group", "page", "confidence")
+        cols = ("motor", "type", "direction", "kw", "group", "page", "confidence")
         self.tree = ttk.Treeview(result_frame, columns=cols, show="headings", height=12)
-        headings = {"motor": "Motor", "type": "Tip", "kw": "Anma Gücü (kW)", "group": "Grup", "page": "Sayfa", "confidence": "Güven"}
-        widths = {"motor": 130, "type": 150, "kw": 130, "group": 100, "page": 80, "confidence": 100}
+        headings = {
+            "motor": "Motor", "type": "Tip", "direction": "Hava Yönü",
+            "kw": "Anma Gücü (kW)", "group": "Grup", "page": "Sayfa", "confidence": "Güven",
+        }
+        widths = {"motor": 100, "type": 130, "direction": 120, "kw": 120, "group": 80, "page": 70, "confidence": 90}
         for col in cols:
             self.tree.heading(col, text=headings[col])
             self.tree.column(col, width=widths[col], anchor="center")
@@ -80,36 +83,42 @@ class App(tk.Tk):
             messagebox.showwarning("PDF gerekli", "Önce PDF 1'i seçin.")
             return
         try:
-            result = find_rated_motor_power_in_pdf(self.pdf1)
+            results = find_rated_motor_powers_in_pdf(self.pdf1)
         except Exception as exc:
             messagebox.showerror("Analiz hatası", str(exc))
             return
-        self.result = result
+        self.results = results
         for item in self.tree.get_children():
             self.tree.delete(item)
-        if result is None:
+        if not results:
             self.status.configure(text="SONUÇ BULUNAMADI", foreground="#b00020")
-            self._set_detail("Anma gücü [kW] alanı güvenilir biçimde bulunamadı.")
+            self._set_detail("Supply air / Exhaust air fan bölümlerinde Rated Power [kW] alanı bulunamadı.")
             return
 
-        records = build_stage1_motor_records(result)
-        self.status.configure(text=f"✓ BULUNDU — Sayfa {result.page_number} — {result.value_kw:g} kW — {result.quantity or '-'} — {result.component_type or 'Belirsiz'}", foreground="#176b2c")
-        for record in records:
-            self.tree.insert("", "end", values=(record.component_label, record.component_type, f"{record.power_kw:g}", record.source_group, record.source_page or "-", record.confidence.upper()))
+        total_motors = 0
+        for result in results:
+            records = build_stage1_motor_records(result)
+            total_motors += len(records)
+            direction = "Supply air" if result.component_role == "supply_fan" else "Exhaust air"
+            for record in records:
+                self.tree.insert(
+                    "", "end",
+                    values=(record.component_label, record.component_type, direction,
+                            f"{record.power_kw:g}", record.source_group,
+                            record.source_page or "-", record.confidence.upper()),
+                )
 
-        detail = {
-            "pdf": str(self.pdf1),
-            "page": result.page_number,
-            "field": result.field,
-            "raw_value": result.raw_value,
-            "value_kw": result.value_kw,
-            "quantity": result.quantity,
-            "component_type": result.component_type,
-            "component_role": result.component_role,
-            "equipment_id": result.equipment_id,
-            "motors_created": [r.to_dict() for r in records],
-            "source": result.source_text,
-        }
+        self.status.configure(
+            text=f"✓ {len(results)} FAN BULUNDU — {total_motors} FİZİKSEL MOTOR",
+            foreground="#176b2c",
+        )
+        detail = []
+        for result in results:
+            records = build_stage1_motor_records(result)
+            item = result.to_dict()
+            item["direction"] = "Supply air" if result.component_role == "supply_fan" else "Exhaust air"
+            item["motors_created"] = [r.to_dict() for r in records]
+            detail.append(item)
         self._set_detail(json.dumps(detail, ensure_ascii=False, indent=2))
 
     def _set_detail(self, text: str) -> None:
@@ -119,15 +128,17 @@ class App(tk.Tk):
         self.detail.configure(state="disabled")
 
     def save_json(self) -> None:
-        if not self.result:
+        if not self.results:
             messagebox.showwarning("Sonuç yok", "Önce analiz yapın.")
             return
         path = filedialog.asksaveasfilename(title="Analiz sonucunu kaydet", defaultextension=".json", filetypes=[("JSON", "*.json")])
         if not path:
             return
-        records = build_stage1_motor_records(self.result)
-        payload = self.result.to_dict()
-        payload["motors"] = [r.to_dict() for r in records]
+        payload = []
+        for result in self.results:
+            item = result.to_dict()
+            item["motors"] = [r.to_dict() for r in build_stage1_motor_records(result)]
+            payload.append(item)
         Path(path).write_text(json.dumps(payload, ensure_ascii=False, indent=2), encoding="utf-8")
         messagebox.showinfo("Kaydedildi", f"Sonuç kaydedildi:\n{path}")
 
