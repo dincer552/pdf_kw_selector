@@ -1,24 +1,36 @@
 # pdf_kw_selector
 
-Engineering PDF'lerinden istenen güç değerini **bağlamına göre** seçmek için ilk sürüm.
+Engineering PDF'lerinden güç değerlerini **alan + ekipman + satır bağlamı** ile seçip iki PDF arasında doğrulamak için geliştirilen araç.
 
-## Amaç
+## Ne yapıyor?
 
-Örneğin aynı PDF içinde:
+Aynı PDF içinde birden fazla kW değeri bulunabilir. Örneğin:
 
 - `Fan Motor: 3 kW`
 - `Unit Total Power: 4 kW`
-- `Total Heating: 20 kW`
+- `Cooling Capacity: 44.63 kW`
 
-gibi birden fazla değer varsa, sadece sayısal yakınlığa bakıp `4 kW` seçmek yerine fan motoruna ait `3 kW` değerini seçmek.
+Araç bunları yalnızca sayı olarak karşılaştırmaz. Değerin ait olduğu teknik alanı belirler.
 
-Ayrıca ekipman isimleri farklı yazımlarda normalize edilir:
+Örneğin:
 
-- `AHU-1`
-- `AHU_01`
-- `AHU 001`
+`AHU-1 / Supply Fan Motor Power / 3 kW`
 
-→ `AHU1`
+ile:
+
+`AHU_01 / Motor Gücü / 3,000 kW`
+
+aynı ekipman ve aynı alan olarak normalize edilerek **MATCH** sonucuna ulaşır.
+
+`Unit Total Power: 4 kW` ise fan motor gücü olarak yanlış eşleştirilmez.
+
+## Mevcut yapı
+
+- `pdf_kw_selector.py` — temel kW aday seçici ve ekipman ID normalizasyonu
+- `kw_compare.py` — iki PDF'deki semantik güç alanlarını eşleştirip karşılaştırır
+- `app.py` — komut satırı arayüzü
+- `tests/` — regresyon testleri
+- `requirements.txt` — Python bağımlılıkları
 
 ## Kurulum
 
@@ -26,22 +38,31 @@ Ayrıca ekipman isimleri farklı yazımlarda normalize edilir:
 pip install -r requirements.txt
 ```
 
-## Kullanım
-
-```python
-from pdf_kw_selector import select_fan_motor_power_from_pdf
-
-result = select_fan_motor_power_from_pdf("AHU-1.pdf")
-
-if result:
-    print(result.value_kw)
-    print(result.context)
-```
-
-Komut satırı:
+## İki PDF'yi karşılaştırma
 
 ```bash
-python pdf_kw_selector.py AHU-1.pdf
+python app.py "AHU-1.pdf" "AHU_01.pdf"
+```
+
+Örnek çıktı:
+
+```text
+PDF kW DOĞRULAMA
+========================================================================
+✓ AHU1         fan_motor_power          3 kW  ↔  3 kW       MATCH
+⚠ AHU1         unit_total_power         4 kW  ↔  4 kW       MATCH
+```
+
+Makine tarafından okunabilir JSON:
+
+```bash
+python app.py "AHU-1.pdf" "AHU_01.pdf" --json
+```
+
+Tolerans değiştirme:
+
+```bash
+python app.py "AHU-1.pdf" "AHU_01.pdf" --tolerance 0.05
 ```
 
 ## Test
@@ -50,14 +71,38 @@ python pdf_kw_selector.py AHU-1.pdf
 pytest -q
 ```
 
-## Tasarım ilkesi
+## Mimari hedef
 
-Bu proje "PDF'deki ilk kW değerini bul" mantığı kullanmaz. Önce adayları çıkarır, her adayın çevresindeki metni değerlendirir ve toplam/aggregate alanlarını cezalandırır. Böylece sonraki aşamada fan, heater, cooling coil, electrical load vb. alanlar için ayrı seçim kuralları eklenebilir.
+```text
+PDF A ──┐
+        ├─► PDF Text/Layout Extraction
+PDF B ──┘
+                 │
+                 ▼
+        Equipment Normalization
+                 │
+                 ▼
+          Field Classification
+                 │
+                 ▼
+          Power Value Extraction
+                 │
+                 ▼
+          Equipment + Field Match
+                 │
+                 ▼
+             Validation
+                 │
+                 ▼
+          MATCH / MISMATCH / MISSING
+```
 
-## Sonraki aşama
+## Sonraki aşamalar
 
-1. PDF layout/tablo konumlarını hesaba katmak.
-2. Aynı ekipmana ait satır/kolon bağlamını korumak.
-3. Türkçe/İngilizce teknik terim sözlüğü eklemek.
-4. Birden fazla fan için sonuçları ekipman ID'siyle eşlemek.
-5. Gerçek AHU PDF'leriyle regresyon test seti oluşturmak.
+1. PDF koordinat/layout bilgisini kullanmak.
+2. Tablo satır ve kolon ilişkisini korumak.
+3. Türkçe/İngilizce teknik terim sözlüğünü genişletmek.
+4. Birden fazla fan/motoru aynı ekipman içinde ayrı ayrı eşlemek.
+5. Taranmış PDF'ler için OCR katmanı eklemek.
+6. Gerçek proje PDF'lerinden regresyon test seti oluşturmak.
+7. Sonuçları web arayüzünde iki PDF + renkli doğrulama tablosu olarak göstermek.
