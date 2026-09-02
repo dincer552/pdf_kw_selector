@@ -1,9 +1,4 @@
-"""Desktop GUI for PDF kW Selector - Stage 1 test release.
-
-Offline Windows-friendly Tkinter interface. Select one PDF, analyze it, and
-inspect the detected Vant/Asp motor records. PDF 2 comparison is intentionally
-not enabled until Stage 2 is complete.
-"""
+"""Desktop GUI for PDF kW Selector - Stage 1 test release."""
 from __future__ import annotations
 
 import json
@@ -13,7 +8,7 @@ from tkinter import filedialog, messagebox, ttk
 
 from stage1_page_discovery import build_stage1_motor_records, find_rated_motor_powers_in_pdf
 
-VERSION = "v0.2.2"
+VERSION = "v0.2.3"
 
 
 class App(tk.Tk):
@@ -31,11 +26,7 @@ class App(tk.Tk):
         outer.pack(fill="both", expand=True)
 
         ttk.Label(outer, text="PDF kW SELECTOR", font=("Segoe UI", 20, "bold")).pack(anchor="w")
-        ttk.Label(
-            outer,
-            text=f"{VERSION}  •  PDF 1 Motor Discovery  •  Offline Test",
-            font=("Segoe UI", 10),
-        ).pack(anchor="w", pady=(0, 14))
+        ttk.Label(outer, text=f"{VERSION}  •  PDF 1 Motor Discovery  •  Offline Test", font=("Segoe UI", 10)).pack(anchor="w", pady=(0, 14))
 
         file_frame = ttk.LabelFrame(outer, text="PDF 1 — Referans Proje", padding=12)
         file_frame.pack(fill="x")
@@ -52,17 +43,13 @@ class App(tk.Tk):
 
         result_frame = ttk.LabelFrame(outer, text="Motor Database Önizleme", padding=10)
         result_frame.pack(fill="both", expand=True)
-
         self.status = ttk.Label(result_frame, text="PDF seçip ANALİZ ET düğmesine basın.", font=("Segoe UI", 11, "bold"))
         self.status.pack(anchor="w", pady=(0, 8))
 
         cols = ("motor", "type", "direction", "kw", "group", "page", "confidence")
         self.tree = ttk.Treeview(result_frame, columns=cols, show="headings", height=14)
-        headings = {
-            "motor": "Motor", "type": "Tip", "direction": "Hava Yönü",
-            "kw": "Anma Gücü (kW)", "group": "Grup", "page": "Sayfa", "confidence": "Güven",
-        }
-        widths = {"motor": 95, "type": 130, "direction": 130, "kw": 125, "group": 80, "page": 65, "confidence": 90}
+        headings = {"motor": "Motor", "type": "Tip", "direction": "Hava Yönü", "kw": "Anma Gücü (kW)", "group": "Grup", "page": "Sayfa", "confidence": "Güven"}
+        widths = {"motor": 95, "type": 130, "direction": 145, "kw": 125, "group": 80, "page": 65, "confidence": 90}
         for col in cols:
             self.tree.heading(col, text=headings[col])
             self.tree.column(col, width=widths[col], anchor="center")
@@ -76,10 +63,7 @@ class App(tk.Tk):
         self.detail.configure(state="disabled")
 
     def select_pdf(self) -> None:
-        path = filedialog.askopenfilename(
-            title="PDF 1 seç",
-            filetypes=[("PDF files", "*.pdf"), ("All files", "*.*")],
-        )
+        path = filedialog.askopenfilename(title="PDF 1 seç", filetypes=[("PDF files", "*.pdf"), ("All files", "*.*")])
         if path:
             self.pdf1 = Path(path)
             self.file_label.configure(text=str(self.pdf1))
@@ -108,34 +92,23 @@ class App(tk.Tk):
         for result in results:
             records = build_stage1_motor_records(result)
             total_motors += len(records)
-            if result.component_role == "supply_fan":
-                direction = "Supply air → Vant"
-            else:
-                direction = "Exhaust air → Asp" if result.component_role == "exhaust_fan" else "Return air → Asp"
+            direction = {
+                "supply_fan": "Supply air → Vant",
+                "exhaust_fan": "Exhaust air → Asp",
+                "return_fan": "Return air → Asp",
+            }.get(result.component_role, "-")
             for record in records:
-                self.tree.insert(
-                    "", "end",
-                    values=(
-                        record.component_label,
-                        record.component_type,
-                        direction,
-                        f"{record.power_kw:g}",
-                        record.source_group,
-                        record.source_page or "-",
-                        record.confidence.upper(),
-                    ),
-                )
+                self.tree.insert("", "end", values=(record.component_label, record.component_type, direction, f"{record.power_kw:g}", record.source_group, record.source_page or "-", record.confidence.upper()))
 
         self.status.configure(text=f"✓ {len(results)} FAN BLOĞU — {total_motors} FİZİKSEL MOTOR")
         detail = []
         for result in results:
             item = result.to_dict()
-            if result.component_role == "supply_fan":
-                item["direction"] = "Supply air → Vantilatör"
-            elif result.component_role == "exhaust_fan":
-                item["direction"] = "Exhaust air → Aspiratör"
-            else:
-                item["direction"] = "Return air → Aspiratör"
+            item["direction"] = {
+                "supply_fan": "Supply air → Vantilatör",
+                "exhaust_fan": "Exhaust air → Aspiratör",
+                "return_fan": "Return air → Aspiratör",
+            }.get(result.component_role, "-")
             item["motors_created"] = [r.to_dict() for r in build_stage1_motor_records(result)]
             detail.append(item)
         self._set_detail(json.dumps(detail, ensure_ascii=False, indent=2))
@@ -150,11 +123,7 @@ class App(tk.Tk):
         if not self.results:
             messagebox.showwarning("Sonuç yok", "Önce analiz yapın.")
             return
-        path = filedialog.asksaveasfilename(
-            title="Analiz sonucunu kaydet",
-            defaultextension=".json",
-            filetypes=[("JSON", "*.json")],
-        )
+        path = filedialog.asksaveasfilename(title="Analiz sonucunu kaydet", defaultextension=".json", filetypes=[("JSON", "*.json")])
         if not path:
             return
         payload = []

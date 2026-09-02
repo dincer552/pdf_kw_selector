@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 import re
+import unicodedata
 from dataclasses import asdict, dataclass
 from pathlib import Path
 from typing import Iterable
@@ -14,11 +15,13 @@ FIELD_ALIASES = {
     "fan_motor_power": (
         "fan motor power",
         "supply fan motor power",
-        "motor power",
         "fan motor",
+        "motor power",
         "motor rating",
-        "anma gücü",
-        "motor gücü",
+        "motor gucu",
+        "motor guc",
+        "anma gucu",
+        "rated power",
     ),
     "unit_total_power": (
         "unit total power",
@@ -29,6 +32,14 @@ FIELD_ALIASES = {
 
 POWER_RE = re.compile(r"(?P<value>\d+(?:[.,]\d+)?)\s*(?P<unit>kw|kva|w)\b", re.I)
 EQUIPMENT_RE = re.compile(r"\b([A-Z]{2,8})[\s_-]*0*(\d{1,4})\b", re.I)
+
+
+def _normalize_text(value: str) -> str:
+    """Normalize accents so Turkish labels match ASCII aliases reliably."""
+    return "".join(
+        ch for ch in unicodedata.normalize("NFKD", value)
+        if not unicodedata.combining(ch)
+    ).lower()
 
 
 @dataclass(frozen=True)
@@ -63,10 +74,10 @@ def _to_kw(value: float, unit: str) -> float:
 
 
 def _field_for_line(line: str) -> str | None:
-    lowered = line.lower()
+    normalized = _normalize_text(line)
     # Specific fields must win over generic "power" labels.
     for field, aliases in FIELD_ALIASES.items():
-        if any(alias in lowered for alias in aliases):
+        if any(_normalize_text(alias) in normalized for alias in aliases):
             return field
     return None
 
@@ -118,7 +129,6 @@ def _index(records: Iterable[PowerRecord]) -> dict[tuple[str | None, str], Power
     result: dict[tuple[str | None, str], PowerRecord] = {}
     for record in records:
         key = (record.equipment, record.field)
-        # Prefer the first explicit value; duplicate values are common in drawings.
         result.setdefault(key, record)
     return result
 

@@ -1,9 +1,4 @@
-"""SQLite storage for extracted motor records.
-
-The database is local to the application. PDF extraction creates the records;
-the comparison stage later reads only these normalized records instead of
-searching raw PDFs again.
-"""
+"""SQLite storage for extracted motor records."""
 
 from __future__ import annotations
 
@@ -71,7 +66,16 @@ def replace_project_motors(connection: sqlite3.Connection, records: list[MotorRe
 def list_motors(connection: sqlite3.Connection) -> list[dict]:
     connection.row_factory = sqlite3.Row
     rows = connection.execute(
-        "SELECT * FROM motors ORDER BY equipment_id, component_type, component_index"
+        """
+        SELECT * FROM motors
+        ORDER BY equipment_id,
+                 CASE
+                     WHEN lower(component_type) IN ('vantilatör', 'vantilator') THEN 1
+                     WHEN lower(component_type) IN ('aspiratör', 'aspirator') THEN 2
+                     ELSE 9
+                 END,
+                 component_index
+        """
     ).fetchall()
     return [dict(row) for row in rows]
 

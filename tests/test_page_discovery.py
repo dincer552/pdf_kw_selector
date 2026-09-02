@@ -41,7 +41,7 @@ def test_extract_exact_anma_gucu_value_and_quantity():
     assert result.page_number == 6
     assert result.value_kw == 3.0
     assert result.raw_value == "3,000"
-    assert result.quantity == 1.0
+    assert result.quantity == "1x1"
     assert result.field == "fan_motor_power"
     assert result.confidence == "high"
 
@@ -52,3 +52,11 @@ def test_unrelated_kw_values_are_not_selected_as_rated_power():
         page_number=5,
     )
     assert result is None
+
+
+def test_return_air_maps_to_aspirator():
+    from stage1_page_discovery import detect_component_type
+
+    assert detect_component_type("Plug fan Return air Rated Power [kW] 15,000 x (2x1)") == (
+        "Aspiratör", "return_fan"
+    )

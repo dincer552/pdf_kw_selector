@@ -1,14 +1,9 @@
-"""Context-aware keyword/value selector for engineering PDFs.
-
-The selector deliberately does not choose a number by proximity alone. It scores
-candidate values using their surrounding text and rejects values that belong to
-known aggregate fields (for example, a unit total power) when the requested
-attribute is a fan motor power.
-"""
+"""Context-aware keyword/value selector for engineering PDFs."""
 
 from __future__ import annotations
 
 import re
+import unicodedata
 from dataclasses import dataclass, asdict
 from pathlib import Path
 from typing import Iterable
@@ -29,6 +24,13 @@ def normalize_equipment_id(value: str) -> str:
     if match:
         return f"{match.group(1)}{int(match.group(2))}"
     return value
+
+
+def _normalize_text(value: str) -> str:
+    return "".join(
+        ch for ch in unicodedata.normalize("NFKD", value)
+        if not unicodedata.combining(ch)
+    ).lower()
 
 
 def normalize_power(value: float, unit: str) -> float:
@@ -55,7 +57,7 @@ class Candidate:
 POSITIVE_TERMS = {
     "motor": 8,
     "fan motor": 12,
-    "fan": 5,
+    "fan motor power": 14,
     "motor power": 10,
     "power": 2,
     "kw": 1,
@@ -74,22 +76,22 @@ NEGATIVE_TERMS = {
 
 
 def _score_context(context: str, target_terms: Iterable[str]) -> tuple[int, str]:
-    lowered = context.lower()
+    lowered = _normalize_text(context)
     score = 0
     reasons: list[str] = []
 
     for term, weight in POSITIVE_TERMS.items():
-        if term in lowered:
+        if _normalize_text(term) in lowered:
             score += weight
             reasons.append(f"+{weight}:{term}")
 
     for term, weight in NEGATIVE_TERMS.items():
-        if term in lowered:
+        if _normalize_text(term) in lowered:
             score += weight
             reasons.append(f"{weight}:{term}")
 
     for term in target_terms:
-        if term.lower() in lowered:
+        if _normalize_text(term) in lowered:
             score += 6
             reasons.append(f"+6:{term}")
 
@@ -97,20 +99,33 @@ def _score_context(context: str, target_terms: Iterable[str]) -> tuple[int, str]
 
 
 def extract_power_candidates(text: str, *, context_chars: int = 140) -> list[Candidate]:
-    """Extract every power value while retaining local context and score."""
+    """Extract every power value while retaining local context and line semantics."""
     candidates: list[Candidate] = []
     for match in POWER_RE.finditer(text):
         start = max(0, match.start() - context_chars)
         end = min(len(text), match.end() + context_chars)
         context = re.sub(r"\s+", " ", text[start:end]).strip()
+
+        line_start = text.rfind("\n", 0, match.start()) + 1
+        line_end = text.find("\n", match.end())
+        if line_end == -1:
+            line_end = len(text)
+        source_line = re.sub(r"\s+", " ", text[line_start:line_end]).strip()
+        normalized_line = _normalize_text(source_line)
+
         value = normalize_power(float(match.group("value").replace(",", ".")), match.group("unit"))
-        score, reasons = _score_context(context, ("fan motor", "motor power", "fan"))
-        rejected = any(term in context.lower() for term in ("unit total power", "total heating", "total cooling"))
-        if rejected:
+        score, reasons = _score_context(source_line, ("fan motor", "motor power", "fan"))
+
+        rejected_field = any(
+            _normalize_text(term) in normalized_line
+            for term in ("unit total power", "total heating", "total cooling", "electrical total")
+        )
+        if rejected_field:
             reason = "aggregate field"
             score -= 25
         else:
             reason = reasons
+
         candidates.append(
             Candidate(
                 value_kw=value,
@@ -118,7 +133,7 @@ def extract_power_candidates(text: str, *, context_chars: int = 140) -> list[Can
                 unit=match.group("unit"),
                 context=context,
                 score=score,
-                rejected=rejected,
+                rejected=rejected_field,
                 reason=reason,
             )
         )

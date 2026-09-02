@@ -12,6 +12,7 @@ field rather than arbitrary nearby kW values.
 from __future__ import annotations
 
 import re
+import unicodedata
 from dataclasses import asdict, dataclass
 from pathlib import Path
 
@@ -82,7 +83,7 @@ def _page_score(text: str) -> tuple[int, tuple[str, ...]]:
             matched.append(f"{weight}:{term}")
     if RATED_POWER_RE.search(lowered):
         score += 80
-        matched.append("+explicit rated power")
+        matched.append("explicit rated power")
     return score, tuple(matched)
 
 
@@ -103,14 +104,9 @@ def _normalize_quantity(quantity: str | None) -> str | None:
 def detect_component_type(text: str) -> tuple[str | None, str | None]:
     """Map airflow direction to the project's component terminology.
 
-    Project rules:
-      Supply air -> Vantilatör
-      Return air -> Aspiratör
-      Exhaust air -> Aspiratör
-
-    ``exhaust_fan`` is used for the explicit Exhaust air source label, while
-    ``return_fan`` is retained for Return air so existing downstream logic is
-    backward-compatible.
+    Supply air -> Vantilatör
+    Return air -> Aspiratör
+    Exhaust air -> Aspiratör
     """
     lowered = _clean(text).lower()
     supply = bool(re.search(r"\bsupply\s+air\b", lowered))
