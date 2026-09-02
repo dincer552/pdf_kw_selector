@@ -1,6 +1,7 @@
 from pathlib import Path
 
 from stage1_page_discovery import (
+    detect_component_type,
     discover_motor_power_page,
     extract_rated_motor_power_from_page,
     find_rated_motor_power_in_pdf,
@@ -70,6 +71,14 @@ def test_page_6_ranks_above_other_pages():
     ranked = discover_motor_power_page(pages)
     assert ranked[0].page_number == 6
     assert ranked[0].score > ranked[1].score
+
+
+def test_exhaust_air_maps_to_aspirator_not_return_air():
+    assert detect_component_type("Plug fan Exhaust air Section length [mm] 1.641,0") == (
+        "Aspiratör",
+        "exhaust_fan",
+    )
+    assert detect_component_type("Plug fan Return air Section length [mm] 1.641,0") == (None, None)
 
 
 def test_real_sample_pdf_returns_3kw_on_page_6():
