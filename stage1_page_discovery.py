@@ -2,7 +2,7 @@
 
 Project rules:
 - Supply air -> Vantilatör (Vant)
-- Return air -> Aspiratör (Asp)
+- Return air / Exhaust air -> Aspiratör (Asp)
 - 1x1 -> one physical motor; 2x1 -> two; 3x1 -> three.
 
 The selector targets the explicit ``Rated Power [kW]`` / ``Anma gücü [kW]``
@@ -27,8 +27,8 @@ RATED_POWER_RE = re.compile(
 
 PAGE_POSITIVE_TERMS = {
     "anma gücü": 60, "rated power": 60, "motor data": 35, "fan data": 25,
-    "plug fan": 20, "supply air": 15, "return air": 15, "nominal rpm": 8,
-    "model / miktar": 8, "fan motor power": 45,
+    "plug fan": 20, "supply air": 15, "return air": 15, "exhaust air": 15,
+    "nominal rpm": 8, "model / miktar": 8, "fan motor power": 45,
 }
 PAGE_NEGATIVE_TERMS = {
     "cooling capacity": -25, "heating capacity": -25, "shaft power": -15,
@@ -103,16 +103,24 @@ def _normalize_quantity(quantity: str | None) -> str | None:
 def detect_component_type(text: str) -> tuple[str | None, str | None]:
     """Map airflow direction to the project's component terminology.
 
-    User/project rule:
+    Project rules:
       Supply air -> Vantilatör
       Return air -> Aspiratör
+      Exhaust air -> Aspiratör
+
+    ``exhaust_fan`` is used for the explicit Exhaust air source label, while
+    ``return_fan`` is retained for Return air so existing downstream logic is
+    backward-compatible.
     """
     lowered = _clean(text).lower()
     supply = bool(re.search(r"\bsupply\s+air\b", lowered))
     return_air = bool(re.search(r"\breturn\s+air\b", lowered))
+    exhaust_air = bool(re.search(r"\bexhaust\s+air\b", lowered))
 
-    if supply and not return_air:
+    if supply and not (return_air or exhaust_air):
         return "Vantilatör", "supply_fan"
+    if exhaust_air and not supply:
+        return "Aspiratör", "exhaust_fan"
     if return_air and not supply:
         return "Aspiratör", "return_fan"
     return None, None
