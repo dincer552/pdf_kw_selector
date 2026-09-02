@@ -32,6 +32,10 @@ FIELD_ALIASES = {
 
 POWER_RE = re.compile(r"(?P<value>\d+(?:[.,]\d+)?)\s*(?P<unit>kw|kva|w)\b", re.I)
 EQUIPMENT_RE = re.compile(r"\b([A-Z]{2,8})[\s_-]*0*(\d{1,4})\b", re.I)
+FAN_MOTOR_FIELD_RE = re.compile(
+    r"\b(?:supply\s+)?fan\s+motor\s+power\b|\bfan\s+motor\b|\b(?:motor\s+power|motor\s+rating|motor\s+gucu|motor\s+guc|anma\s+gucu|rated\s+power)\b",
+    re.I,
+)
 
 
 def _normalize_text(value: str) -> str:
@@ -75,7 +79,9 @@ def _to_kw(value: float, unit: str) -> float:
 
 def _field_for_line(line: str) -> str | None:
     normalized = _normalize_text(line)
-    # Specific fields must win over generic "power" labels.
+    # Explicit fan-motor labels always win over generic power labels.
+    if FAN_MOTOR_FIELD_RE.search(normalized):
+        return "fan_motor_power"
     for field, aliases in FIELD_ALIASES.items():
         if any(_normalize_text(alias) in normalized for alias in aliases):
             return field
