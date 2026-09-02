@@ -2,8 +2,7 @@
 
 Project rules:
 - Supply air -> Vantilatör (Vant)
-- Exhaust air -> Aspiratör (Asp)
-- Return air is NOT used as the exhaust-fan direction in Systemair PDFs.
+- Return air -> Aspiratör (Asp)
 - 1x1 -> one physical motor; 2x1 -> two; 3x1 -> three.
 
 The selector targets the explicit ``Rated Power [kW]`` / ``Anma gücü [kW]``
@@ -28,7 +27,7 @@ RATED_POWER_RE = re.compile(
 
 PAGE_POSITIVE_TERMS = {
     "anma gücü": 60, "rated power": 60, "motor data": 35, "fan data": 25,
-    "plug fan": 20, "supply air": 15, "exhaust air": 15, "nominal rpm": 8,
+    "plug fan": 20, "supply air": 15, "return air": 15, "nominal rpm": 8,
     "model / miktar": 8, "fan motor power": 45,
 }
 PAGE_NEGATIVE_TERMS = {
@@ -102,21 +101,20 @@ def _normalize_quantity(quantity: str | None) -> str | None:
 
 
 def detect_component_type(text: str) -> tuple[str | None, str | None]:
-    """Map the local airflow direction to the project's motor component type.
+    """Map airflow direction to the project's component terminology.
 
-    Systemair's AHU PDF uses ``Supply air`` for the supply fan and
-    ``Exhaust air`` for the exhaust fan. ``Return air`` is deliberately not
-    mapped to the exhaust fan because it can describe a different airflow
-    concept elsewhere in the document.
+    User/project rule:
+      Supply air -> Vantilatör
+      Return air -> Aspiratör
     """
     lowered = _clean(text).lower()
     supply = bool(re.search(r"\bsupply\s+air\b", lowered))
-    exhaust = bool(re.search(r"\bexhaust\s+air\b", lowered))
+    return_air = bool(re.search(r"\breturn\s+air\b", lowered))
 
-    if supply and not exhaust:
+    if supply and not return_air:
         return "Vantilatör", "supply_fan"
-    if exhaust and not supply:
-        return "Aspiratör", "exhaust_fan"
+    if return_air and not supply:
+        return "Aspiratör", "return_fan"
     return None, None
 
 
@@ -151,11 +149,7 @@ def extract_rated_motor_power_from_page(text: str, page_number: int) -> MotorPow
 
 
 def find_rated_motor_powers_in_pdf(path: str | Path) -> list[MotorPowerResult]:
-    """Find all distinct rated-power fan sections in PDF 1.
-
-    A Systemair unit can have both a Supply air fan and an Exhaust air fan.
-    Results are kept separate by airflow direction and source page.
-    """
+    """Find all distinct rated-power fan sections in PDF 1."""
     from pypdf import PdfReader
 
     pages = [page.extract_text() or "" for page in PdfReader(str(path)).pages]
@@ -176,7 +170,6 @@ def find_rated_motor_powers_in_pdf(path: str | Path) -> list[MotorPowerResult]:
 
 
 def find_rated_motor_power_in_pdf(path: str | Path) -> MotorPowerResult | None:
-    """Backward-compatible single-result API: return the first fan result."""
     results = find_rated_motor_powers_in_pdf(path)
     return results[0] if results else None
 
