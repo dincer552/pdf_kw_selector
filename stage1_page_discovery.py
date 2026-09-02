@@ -1,8 +1,7 @@
 """Stage 1: find and extract the explicit motor-rated power from PDF 1.
 
-The selector is intentionally field-specific. It must prefer the value belonging
-immediately to ``Anma gücü [kW]`` and must not confuse it with nearby shaft power,
-VSD power, cooling capacity, or aggregate power values.
+The selector is intentionally field-specific. It prefers the value attached to
+``Anma gücü [kW]`` and does not treat every nearby kW value as motor power.
 """
 
 from __future__ import annotations
@@ -14,10 +13,15 @@ from pathlib import Path
 from pdf_kw_selector import normalize_power
 
 
+# Examples handled:
+#   Anma gücü [kW] 3,000 x (1x1)
+#   Anma gücü [kW] 3.000 x (1x1)
+#   Anma gücü [kW]: 3,000 x 1x1
+#   Anma gücü [kW] 3,000
 RATED_POWER_RE = re.compile(
-    r"anma\s*g[üu]c[üu]\s*\[?\s*kW\s*\]?\s*[:\-]?\s*"
+    r"anma\s*g[üu]c[üu]\s*\[?\s*kW\s*\]?\s*[:=\-]?\s*"
     r"(?P<value>\d+(?:[.,]\d+)?)"
-    r"(?:\s*[x×]\s*\(?(?P<quantity>\d+(?:[.,]\d+)?(?:\s*[x×]\s*\d+(?:[.,]\d+)?)?)\)?\s*)?",
+    r"(?:\s*[x×]\s*\(?\s*(?P<quantity>\d+(?:[.,]\d+)?(?:\s*[x×]\s*\d+(?:[.,]\d+)?)?)\s*\)?)?",
     re.IGNORECASE,
 )
 
@@ -109,35 +113,47 @@ def discover_motor_power_page(page_texts: list[str]) -> list[PageCandidate]:
     return sorted(candidates, key=lambda item: (-item.score, item.page_number))
 
 
+def _normalize_quantity(quantity: str | None) -> str | None:
+    if not quantity:
+        return None
+    return re.sub(r"\s*[x×]\s*", "x", quantity.strip())
+
+
 def extract_rated_motor_power_from_page(text: str, page_number: int) -> MotorPowerResult | None:
-    """Extract the value immediately belonging to ``Anma gücü [kW]``."""
+    """Extract the value explicitly belonging to ``Anma gücü [kW]``.
+
+    This function intentionally ignores every other kW value on the page. The
+    source snippet is retained so the result can be audited by the UI later.
+    """
     cleaned = _clean(text)
     match = RATED_POWER_RE.search(cleaned)
     if not match:
         return None
 
-    value = normalize_power(
-        float(match.group("value").replace(",", ".")),
-        "kw",
-    )
-    quantity = match.group("quantity")
+    raw_value = match.group("value")
+    value = normalize_power(float(raw_value.replace(",", ".")), "kw")
+    quantity = _normalize_quantity(match.group("quantity"))
 
-    start = max(0, match.start() - 70)
-    end = min(len(cleaned), match.end() + 70)
+    start = max(0, match.start() - 90)
+    end = min(len(cleaned), match.end() + 90)
+
+    # High confidence requires the explicit field itself. Motor/Fan Data is
+    # useful supporting context but is deliberately not required by the parser.
+    confidence = "high"
 
     return MotorPowerResult(
         page_number=page_number,
         value_kw=value,
-        raw_value=match.group("value"),
+        raw_value=raw_value,
         quantity=quantity,
         field="fan_motor_power",
-        confidence="high",
+        confidence=confidence,
         source_text=cleaned[start:end],
     )
 
 
 def find_rated_motor_power_in_pdf(path: str | Path) -> MotorPowerResult | None:
-    """Stage-1 entry point: rank pages, then extract the explicit rated power."""
+    """Stage-1 entry point: rank pages, then extract explicit rated power."""
     from pypdf import PdfReader
 
     reader = PdfReader(str(path))
