@@ -123,7 +123,23 @@ def detect_component_type(text: str) -> tuple[str | None, str | None]:
 
 
 def extract_equipment_id(text: str) -> str | None:
-    match = re.search(r"\bAHU\s*[-_ ]?\s*0*(\d+)\b", text, re.IGNORECASE)
+    """Extract the unit reference generically (AHU-1, PW-02, etc.)."""
+    cleaned = _clean(text)
+
+    # Prefer the explicit unit-reference field used by Systemair exports.
+    reference = re.search(
+        r"(?:unit\s+reference|birim\s+referans[ıi])\s*[:#-]?\s*"
+        r"([A-Z]{2,10}[\s_-]*\d{1,6})\b",
+        cleaned,
+        re.IGNORECASE,
+    )
+    if reference:
+        raw = reference.group(1)
+        prefix, number = re.match(r"([A-Z]{2,10})[\s_-]*(\d+)", raw, re.IGNORECASE).groups()
+        return f"{prefix.upper()}{int(number)}"
+
+    # Fallback for documents that expose only an AHU identifier.
+    match = re.search(r"\bAHU\s*[-_ ]?\s*0*(\d+)\b", cleaned, re.IGNORECASE)
     return f"AHU{int(match.group(1))}" if match else None
 
 
