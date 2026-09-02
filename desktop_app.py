@@ -13,7 +13,7 @@ from tkinter import filedialog, messagebox, ttk
 
 from stage1_page_discovery import build_stage1_motor_records, find_rated_motor_powers_in_pdf
 
-VERSION = "v0.2.1"
+VERSION = "v0.2.2"
 
 
 class App(tk.Tk):
