@@ -13,7 +13,7 @@ from tkinter import filedialog, messagebox, ttk
 
 from stage1_page_discovery import build_stage1_motor_records, find_rated_motor_powers_in_pdf
 
-VERSION = "v0.2.0"
+VERSION = "v0.2.1"
 
 
 class App(tk.Tk):
@@ -62,7 +62,7 @@ class App(tk.Tk):
             "motor": "Motor", "type": "Tip", "direction": "Hava Yönü",
             "kw": "Anma Gücü (kW)", "group": "Grup", "page": "Sayfa", "confidence": "Güven",
         }
-        widths = {"motor": 95, "type": 130, "direction": 110, "kw": 125, "group": 80, "page": 65, "confidence": 90}
+        widths = {"motor": 95, "type": 130, "direction": 130, "kw": 125, "group": 80, "page": 65, "confidence": 90}
         for col in cols:
             self.tree.heading(col, text=headings[col])
             self.tree.column(col, width=widths[col], anchor="center")
@@ -101,14 +101,17 @@ class App(tk.Tk):
 
         if not results:
             self.status.configure(text="SONUÇ BULUNAMADI")
-            self._set_detail("Supply air / Return air fan bloğunda Anma gücü [kW] bulunamadı.")
+            self._set_detail("Supply air / Return air / Exhaust air fan bloğunda Rated Power [kW] / Anma gücü [kW] bulunamadı.")
             return
 
         total_motors = 0
         for result in results:
             records = build_stage1_motor_records(result)
             total_motors += len(records)
-            direction = "Supply air → Vant" if result.component_role == "supply_fan" else "Return air → Asp"
+            if result.component_role == "supply_fan":
+                direction = "Supply air → Vant"
+            else:
+                direction = "Exhaust air → Asp" if result.component_role == "exhaust_fan" else "Return air → Asp"
             for record in records:
                 self.tree.insert(
                     "", "end",
@@ -127,7 +130,12 @@ class App(tk.Tk):
         detail = []
         for result in results:
             item = result.to_dict()
-            item["direction"] = "Supply air → Vantilatör" if result.component_role == "supply_fan" else "Return air → Aspiratör"
+            if result.component_role == "supply_fan":
+                item["direction"] = "Supply air → Vantilatör"
+            elif result.component_role == "exhaust_fan":
+                item["direction"] = "Exhaust air → Aspiratör"
+            else:
+                item["direction"] = "Return air → Aspiratör"
             item["motors_created"] = [r.to_dict() for r in build_stage1_motor_records(result)]
             detail.append(item)
         self._set_detail(json.dumps(detail, ensure_ascii=False, indent=2))
