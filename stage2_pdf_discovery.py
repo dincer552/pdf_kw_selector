@@ -229,8 +229,10 @@ def find_pdf2_motor_powers(path: str | Path) -> list[PDF2MotorResult]:
     return results
 
 
-def build_pdf2_motor_records(result: PDF2MotorResult) -> list[MotorRecord]:
-    """Expand PDF 2 motor groups to the same physical-motor shape as PDF 1."""
+def build_pdf2_motor_records(
+    result: PDF2MotorResult, start_index: int = 1
+) -> list[MotorRecord]:
+    """Expand PDF 2 motor groups with a caller-supplied physical index."""
     return expand_motor_group(
         equipment_id=result.equipment_id,
         equipment_type="AHU",
@@ -238,4 +240,5 @@ def build_pdf2_motor_records(result: PDF2MotorResult) -> list[MotorRecord]:
         group=result.quantity,
         power_kw=result.value_kw,
         source_page=result.source_page,
+        start_index=start_index,
     )
