@@ -10,7 +10,7 @@ from motor_compare import MotorComparison, compare_motor_records
 from stage1_page_discovery import build_stage1_motor_records, find_rated_motor_powers_in_pdf
 from stage2_pdf_discovery import build_pdf2_motor_records, find_pdf2_motor_powers
 
-VERSION = "v0.3.2"
+VERSION = "v0.3.3"
 
 
 class App(tk.Tk):
@@ -33,31 +33,25 @@ class App(tk.Tk):
         outer.pack(fill="both", expand=True)
         outer.columnconfigure(0, weight=1)
         outer.rowconfigure(2, weight=1)
-
         top = ttk.Frame(outer)
         top.grid(row=0, column=0, sticky="ew")
         top.columnconfigure(0, weight=1)
         top.columnconfigure(1, weight=1)
         self.pdf1_label = self._file_box(top, "PDF 1 — Seçim / ekipman", 0, self.select_pdf1)
         self.pdf2_label = self._file_box(top, "PDF 2 — Elektrik / sürücü", 1, self.select_pdf2)
-
         actions = ttk.Frame(outer)
         actions.grid(row=1, column=0, sticky="ew", pady=10)
         ttk.Button(actions, text="KARŞILAŞTIR", command=self.compare).pack(side="left")
         ttk.Button(actions, text="JSON KAYDET", command=self.save_json).pack(side="left", padx=8)
         self.status = ttk.Label(actions, text="Hazır")
         self.status.pack(side="right")
-
         result_frame = ttk.Frame(outer)
         result_frame.grid(row=2, column=0, sticky="nsew")
         result_frame.columnconfigure(0, weight=1)
         result_frame.rowconfigure(0, weight=1)
         cols = ("label", "type", "pdf1", "pdf2", "diff", "status", "page1", "page2")
-        headings = {
-            "label": "Motor", "type": "Tip", "pdf1": "PDF 1 kW", "pdf2": "PDF 2 kW",
-            "diff": "Fark", "status": "Durum", "page1": "PDF1 Sayfa", "page2": "PDF2 Sayfa",
-        }
-        widths = {"label": 110, "type": 110, "pdf1": 90, "pdf2": 90, "diff": 80, "status": 120, "page1": 90, "page2": 90}
+        headings = {"label":"Motor","type":"Tip","pdf1":"PDF 1 kW","pdf2":"PDF 2 kW","diff":"Fark","status":"Durum","page1":"PDF1 Sayfa","page2":"PDF2 Sayfa"}
+        widths = {"label":110,"type":110,"pdf1":90,"pdf2":90,"diff":80,"status":120,"page1":90,"page2":90}
         self.tree = ttk.Treeview(result_frame, columns=cols, show="headings", height=18)
         for col in cols:
             self.tree.heading(col, text=headings[col])
@@ -66,7 +60,6 @@ class App(tk.Tk):
         scroll = ttk.Scrollbar(result_frame, orient="vertical", command=self.tree.yview)
         scroll.pack(fill="y", side="right")
         self.tree.configure(yscrollcommand=scroll.set)
-
         self.detail = tk.Text(outer, height=8, wrap="word", font=("Consolas", 9))
         self.detail.grid(row=3, column=0, sticky="ew", pady=(10, 0))
         self.detail.configure(state="disabled")
@@ -82,19 +75,17 @@ class App(tk.Tk):
 
     def select_pdf1(self):
         path = filedialog.askopenfilename(title="PDF 1 seç", filetypes=[("PDF files", "*.pdf"), ("All files", "*.*")])
-        if not path:
-            return
-        self.pdf1 = Path(path)
-        self.pdf1_label.configure(text=str(self.pdf1))
-        self._analyze_pdf1()
+        if path:
+            self.pdf1 = Path(path)
+            self.pdf1_label.configure(text=str(self.pdf1))
+            self._analyze_pdf1()
 
     def select_pdf2(self):
         path = filedialog.askopenfilename(title="PDF 2 seç", filetypes=[("PDF files", "*.pdf"), ("All files", "*.*")])
-        if not path:
-            return
-        self.pdf2 = Path(path)
-        self.pdf2_label.configure(text=str(self.pdf2))
-        self._analyze_pdf2()
+        if path:
+            self.pdf2 = Path(path)
+            self.pdf2_label.configure(text=str(self.pdf2))
+            self._analyze_pdf2()
 
     def _analyze_pdf1(self):
         try:
@@ -109,13 +100,13 @@ class App(tk.Tk):
     def _analyze_pdf2(self):
         try:
             self.pdf2_results = find_pdf2_motor_powers(self.pdf2)
-            counters = {"Vantilatör": 0, "Aspiratör": 0}
+            counters: dict[str, int] = {}
             motors = []
             for result in self.pdf2_results:
-                start_index = counters.get(result.component_type, 0) + 1
-                records = build_pdf2_motor_records(result, start_index=start_index)
+                current = counters.get(result.component_type, 0) + 1
+                records = build_pdf2_motor_records(result, start_index=current)
                 motors.extend(records)
-                counters[result.component_type] = start_index + len(records) - 1
+                counters[result.component_type] = current + len(records) - 1
             self.pdf2_motors = motors
             self.status.configure(text=f"PDF 2 hazır — {len(self.pdf2_motors)} fiziksel motor")
             self._set_detail(json.dumps([r.to_dict() for r in self.pdf2_motors], ensure_ascii=False, indent=2))
@@ -132,34 +123,11 @@ class App(tk.Tk):
         self.comparisons = compare_motor_records(self.pdf1_motors, self.pdf2_motors)
         for item in self.tree.get_children():
             self.tree.delete(item)
-
-        counts = {"MATCH": 0, "MISMATCH": 0, "ONLY_IN_PDF1": 0, "ONLY_IN_PDF2": 0}
+        counts = {"MATCH":0,"MISMATCH":0,"ONLY_IN_PDF1":0,"ONLY_IN_PDF2":0}
         for result in self.comparisons:
             counts[result.status] = counts.get(result.status, 0) + 1
-            self.tree.insert(
-                "",
-                "end",
-                values=(
-                    result.component_label,
-                    result.component_type,
-                    self._fmt(result.pdf1_kw),
-                    self._fmt(result.pdf2_kw),
-                    self._fmt(result.difference_kw),
-                    result.status,
-                    result.pdf1_page or "-",
-                    result.pdf2_page or "-",
-                ),
-            )
-
-        self.status.configure(
-            text=(
-                f"✓ {len(self.comparisons)} MOTOR — "
-                f"EŞLEŞEN: {counts['MATCH']}  |  "
-                f"FARKLI: {counts['MISMATCH']}  |  "
-                f"SADECE PDF1: {counts['ONLY_IN_PDF1']}  |  "
-                f"SADECE PDF2: {counts['ONLY_IN_PDF2']}"
-            )
-        )
+            self.tree.insert("", "end", values=(result.component_label,result.component_type,self._fmt(result.pdf1_kw),self._fmt(result.pdf2_kw),self._fmt(result.difference_kw),result.status,result.pdf1_page or "-",result.pdf2_page or "-"))
+        self.status.configure(text=f"✓ {len(self.comparisons)} MOTOR — EŞLEŞEN: {counts['MATCH']}  |  FARKLI: {counts['MISMATCH']}  |  SADECE PDF1: {counts['ONLY_IN_PDF1']}  |  SADECE PDF2: {counts['ONLY_IN_PDF2']}")
         self._set_detail(json.dumps([r.to_dict() for r in self.comparisons], ensure_ascii=False, indent=2))
 
     @staticmethod
@@ -176,21 +144,10 @@ class App(tk.Tk):
         if not self.comparisons:
             messagebox.showwarning("Sonuç yok", "Önce iki PDF seçip KARŞILAŞTIR çalıştırın.")
             return
-        path = filedialog.asksaveasfilename(
-            title="Karşılaştırma sonucunu kaydet",
-            defaultextension=".json",
-            filetypes=[("JSON", "*.json")],
-        )
+        path = filedialog.asksaveasfilename(title="Karşılaştırma sonucunu kaydet", defaultextension=".json", filetypes=[("JSON", "*.json")])
         if not path:
             return
-        payload = {
-            "version": VERSION,
-            "pdf1": str(self.pdf1),
-            "pdf2": str(self.pdf2),
-            "pdf1_motors": [r.to_dict() for r in self.pdf1_motors],
-            "pdf2_motors": [r.to_dict() for r in self.pdf2_motors],
-            "comparison": [r.to_dict() for r in self.comparisons],
-        }
+        payload = {"version":VERSION,"pdf1":str(self.pdf1),"pdf2":str(self.pdf2),"pdf1_motors":[r.to_dict() for r in self.pdf1_motors],"pdf2_motors":[r.to_dict() for r in self.pdf2_motors],"comparison":[r.to_dict() for r in self.comparisons]}
         Path(path).write_text(json.dumps(payload, ensure_ascii=False, indent=2), encoding="utf-8")
         messagebox.showinfo("Kaydedildi", f"Sonuç kaydedildi:\n{path}")
 
