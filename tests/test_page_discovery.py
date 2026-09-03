@@ -77,6 +77,13 @@ Return
 Fan Motor Power / Nominal Rpm 1.1 [kW] (2x1) / 2870 [1/min]
 """
 
+SYSTEMAIR_DUAL_SUMMARY = """
+Unit Reference AHU-EF-07
+Supply Return
+Fan Model / Qty. RH56C.CR/SM20-B38 / 1x1 RH50C.CR/SM20-B28 / 1x1
+Fan Motor Power / Nominal Rpm 5.5 [kW] (1x1) / 1455 [1/min] 2.2 [kW] (1x1) / 1444 [1/min]
+"""
+
 
 def test_page_6_wins_for_explicit_rated_motor_power():
     ranked = discover_motor_power_page([PAGE_1, PAGE_2, PAGE_6])
@@ -118,6 +125,15 @@ def test_summary_return_maps_to_aspirator():
     assert result.equipment_id == "VE.A.D.01E"
     assert result.value_kw == 1.1
     assert result.quantity == "2x1"
+
+
+def test_summary_dual_columns_map_supply_and_return_correctly():
+    results = extract_rated_motor_powers_from_page(SYSTEMAIR_DUAL_SUMMARY, page_number=1)
+    assert [(r.component_role, r.value_kw, r.quantity) for r in results] == [
+        ("supply_fan", 5.5, "1x1"),
+        ("return_fan", 2.2, "1x1"),
+    ]
+    assert all(r.equipment_id == "AHU-EF-07" for r in results)
 
 
 def test_realistic_pw02_supply_page_creates_physical_motor():
