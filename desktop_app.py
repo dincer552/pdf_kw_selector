@@ -10,7 +10,7 @@ from motor_compare import MotorComparison, compare_motor_records
 from stage1_page_discovery import build_stage1_motor_records, find_rated_motor_powers_in_pdf
 from stage2_pdf_discovery import build_pdf2_motor_records, find_pdf2_motor_powers
 
-VERSION = "v0.3.0"
+VERSION = "v0.3.1"
 
 
 class App(tk.Tk):
@@ -117,11 +117,7 @@ class App(tk.Tk):
     def _analyze_pdf1(self):
         try:
             self.pdf1_results = find_rated_motor_powers_in_pdf(self.pdf1)
-            self.pdf1_motors = [
-                record
-                for result in self.pdf1_results
-                for record in build_stage1_motor_records(result)
-            ]
+            self.pdf1_motors = [record for result in self.pdf1_results for record in build_stage1_motor_records(result)]
             self.status.configure(text=f"PDF 1 hazır — {len(self.pdf1_motors)} fiziksel motor")
             self._set_detail(json.dumps([r.to_dict() for r in self.pdf1_motors], ensure_ascii=False, indent=2))
         except Exception as exc:
@@ -131,11 +127,7 @@ class App(tk.Tk):
     def _analyze_pdf2(self):
         try:
             self.pdf2_results = find_pdf2_motor_powers(self.pdf2)
-            self.pdf2_motors = [
-                record
-                for result in self.pdf2_results
-                for record in build_pdf2_motor_records(result)
-            ]
+            self.pdf2_motors = [record for result in self.pdf2_results for record in build_pdf2_motor_records(result)]
             self.status.configure(text=f"PDF 2 hazır — {len(self.pdf2_motors)} fiziksel motor")
             self._set_detail(json.dumps([r.to_dict() for r in self.pdf2_motors], ensure_ascii=False, indent=2))
         except Exception as exc:
