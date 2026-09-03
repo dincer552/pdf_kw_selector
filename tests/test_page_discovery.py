@@ -2,6 +2,7 @@ from stage1_page_discovery import (
     build_stage1_motor_records,
     discover_motor_power_page,
     extract_rated_motor_power_from_page,
+    extract_rated_motor_powers_from_page,
 )
 
 
@@ -47,6 +48,26 @@ Fan data Motor data
 Model / Quantity in WxH Std-IE3-50-80-2-1.1 / 1x1
 Rated Power [kW] 1.100 x (1x1)
 Tot. Abs. power,excluding VSD [kW] 0.8468
+"""
+
+REAL_PDF_PAGE_6 = """
+Project Aydin Cildir Havaliman
+Unit Reference AHU-EF-01
+Plug fan Supply air Section length [mm] 1.700,0 Pressure drop [Pa]
+Fan data Motor data
+Model / Quantity in WxH Std-IE3-50-132-4-7.5 / 1x1
+Rated Power [kW] 7,500 x (1x1)
+Tot. Abs. power,excluding VSD [kW] 5,8404
+"""
+
+REAL_PDF_PAGE_9 = """
+Project Aydin Cildir Havaliman
+Unit Reference AHU-EF-01
+Plug fan Exhaust air Section length [mm] 1.700,0 Pressure drop [Pa]
+Fan data Motor data
+Model / Quantity in WxH Std-IE3-50-132-4-5.5 / 1x1
+Rated Power [kW] 5,500 x (1x1)
+Tot. Abs. power,excluding VSD [kW] 4,6094
 """
 
 
@@ -107,6 +128,30 @@ def test_realistic_pw02_exhaust_page_creates_physical_motor():
     assert len(records) == 1
     assert records[0].component_label == "Asp 1"
     assert records[0].power_kw == 1.1
+
+
+def test_real_pdf_ahu_ef_dual_fans_are_separate_and_correct():
+    supply = extract_rated_motor_power_from_page(REAL_PDF_PAGE_6, page_number=6)
+    exhaust = extract_rated_motor_power_from_page(REAL_PDF_PAGE_9, page_number=9)
+    assert supply is not None and exhaust is not None
+    assert (supply.equipment_id, supply.component_role, supply.value_kw) == ("AHU-EF-01", "supply_fan", 7.5)
+    assert (exhaust.equipment_id, exhaust.component_role, exhaust.value_kw) == ("AHU-EF-01", "exhaust_fan", 5.5)
+    assert build_stage1_motor_records(supply)[0].component_label == "Vant 1"
+    assert build_stage1_motor_records(exhaust)[0].component_label == "Asp 1"
+
+
+def test_dual_fans_on_one_summary_page_are_not_lost():
+    page = """
+    Unit Reference AHU-1
+    Supply air Fan Motor Power 7.5 [kW] (1x1)
+    Return air Fan Motor Power 5.5 [kW] (1x1)
+    """
+    results = extract_rated_motor_powers_from_page(page, page_number=1)
+    assert len(results) == 2
+    assert [(r.component_role, r.value_kw) for r in results] == [
+        ("supply_fan", 7.5),
+        ("return_fan", 5.5),
+    ]
 
 
 def test_page_number_is_not_hardcoded_for_motor_discovery():
