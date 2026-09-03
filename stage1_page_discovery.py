@@ -5,22 +5,18 @@ import unicodedata
 from dataclasses import asdict, dataclass
 from motor_database import expand_motor_group
 from pdf_kw_selector import normalize_power
-
 RATED_POWER_RE = re.compile(r"(?:anma\s+g(?:ü|u|�)c(?:ü|u|�)|anma\s+g\.c\.|rated\s+power)\s*\[?\s*kw\s*\]?\s*[:=\-]?\s*(?P<value>\d+(?:[.,]\d+)?)(?:\s*[x×]\s*\(?\s*(?P<quantity>\d+(?:[.,]\d+)?(?:\s*[x×]\s*\d+)?)\s*\)?)?", re.IGNORECASE)
 FAN_MOTOR_POWER_RE = re.compile(r"fan\s+motor\s+power\s*[:=\-]?\s*(?P<value>\d+(?:[.,]\d+)?)\s*\[?\s*kw\s*\]?(?:\s*\(?\s*(?P<quantity>\d+(?:[.,]\d+)?(?:\s*[x×]\s*\d+)?)\s*\)?)?", re.IGNORECASE)
 PAGE_POSITIVE_TERMS = {"anma gücü":60,"rated power":60,"motor data":35,"fan data":25,"plug fan":20,"supply air":15,"return air":15,"exhaust air":15,"nominal rpm":8,"model / miktar":8,"fan motor power":45}
 PAGE_NEGATIVE_TERMS = {"cooling capacity":-25,"heating capacity":-25,"shaft power":-15,"vfd dahil":-12,"vfd hariç":-12,"unit total power":-20,"tot. abs. power":-15}
-
 @dataclass(frozen=True)
 class PageCandidate:
     page_number:int; score:int; text:str; matched_terms:tuple[str,...]=()
     def to_dict(self): return asdict(self)
-
 @dataclass(frozen=True)
 class MotorPowerResult:
     page_number:int; value_kw:float; raw_value:str; quantity:str|None; field:str; confidence:str; source_text:str; component_type:str|None=None; component_role:str|None=None; equipment_id:str|None=None
     def to_dict(self): return asdict(self)
-
 def _clean(text): return re.sub(r"\s+"," ",text).strip()
 def _ascii(text): return "".join(ch for ch in unicodedata.normalize("NFKD",text) if not unicodedata.combining(ch)).lower()
 def _has_rated_power(text): return bool(RATED_POWER_RE.search(text) or FAN_MOTOR_POWER_RE.search(text))
@@ -46,14 +42,12 @@ def extract_equipment_id(text):
     if ref:
         raw=ref.group(1).strip(); compact=re.sub(r"[-_\s]+","-",raw).upper(); m=re.fullmatch(r"PW-0*(\d+)",compact); return f"PW{int(m.group(1))}" if m else compact
     m=re.search(r"\bAHU\s*[-_ ]?\s*(\d+)\b",cleaned,re.I); return f"AHU{int(m.group(1))}" if m else None
-
 def _local_context(text,match):
     cleaned=_clean(text); before=cleaned[:match.start()]; directions=list(re.finditer(r"\b(?:supply|return|exhaust)\s+air\b",before,re.I)); start=directions[-1].start() if directions else max(0,match.start()-500); after=cleaned[match.end():]; nxt=re.search(r"\b(?:supply|return|exhaust)\s+air\b",after,re.I); end=match.end()+180 if not nxt else match.end()+nxt.start()
     if not directions:
         short_direction=list(re.finditer(r"\b(?:supply|return|exhaust)\b",before,re.I))
         if short_direction: start=short_direction[-1].start()
     return cleaned[start:end]
-
 def _result_from_match(text,page_number,match):
     cleaned=_clean(text); raw=match.group("value"); value=normalize_power(float(raw.replace(",",".")),"kw"); q=_normalize_quantity(match.group("quantity")); context=_local_context(cleaned,match); typ,role=detect_component_type(context)
     return MotorPowerResult(page_number,value,raw,q,"fan_motor_power","high" if role else "review",cleaned[max(0,match.start()-120):min(len(cleaned),match.end()+120)],typ,role,extract_equipment_id(cleaned))
@@ -74,15 +68,17 @@ def extract_rated_motor_power_from_page(text,page_number):
         m=p.search(cleaned)
         if m: return _result_from_match(cleaned,page_number,m)
     return None
-
 def _dedupe_motor_results(results):
     unique=[]; seen=set()
     for result in results:
-        key=(result.equipment_id,result.component_role,result.value_kw,result.quantity)
+        # Return and Exhaust are both Aspiratör in our motor database, so a
+        # Systemair summary "Return" and its detailed "Exhaust air" page are
+        # the same physical fan block and must not be counted twice.
+        family = "Vantilatör" if result.component_type == "Vantilatör" else "Aspiratör" if result.component_type == "Aspiratör" else result.component_role
+        key=(result.equipment_id,family,result.value_kw,result.quantity)
         if key in seen: continue
         seen.add(key); unique.append(result)
     return unique
-
 def find_rated_motor_powers_in_pdf(path):
     from pypdf import PdfReader
     results=[]
