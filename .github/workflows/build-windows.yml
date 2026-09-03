@@ -21,8 +21,8 @@ jobs:
       - name: Run tests
         run: pytest -q
       - name: Build EXE
-        run: pyinstaller --noconfirm --clean --onefile --windowed --name PDF_KW_Selector_v0.3.2 desktop_app.py
+        run: pyinstaller --noconfirm --clean --onefile --windowed --name PDF_KW_Selector_v0.3.3 desktop_app.py
       - uses: actions/upload-artifact@v4
         with:
-          name: PDF_KW_Selector_v0.3.2_Windows
-          path: dist/PDF_KW_Selector_v0.3.2.exe
+          name: PDF_KW_Selector_v0.3.3_Windows
+          path: dist/PDF_KW_Selector_v0.3.3.exe
