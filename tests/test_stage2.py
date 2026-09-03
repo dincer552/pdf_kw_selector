@@ -1,6 +1,6 @@
 from motor_database import MotorRecord
 from motor_compare import compare_motor_records
-from stage2_pdf_discovery import _extract_connection_page, _summary_quantities, _apply_summary_quantities, build_pdf2_motor_records
+from stage2_pdf_discovery import _extract_connection_page, _summary_quantities, _apply_summary_quantities, build_pdf2_motor_records, find_pdf2_motor_powers
 
 
 def test_supply_motor_connection_extracts_7_5_kw():
@@ -22,15 +22,22 @@ def test_return_motor_connection_extracts_5_5_kw():
     assert result.value_kw == 5.5
 
 
-def test_activation_motor_connection_is_not_return_or_exhaust_fan():
-    text = "AHU_EF_01 Activation Motor Connections-1 400 / 3Ph / 50Hz 1,18 kW 3~ M"
-    result = _extract_connection_page(text, 8, "AHU-EF-01")
-    assert result is None
+def test_activation_motor_connection_is_supported_as_separate_family():
+    text = "VE.A.D.10 Activation Motor Connections-1 400 / 3Ph / 50Hz 3~ M -M5"
+    result = _extract_connection_page(text, 8, "VE.A.D.10")
+    assert result is None  # this page has no printed kW; finder uses summary fallback
 
 
-def test_summary_preserves_2x1_quantities():
-    pages = ["Unit Reference AHU-03 Fan Motor Power / Nominal Rpm 22 [kW] (2x1) / 1473 15 [kW] (2x1) / 1466"]
-    assert _summary_quantities(pages) == {"supply_fan": (22.0, "2x1"), "return_fan": (15.0, "2x1")}
+def test_summary_preserves_2x1_quantities_and_activation_value():
+    pages = [
+        "VE.A.D.10 6.3 [kW] (2x1) 1.18 [kW] (2x1) 16 [kW] 4 [kW] (2x1) "
+        "Supply Fan Motor Power: Activation Fan Motor Power: Return Fan Motor Power:"
+    ]
+    assert _summary_quantities(pages) == {
+        "supply_fan": (6.3, "2x1"),
+        "activation_fan": (1.18, "2x1"),
+        "return_fan": (4.0, "2x1"),
+    }
 
 
 def test_two_return_connection_pages_remain_two_physical_motors():
