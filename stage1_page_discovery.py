@@ -7,6 +7,7 @@ from motor_database import expand_motor_group
 from pdf_kw_selector import normalize_power
 RATED_POWER_RE = re.compile(r"(?:anma\s+g(?:ü|u|�)c(?:ü|u|�)|anma\s+g[^a-z0-9\s]{0,2}c[^a-z0-9\s]{0,2}|rated\s+power)\s*\[?\s*kw\s*\]?\s*[:=\-]?\s*(?P<value>\d+(?:[.,]\d+)?)(?:\s*[x×]\s*\(?\s*(?P<quantity>\d+(?:[.,]\d+)?(?:\s*[x×]\s*\d+)?)\s*\)?)?", re.IGNORECASE)
 FAN_MOTOR_POWER_RE = re.compile(r"fan\s+motor\s+power\s*[:=\-]?\s*(?P<value>\d+(?:[.,]\d+)?)\s*\[?\s*kw\s*\]?(?:\s*\(?\s*(?P<quantity>\d+(?:[.,]\d+)?(?:\s*[x×]\s*\d+)?)\s*\)?)?", re.IGNORECASE)
+STANDALONE_MOTOR_POWER_RE = re.compile(r"(?:anma\s+g[^\s]{0,8}|rated\s+power|fan\s+motor\s+power)\s*\[?\s*kw\s*\]?\s*[:=\-]?\s*(?P<value>\d+(?:[.,]\d+)?)", re.IGNORECASE)
 PAGE_POSITIVE_TERMS = {"anma gücü":60,"rated power":60,"motor data":35,"fan data":25,"plug fan":20,"supply air":15,"return air":15,"exhaust air":15,"nominal rpm":8,"model / miktar":8,"fan motor power":45}
 PAGE_NEGATIVE_TERMS = {"cooling capacity":-25,"heating capacity":-25,"shaft power":-15,"vfd dahil":-12,"vfd hariç":-12,"unit total power":-20,"tot. abs. power":-15}
 @dataclass(frozen=True)
@@ -19,7 +20,7 @@ class MotorPowerResult:
     def to_dict(self): return asdict(self)
 def _clean(text): return re.sub(r"\s+"," ",text).strip()
 def _ascii(text): return "".join(ch for ch in unicodedata.normalize("NFKD",text) if not unicodedata.combining(ch)).lower()
-def _has_rated_power(text): return bool(RATED_POWER_RE.search(text) or FAN_MOTOR_POWER_RE.search(text))
+def _has_rated_power(text): return bool(RATED_POWER_RE.search(text) or FAN_MOTOR_POWER_RE.search(text) or STANDALONE_MOTOR_POWER_RE.search(text))
 def _page_score(text):
     lowered=_clean(text).lower(); score=0; matched=[]
     for term,weight in PAGE_POSITIVE_TERMS.items():
@@ -49,7 +50,7 @@ def _local_context(text,match):
         if short_direction: start=short_direction[-1].start()
     return cleaned[start:end]
 def _result_from_match(text,page_number,match):
-    cleaned=_clean(text); raw=match.group("value"); value=normalize_power(float(raw.replace(",",".")),"kw"); q=_normalize_quantity(match.group("quantity")); context=_local_context(cleaned,match); typ,role=detect_component_type(context)
+    cleaned=_clean(text); raw=match.group("value"); value=normalize_power(float(raw.replace(",",".")),"kw"); q=_normalize_quantity(match.groupdict().get("quantity")); context=_local_context(cleaned,match); typ,role=detect_component_type(context)
     return MotorPowerResult(page_number,value,raw,q,"fan_motor_power","high" if role else "review",cleaned[max(0,match.start()-120):min(len(cleaned),match.end()+120)],typ,role,extract_equipment_id(cleaned))
 def extract_rated_motor_powers_from_page(text,page_number):
     cleaned=_clean(text); matches=[]
@@ -63,10 +64,8 @@ def extract_rated_motor_powers_from_page(text,page_number):
 def extract_rated_motor_power_from_page(text,page_number):
     results=extract_rated_motor_powers_from_page(text,page_number)
     if results: return results[0]
-    cleaned=_clean(text)
-    for p in (RATED_POWER_RE,FAN_MOTOR_POWER_RE):
-        m=p.search(cleaned)
-        if m: return _result_from_match(cleaned,page_number,m)
+    cleaned=_clean(text); m=STANDALONE_MOTOR_POWER_RE.search(cleaned)
+    if m: return _result_from_match(cleaned,page_number,m)
     return None
 def _dedupe_motor_results(results):
     unique=[]; seen=set()
@@ -79,8 +78,7 @@ def _dedupe_motor_results(results):
 def find_rated_motor_powers_in_pdf(path):
     from pypdf import PdfReader
     results=[]
-    for page_number,page in enumerate(PdfReader(str(path)).pages,1):
-        results.extend(extract_rated_motor_powers_from_page(page.extract_text() or "",page_number))
+    for page_number,page in enumerate(PdfReader(str(path)).pages,1): results.extend(extract_rated_motor_powers_from_page(page.extract_text() or "",page_number))
     return _dedupe_motor_results(results)
 def find_rated_motor_power_in_pdf(path):
     results=find_rated_motor_powers_in_pdf(path); return results[0] if results else None
