@@ -7,7 +7,7 @@ from pathlib import Path
 from motor_database import expand_motor_group
 from pdf_kw_selector import normalize_power
 
-RATED_POWER_RE = re.compile(r"(?:anma\s+g(?:ü|u)c(?:ü|u)|anma\s+g.c.|rated\s+power)\s*\[?\s*kw\s*\]?\s*[:=\-]?\s*(?P<value>\d+(?:[.,]\d+)?)(?:\s*[x×]\s*\(?\s*(?P<quantity>\d+(?:[.,]\d+)?(?:\s*[x×]\s*\d+)?)\s*\)?)?", re.IGNORECASE)
+RATED_POWER_RE = re.compile(r"(?:anma\s+g(?:ü|u|�)c(?:ü|u|�)|anma\s+g\.c\.|rated\s+power)\s*\[?\s*kw\s*\]?\s*[:=\-]?\s*(?P<value>\d+(?:[.,]\d+)?)(?:\s*[x×]\s*\(?\s*(?P<quantity>\d+(?:[.,]\d+)?(?:\s*[x×]\s*\d+)?)\s*\)?)?", re.IGNORECASE)
 FAN_MOTOR_POWER_RE = re.compile(r"fan\s+motor\s+power\s*[:=\-]?\s*(?P<value>\d+(?:[.,]\d+)?)\s*\[?\s*kw\s*\]?(?:\s*\(?\s*(?P<quantity>\d+(?:[.,]\d+)?(?:\s*[x×]\s*\d+)?)\s*\)?)?", re.IGNORECASE)
 PAGE_POSITIVE_TERMS = {"anma gücü":60,"rated power":60,"motor data":35,"fan data":25,"plug fan":20,"supply air":15,"return air":15,"exhaust air":15,"nominal rpm":8,"model / miktar":8,"fan motor power":45}
 PAGE_NEGATIVE_TERMS = {"cooling capacity":-25,"heating capacity":-25,"shaft power":-15,"vfd dahil":-12,"vfd hariç":-12,"unit total power":-20,"tot. abs. power":-15}
@@ -41,7 +41,7 @@ def detect_component_type(text):
     if ret and not supply: return "Aspiratör","return_fan"
     return None,None
 def extract_equipment_id(text):
-    cleaned=_clean(text); ref=re.search(r"(?:unit\s+reference|birim\s+referans[ıi])\s*[:#-]?\s*([A-Z0-9]+(?:[-_]\d+)+|[A-Z]{2,}\s*[-_]\s*\d+|[A-Z]{2,}\s+\d+)\b",cleaned,re.I)
+    cleaned=_clean(text); ref=re.search(r"(?:unit\s+reference|birim\s+referans[ıi])\s*[:#-]?\s*([A-Z0-9]+(?:[-_]\s*[A-Z0-9]+)+|[A-Z]{2,}\s+\d+)\b",cleaned,re.I)
     if ref:
         raw=ref.group(1).strip(); compact=re.sub(r"[-_\s]+","-",raw).upper()
         m=re.fullmatch(r"PW-0*(\d+)",compact)
