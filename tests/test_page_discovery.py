@@ -1,6 +1,7 @@
 from stage1_page_discovery import (
     build_stage1_motor_records,
     discover_motor_power_page,
+    extract_equipment_id,
     extract_rated_motor_power_from_page,
     extract_rated_motor_powers_from_page,
 )
@@ -70,6 +71,12 @@ Rated Power [kW] 5,500 x (1x1)
 Tot. Abs. power,excluding VSD [kW] 4,6094
 """
 
+SYSTEMAIR_SUMMARY = """
+Unit Reference VE.A.D.01E
+Return
+Fan Motor Power / Nominal Rpm 1.1 [kW] (2x1) / 2870 [1/min]
+"""
+
 
 def test_page_6_wins_for_explicit_rated_motor_power():
     ranked = discover_motor_power_page([PAGE_1, PAGE_2, PAGE_6])
@@ -98,10 +105,19 @@ def test_unrelated_kw_values_are_not_selected_as_rated_power():
 
 def test_return_air_maps_to_aspirator():
     from stage1_page_discovery import detect_component_type
-
     assert detect_component_type("Plug fan Return air Rated Power [kW] 15,000 x (2x1)") == (
         "Aspiratör", "return_fan"
     )
+
+
+def test_summary_return_maps_to_aspirator():
+    result = extract_rated_motor_power_from_page(SYSTEMAIR_SUMMARY, page_number=1)
+    assert result is not None
+    assert result.component_type == "Aspiratör"
+    assert result.component_role == "return_fan"
+    assert result.equipment_id == "VE.A.D.01E"
+    assert result.value_kw == 1.1
+    assert result.quantity == "2x1"
 
 
 def test_realistic_pw02_supply_page_creates_physical_motor():
@@ -138,6 +154,10 @@ def test_real_pdf_ahu_ef_dual_fans_are_separate_and_correct():
     assert (exhaust.equipment_id, exhaust.component_role, exhaust.value_kw) == ("AHU-EF-01", "exhaust_fan", 5.5)
     assert build_stage1_motor_records(supply)[0].component_label == "Vant 1"
     assert build_stage1_motor_records(exhaust)[0].component_label == "Asp 1"
+
+
+def test_systemair_dot_reference_is_preserved():
+    assert extract_equipment_id("Unit Reference VE.A.D.01E") == "VE.A.D.01E"
 
 
 def test_dual_fans_on_one_summary_page_are_not_lost():
