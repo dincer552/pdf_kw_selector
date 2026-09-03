@@ -12,7 +12,6 @@ field rather than arbitrary nearby kW values.
 from __future__ import annotations
 
 import re
-import unicodedata
 from dataclasses import asdict, dataclass
 from pathlib import Path
 
@@ -102,12 +101,7 @@ def _normalize_quantity(quantity: str | None) -> str | None:
 
 
 def detect_component_type(text: str) -> tuple[str | None, str | None]:
-    """Map airflow direction to the project's component terminology.
-
-    Supply air -> Vantilatör
-    Return air -> Aspiratör
-    Exhaust air -> Aspiratör
-    """
+    """Map airflow direction to the project's component terminology."""
     lowered = _clean(text).lower()
     supply = bool(re.search(r"\bsupply\s+air\b", lowered))
     return_air = bool(re.search(r"\breturn\s+air\b", lowered))
@@ -123,49 +117,70 @@ def detect_component_type(text: str) -> tuple[str | None, str | None]:
 
 
 def extract_equipment_id(text: str) -> str | None:
-    """Extract the unit reference generically (AHU-1, PW-02, etc.)."""
+    """Extract the unit reference generically (AHU-1, AHU-EF-01, PW-02, etc.)."""
     cleaned = _clean(text)
-
-    # Prefer the explicit unit-reference field used by Systemair exports.
     reference = re.search(
         r"(?:unit\s+reference|birim\s+referans[ıi])\s*[:#-]?\s*"
-        r"([A-Z]{2,10}[\s_-]*\d{1,6})\b",
+        r"([A-Z0-9]+(?:[\s_-]+[A-Z0-9]+)*)\b",
         cleaned,
         re.IGNORECASE,
     )
     if reference:
-        raw = reference.group(1)
-        prefix, number = re.match(r"([A-Z]{2,10})[\s_-]*(\d+)", raw, re.IGNORECASE).groups()
-        return f"{prefix.upper()}{int(number)}"
+        raw = reference.group(1).strip()
+        parts = [p for p in re.split(r"[\s_-]+", raw) if p]
+        if len(parts) == 2 and parts[1].isdigit():
+            return f"{parts[0].upper()}{int(parts[1])}"
+        normalized = []
+        for part in parts:
+            normalized.append(str(int(part)) if part.isdigit() else part.upper())
+        return "-".join(normalized)
 
-    # Fallback for documents that expose only an AHU identifier.
     match = re.search(r"\bAHU\s*[-_ ]?\s*0*(\d+)\b", cleaned, re.IGNORECASE)
     return f"AHU{int(match.group(1))}" if match else None
 
 
-def extract_rated_motor_power_from_page(text: str, page_number: int) -> MotorPowerResult | None:
+def _result_from_match(text: str, page_number: int, match: re.Match) -> MotorPowerResult:
     cleaned = _clean(text)
-    match = RATED_POWER_RE.search(cleaned)
-    if not match:
-        return None
     raw_value = match.group("value")
     value = normalize_power(float(raw_value.replace(",", ".")), "kw")
     quantity = _normalize_quantity(match.group("quantity"))
-    component_type, component_role = detect_component_type(cleaned)
-    start = max(0, match.start() - 120)
-    end = min(len(cleaned), match.end() + 120)
+    # Direction must be inferred from the local fan block, not the entire AHU page.
+    # Page 1, for example, contains both Supply and Return fan data.
+    start = max(0, match.start() - 350)
+    end = min(len(cleaned), match.end() + 150)
+    context = cleaned[start:end]
+    component_type, component_role = detect_component_type(context)
+    source_start = max(0, match.start() - 120)
+    source_end = min(len(cleaned), match.end() + 120)
     return MotorPowerResult(
         page_number=page_number,
         value_kw=value,
         raw_value=raw_value,
         quantity=quantity,
         field="fan_motor_power",
-        confidence="high",
-        source_text=cleaned[start:end],
+        confidence="high" if component_role else "review",
+        source_text=cleaned[source_start:source_end],
         component_type=component_type,
         component_role=component_role,
         equipment_id=extract_equipment_id(cleaned),
     )
+
+
+def extract_rated_motor_powers_from_page(text: str, page_number: int) -> list[MotorPowerResult]:
+    """Extract every rated fan motor on a page, using local block context."""
+    cleaned = _clean(text)
+    results: list[MotorPowerResult] = []
+    for match in RATED_POWER_RE.finditer(cleaned):
+        result = _result_from_match(cleaned, page_number, match)
+        if result.component_role is not None:
+            results.append(result)
+    return results
+
+
+def extract_rated_motor_power_from_page(text: str, page_number: int) -> MotorPowerResult | None:
+    """Backward-compatible singular API: return the first valid motor on the page."""
+    results = extract_rated_motor_powers_from_page(text, page_number)
+    return results[0] if results else None
 
 
 def find_rated_motor_powers_in_pdf(path: str | Path) -> list[MotorPowerResult]:
@@ -176,17 +191,15 @@ def find_rated_motor_powers_in_pdf(path: str | Path) -> list[MotorPowerResult]:
     results: list[MotorPowerResult] = []
     seen: set[tuple[int, str | None, float, str | None]] = set()
 
-    for candidate in discover_motor_power_page(pages):
-        result = extract_rated_motor_power_from_page(candidate.text, candidate.page_number)
-        if result is None or result.component_role is None:
-            continue
-        key = (result.page_number, result.component_role, result.value_kw, result.quantity)
-        if key in seen:
-            continue
-        seen.add(key)
-        results.append(result)
+    for page_number, text in enumerate(pages, start=1):
+        for result in extract_rated_motor_powers_from_page(text, page_number):
+            key = (result.page_number, result.component_role, result.value_kw, result.quantity)
+            if key in seen:
+                continue
+            seen.add(key)
+            results.append(result)
 
-    return sorted(results, key=lambda item: item.page_number)
+    return results
 
 
 def find_rated_motor_power_in_pdf(path: str | Path) -> MotorPowerResult | None:
