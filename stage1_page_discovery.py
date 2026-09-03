@@ -5,7 +5,7 @@ import unicodedata
 from dataclasses import asdict, dataclass
 from motor_database import expand_motor_group
 from pdf_kw_selector import normalize_power
-RATED_POWER_RE = re.compile(r"(?:anma\s+g(?:ü|u|�)c(?:ü|u|�)|anma\s+g\.c\.|rated\s+power)\s*\[?\s*kw\s*\]?\s*[:=\-]?\s*(?P<value>\d+(?:[.,]\d+)?)(?:\s*[x×]\s*\(?\s*(?P<quantity>\d+(?:[.,]\d+)?(?:\s*[x×]\s*\d+)?)\s*\)?)?", re.IGNORECASE)
+RATED_POWER_RE = re.compile(r"(?:anma\s+g(?:ü|u|�)c(?:ü|u|�)|anma\s+g[^a-z0-9\s]{0,2}c[^a-z0-9\s]{0,2}|rated\s+power)\s*\[?\s*kw\s*\]?\s*[:=\-]?\s*(?P<value>\d+(?:[.,]\d+)?)(?:\s*[x×]\s*\(?\s*(?P<quantity>\d+(?:[.,]\d+)?(?:\s*[x×]\s*\d+)?)\s*\)?)?", re.IGNORECASE)
 FAN_MOTOR_POWER_RE = re.compile(r"fan\s+motor\s+power\s*[:=\-]?\s*(?P<value>\d+(?:[.,]\d+)?)\s*\[?\s*kw\s*\]?(?:\s*\(?\s*(?P<quantity>\d+(?:[.,]\d+)?(?:\s*[x×]\s*\d+)?)\s*\)?)?", re.IGNORECASE)
 PAGE_POSITIVE_TERMS = {"anma gücü":60,"rated power":60,"motor data":35,"fan data":25,"plug fan":20,"supply air":15,"return air":15,"exhaust air":15,"nominal rpm":8,"model / miktar":8,"fan motor power":45}
 PAGE_NEGATIVE_TERMS = {"cooling capacity":-25,"heating capacity":-25,"shaft power":-15,"vfd dahil":-12,"vfd hariç":-12,"unit total power":-20,"tot. abs. power":-15}
@@ -71,10 +71,7 @@ def extract_rated_motor_power_from_page(text,page_number):
 def _dedupe_motor_results(results):
     unique=[]; seen=set()
     for result in results:
-        # Return and Exhaust are both Aspiratör in our motor database, so a
-        # Systemair summary "Return" and its detailed "Exhaust air" page are
-        # the same physical fan block and must not be counted twice.
-        family = "Vantilatör" if result.component_type == "Vantilatör" else "Aspiratör" if result.component_type == "Aspiratör" else result.component_role
+        family="Vantilatör" if result.component_type=="Vantilatör" else "Aspiratör" if result.component_type=="Aspiratör" else result.component_role
         key=(result.equipment_id,family,result.value_kw,result.quantity)
         if key in seen: continue
         seen.add(key); unique.append(result)
