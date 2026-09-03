@@ -1,6 +1,6 @@
 from motor_database import MotorRecord
 from motor_compare import compare_motor_records
-from stage2_pdf_discovery import _extract_connection_page, _summary_quantities, build_pdf2_motor_records, find_pdf2_motor_powers
+from stage2_pdf_discovery import _extract_connection_page, _summary_quantities, _apply_summary_quantities, build_pdf2_motor_records
 
 
 def test_supply_motor_connection_extracts_7_5_kw():
@@ -34,7 +34,6 @@ def test_summary_preserves_2x1_quantities():
 
 
 def test_two_return_connection_pages_remain_two_physical_motors():
-    from stage2_pdf_discovery import _apply_summary_quantities
     results = [
         _extract_connection_page("VE.A.D.10 Return Motor Connections-1 4 kW 3~ -U1 4 kW / 3x 380-480 VAC", 9, "VE.A.D.10"),
         _extract_connection_page("VE.A.D.10 Return Motor Connections-2 4 kW 3~ -U2 4 kW / 3x 380-480 VAC", 10, "VE.A.D.10"),
@@ -44,8 +43,11 @@ def test_two_return_connection_pages_remain_two_physical_motors():
     assert len(results) == 2
     assert [r.source_page for r in results] == [9, 10]
     assert [r.quantity for r in results] == ["1x1", "1x1"]
-    records = [r for result in results for r in build_pdf2_motor_records(result)]
-    assert [r.component_label for r in records] == ["Asp 1", "Asp 1"]
+    records = []
+    for i, result in enumerate(results, 1):
+        records.extend(build_pdf2_motor_records(result, start_index=i))
+    assert [r.component_label for r in records] == ["Asp 1", "Asp 2"]
+    assert [r.source_page for r in records] == [9, 10]
     assert all(r.power_kw == 4.0 for r in records)
 
 
