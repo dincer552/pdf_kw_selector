@@ -5,8 +5,9 @@ import unicodedata
 from dataclasses import asdict, dataclass
 from motor_database import expand_motor_group
 from pdf_kw_selector import normalize_power
+
 RATED_POWER_RE = re.compile(r"(?:anma\s+g(?:ü|u|�)c(?:ü|u|�)|anma\s+g[^a-z0-9\s]{0,2}c[^a-z0-9\s]{0,2}|rated\s+power)\s*\[?\s*kw\s*\]?\s*[:=\-]?\s*(?P<value>\d+(?:[.,]\d+)?)(?:\s*[x×]\s*\(?\s*(?P<quantity>\d+(?:[.,]\d+)?(?:\s*[x×]\s*\d+)?)\s*\)?)?", re.IGNORECASE)
-FAN_MOTOR_POWER_RE = re.compile(r"fan\s+motor\s+power\s*[:=\-]?\s*(?P<value>\d+(?:[.,]\d+)?)\s*\[?\s*kw\s*\]?(?:\s*\(?\s*(?P<quantity>\d+(?:[.,]\d+)?(?:\s*[x×]\s*\d+)?)\s*\)?)?", re.IGNORECASE)
+FAN_MOTOR_POWER_RE = re.compile(r"fan\s+motor\s+power\s*(?:/\s*nominal\s+rpm\s*)?[:=\-]?\s*(?P<value>\d+(?:[.,]\d+)?)\s*\[?\s*kw\s*\]?(?:\s*\(?\s*(?P<quantity>\d+(?:[.,]\d+)?(?:\s*[x×]\s*\d+)?)\s*\)?)?", re.IGNORECASE)
 STANDALONE_MOTOR_POWER_RE = re.compile(r"(?:anma\s+g[^\s]{0,8}|rated\s+power|fan\s+motor\s+power)\s*\[?\s*kw\s*\]?\s*[:=\-]?\s*(?P<value>\d+(?:[.,]\d+)?)", re.IGNORECASE)
 PAGE_POSITIVE_TERMS = {"anma gücü":60,"rated power":60,"motor data":35,"fan data":25,"plug fan":20,"supply air":15,"return air":15,"exhaust air":15,"nominal rpm":8,"model / miktar":8,"fan motor power":45}
 PAGE_NEGATIVE_TERMS = {"cooling capacity":-25,"heating capacity":-25,"shaft power":-15,"vfd dahil":-12,"vfd hariç":-12,"unit total power":-20,"tot. abs. power":-15}
