@@ -10,7 +10,7 @@ from motor_compare import MotorComparison, compare_motor_records
 from stage1_page_discovery import build_stage1_motor_records, find_rated_motor_powers_in_pdf
 from stage2_pdf_discovery import build_pdf2_motor_records, find_pdf2_motor_powers
 
-VERSION = "v0.3.1"
+VERSION = "v0.3.2"
 
 
 class App(tk.Tk):
@@ -29,54 +29,36 @@ class App(tk.Tk):
         self._build()
 
     def _build(self):
-        outer = ttk.Frame(self, padding=18)
+        outer = ttk.Frame(self, padding=12)
         outer.pack(fill="both", expand=True)
-        ttk.Label(outer, text="PDF kW SELECTOR", font=("Segoe UI", 20, "bold")).pack(anchor="w")
-        ttk.Label(
-            outer,
-            text=f"{VERSION}  •  PDF 1 motor database + PDF 2 motor discovery + fiziksel motor karşılaştırma",
-            font=("Segoe UI", 10),
-        ).pack(anchor="w", pady=(0, 14))
+        outer.columnconfigure(0, weight=1)
+        outer.rowconfigure(2, weight=1)
 
-        files = ttk.Frame(outer)
-        files.pack(fill="x")
-        self.pdf1_label = self._file_box(files, "PDF 1 — Seçim / Referans", 0, self.select_pdf1)
-        self.pdf2_label = self._file_box(files, "PDF 2 — Elektrik / Sipariş", 1, self.select_pdf2)
-        files.columnconfigure(0, weight=1)
-        files.columnconfigure(1, weight=1)
+        top = ttk.Frame(outer)
+        top.grid(row=0, column=0, sticky="ew")
+        top.columnconfigure(0, weight=1)
+        top.columnconfigure(1, weight=1)
+        self.pdf1_label = self._file_box(top, "PDF 1 — Seçim / ekipman", 0, self.select_pdf1)
+        self.pdf2_label = self._file_box(top, "PDF 2 — Elektrik / sürücü", 1, self.select_pdf2)
 
-        action = ttk.Frame(outer)
-        action.pack(fill="x", pady=12)
-        ttk.Button(action, text="KARŞILAŞTIR", command=self.compare).pack(side="left")
-        ttk.Button(action, text="JSON KAYDET", command=self.save_json).pack(side="left", padx=(8, 0))
-        ttk.Label(
-            action,
-            text="Her iki PDF seçildiğinde KARŞILAŞTIR ile fiziksel motor bazında kontrol edilir.",
-            foreground="#666",
-        ).pack(side="right")
+        actions = ttk.Frame(outer)
+        actions.grid(row=1, column=0, sticky="ew", pady=10)
+        ttk.Button(actions, text="KARŞILAŞTIR", command=self.compare).pack(side="left")
+        ttk.Button(actions, text="JSON KAYDET", command=self.save_json).pack(side="left", padx=8)
+        self.status = ttk.Label(actions, text="Hazır")
+        self.status.pack(side="right")
 
-        result_frame = ttk.LabelFrame(outer, text="PDF 1 ↔ PDF 2 Motor Karşılaştırması", padding=10)
-        result_frame.pack(fill="both", expand=True)
-        self.status = ttk.Label(
-            result_frame,
-            text="Önce PDF 1 ve PDF 2 seçin.",
-            font=("Segoe UI", 11, "bold"),
-        )
-        self.status.pack(anchor="w", pady=(0, 8))
-
-        cols = ("motor", "type", "pdf1", "pdf2", "diff", "status", "page1", "page2")
-        self.tree = ttk.Treeview(result_frame, columns=cols, show="headings", height=15)
+        result_frame = ttk.Frame(outer)
+        result_frame.grid(row=2, column=0, sticky="nsew")
+        result_frame.columnconfigure(0, weight=1)
+        result_frame.rowconfigure(0, weight=1)
+        cols = ("label", "type", "pdf1", "pdf2", "diff", "status", "page1", "page2")
         headings = {
-            "motor": "Motor",
-            "type": "Tip",
-            "pdf1": "PDF 1 kW",
-            "pdf2": "PDF 2 kW",
-            "diff": "Fark kW",
-            "status": "Sonuç",
-            "page1": "PDF 1 Sayfa",
-            "page2": "PDF 2 Sayfa",
+            "label": "Motor", "type": "Tip", "pdf1": "PDF 1 kW", "pdf2": "PDF 2 kW",
+            "diff": "Fark", "status": "Durum", "page1": "PDF1 Sayfa", "page2": "PDF2 Sayfa",
         }
-        widths = {"motor": 100, "type": 130, "pdf1": 95, "pdf2": 95, "diff": 90, "status": 120, "page1": 100, "page2": 100}
+        widths = {"label": 110, "type": 110, "pdf1": 90, "pdf2": 90, "diff": 80, "status": 120, "page1": 90, "page2": 90}
+        self.tree = ttk.Treeview(result_frame, columns=cols, show="headings", height=18)
         for col in cols:
             self.tree.heading(col, text=headings[col])
             self.tree.column(col, width=widths[col], anchor="center")
@@ -86,7 +68,7 @@ class App(tk.Tk):
         self.tree.configure(yscrollcommand=scroll.set)
 
         self.detail = tk.Text(outer, height=8, wrap="word", font=("Consolas", 9))
-        self.detail.pack(fill="x", pady=(10, 0))
+        self.detail.grid(row=3, column=0, sticky="ew", pady=(10, 0))
         self.detail.configure(state="disabled")
 
     def _file_box(self, parent, title, column, command):
@@ -127,7 +109,14 @@ class App(tk.Tk):
     def _analyze_pdf2(self):
         try:
             self.pdf2_results = find_pdf2_motor_powers(self.pdf2)
-            self.pdf2_motors = [record for result in self.pdf2_results for record in build_pdf2_motor_records(result)]
+            counters = {"Vantilatör": 0, "Aspiratör": 0}
+            motors = []
+            for result in self.pdf2_results:
+                start_index = counters.get(result.component_type, 0) + 1
+                records = build_pdf2_motor_records(result, start_index=start_index)
+                motors.extend(records)
+                counters[result.component_type] = start_index + len(records) - 1
+            self.pdf2_motors = motors
             self.status.configure(text=f"PDF 2 hazır — {len(self.pdf2_motors)} fiziksel motor")
             self._set_detail(json.dumps([r.to_dict() for r in self.pdf2_motors], ensure_ascii=False, indent=2))
         except Exception as exc:
