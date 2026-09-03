@@ -117,11 +117,11 @@ def detect_component_type(text: str) -> tuple[str | None, str | None]:
 
 
 def extract_equipment_id(text: str) -> str | None:
-    """Extract the unit reference generically (AHU-1, AHU-EF-01, PW-02, etc.)."""
+    """Extract the explicit unit reference without consuming following labels."""
     cleaned = _clean(text)
     reference = re.search(
         r"(?:unit\s+reference|birim\s+referans[ıi])\s*[:#-]?\s*"
-        r"([A-Z0-9]+(?:[\s_-]+[A-Z0-9]+)*)\b",
+        r"((?:[A-Z0-9]+(?:[-_][A-Z0-9]+)+)|(?:[A-Z]{2,}\s*[-_]\s*\d+)|(?:[A-Z]{2,}\s+\d+))\b",
         cleaned,
         re.IGNORECASE,
     )
@@ -145,7 +145,6 @@ def _result_from_match(text: str, page_number: int, match: re.Match) -> MotorPow
     value = normalize_power(float(raw_value.replace(",", ".")), "kw")
     quantity = _normalize_quantity(match.group("quantity"))
     # Direction must be inferred from the local fan block, not the entire AHU page.
-    # Page 1, for example, contains both Supply and Return fan data.
     start = max(0, match.start() - 350)
     end = min(len(cleaned), match.end() + 150)
     context = cleaned[start:end]
