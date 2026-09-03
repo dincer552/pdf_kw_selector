@@ -43,8 +43,7 @@ def detect_component_type(text):
 def extract_equipment_id(text):
     cleaned=_clean(text); ref=re.search(r"(?:unit\s+reference|birim\s+referans[ıi])\s*[:#-]?\s*([A-Z0-9]+(?:[-_]\s*[A-Z0-9]+)+|[A-Z]{2,}\s+\d+)\b",cleaned,re.I)
     if ref:
-        raw=ref.group(1).strip(); compact=re.sub(r"[-_\s]+","-",raw).upper()
-        m=re.fullmatch(r"PW-0*(\d+)",compact)
+        raw=ref.group(1).strip(); compact=re.sub(r"[-_\s]+","-",raw).upper(); m=re.fullmatch(r"PW-0*(\d+)",compact)
         return f"PW{int(m.group(1))}" if m else compact
     m=re.search(r"\bAHU\s*[-_ ]?\s*(\d+)\b",cleaned,re.I); return f"AHU{int(m.group(1))}" if m else None
 
@@ -62,7 +61,13 @@ def extract_rated_motor_powers_from_page(text,page_number):
         seen.add(key); results.append(r)
     return results
 def extract_rated_motor_power_from_page(text,page_number):
-    results=extract_rated_motor_powers_from_page(text,page_number); return results[0] if results else None
+    results=extract_rated_motor_powers_from_page(text,page_number)
+    if results: return results[0]
+    cleaned=_clean(text)
+    for p in (RATED_POWER_RE,FAN_MOTOR_POWER_RE):
+        m=p.search(cleaned)
+        if m: return _result_from_match(cleaned,page_number,m)
+    return None
 def find_rated_motor_powers_in_pdf(path):
     from pypdf import PdfReader
     results=[]; seen=set()
