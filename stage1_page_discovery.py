@@ -8,6 +8,16 @@ from pdf_kw_selector import normalize_power
 
 RATED_POWER_RE = re.compile(r"(?:anma\s+g(?:ü|u|�)c(?:ü|u|�)|anma\s+g[^a-z0-9\s]{0,2}c[^a-z0-9\s]{0,2}|rated\s+power)\s*\[?\s*kw\s*\]?\s*[:=\-]?\s*(?P<value>\d+(?:[.,]\d+)?)(?:\s*[x×]\s*\(?\s*(?P<quantity>\d+(?:[.,]\d+)?(?:\s*[x×]\s*\d+)?)\s*\)?)?", re.IGNORECASE)
 FAN_MOTOR_POWER_RE = re.compile(r"fan\s+motor\s+power\s*(?:/\s*nominal\s+rpm\s*)?[:=\-]?\s*(?P<value>\d+(?:[.,]\d+)?)\s*\[?\s*kw\s*\]?(?:\s*\(?\s*(?P<quantity>\d+(?:[.,]\d+)?(?:\s*[x×]\s*\d+)?)\s*\)?)?", re.IGNORECASE)
+# Systemair summary pages can place Supply and Return in columns on one line:
+# "Fan Motor Power ... 5.5 [kW] (1x1) ... 2.2 [kW] (1x1)".
+SUMMARY_FAN_MOTOR_POWER_RE = re.compile(
+    r"fan\s+motor\s+power\s*(?:/\s*nominal\s+rpm\s*)?"
+    r".*?(?P<supply_value>\d+(?:[.,]\d+)?)\s*\[?\s*kw\s*\]?"
+    r"\s*\(?\s*(?P<supply_quantity>\d+(?:[.,]\d+)?(?:\s*[x×]\s*\d+)?)\s*\)?"
+    r".*?(?P<return_value>\d+(?:[.,]\d+)?)\s*\[?\s*kw\s*\]?"
+    r"\s*\(?\s*(?P<return_quantity>\d+(?:[.,]\d+)?(?:\s*[x×]\s*\d+)?)\s*\)?",
+    re.IGNORECASE,
+)
 STANDALONE_MOTOR_POWER_RE = re.compile(r"(?:anma\s+g[^\s]{0,8}|rated\s+power|fan\s+motor\s+power)\s*\[?\s*kw\s*\]?\s*[:=\-]?\s*(?P<value>\d+(?:[.,]\d+)?)", re.IGNORECASE)
 PAGE_POSITIVE_TERMS = {"anma gücü":60,"rated power":60,"motor data":35,"fan data":25,"plug fan":20,"supply air":15,"return air":15,"exhaust air":15,"nominal rpm":8,"model / miktar":8,"fan motor power":45}
 PAGE_NEGATIVE_TERMS = {"cooling capacity":-25,"heating capacity":-25,"shaft power":-15,"vfd dahil":-12,"vfd hariç":-12,"unit total power":-20,"tot. abs. power":-15}
@@ -50,15 +60,25 @@ def _local_context(text,match):
         short_direction=list(re.finditer(r"\b(?:supply|return|exhaust)\b",before,re.I))
         if short_direction: start=short_direction[-1].start()
     return cleaned[start:end]
-def _result_from_match(text,page_number,match):
-    cleaned=_clean(text); raw=match.group("value"); value=normalize_power(float(raw.replace(",",".")),"kw"); q=_normalize_quantity(match.groupdict().get("quantity")); context=_local_context(cleaned,match); typ,role=detect_component_type(context)
+def _result_from_match(text,page_number,match,forced_component=None):
+    cleaned=_clean(text); raw=match.group("value"); value=normalize_power(float(raw.replace(",",".")),"kw"); q=_normalize_quantity(match.groupdict().get("quantity")); context=_local_context(cleaned,match); typ,role=forced_component or detect_component_type(context)
     return MotorPowerResult(page_number,value,raw,q,"fan_motor_power","high" if role else "review",cleaned[max(0,match.start()-120):min(len(cleaned),match.end()+120)],typ,role,extract_equipment_id(cleaned))
+def _summary_results(text,page_number):
+    cleaned=_clean(text); out=[]
+    for match in SUMMARY_FAN_MOTOR_POWER_RE.finditer(cleaned):
+        # The summary table's left value is Supply and right value is Return.
+        for value_group, quantity_group, component in (("supply_value","supply_quantity",("Vantilatör","supply_fan")),("return_value","return_quantity",("Aspiratör","return_fan"))):
+            raw=match.group(value_group); q=_normalize_quantity(match.group(quantity_group)); value=normalize_power(float(raw.replace(",",".")),"kw")
+            out.append(MotorPowerResult(page_number,value,raw,q,"fan_motor_power","high",match.group(0),component[0],component[1],extract_equipment_id(cleaned)))
+    return out
 def extract_rated_motor_powers_from_page(text,page_number):
-    cleaned=_clean(text); matches=[]
+    cleaned=_clean(text); summary=_summary_results(cleaned,page_number)
+    if summary: return summary
+    matches=[]
     for p in (RATED_POWER_RE,FAN_MOTOR_POWER_RE): matches.extend((m.start(),m) for m in p.finditer(cleaned))
     results=[]; seen=set()
     for _,m in sorted(matches,key=lambda x:x[0]):
-        r=_result_from_match(cleaned,page_number,m); key=(m.start(),r.raw_value,r.quantity)
+        r=_result_from_match(cleaned,page_number,m); key=(m.start(),r.raw_value,r.quantity,r.component_role)
         if r.component_role is None or key in seen: continue
         seen.add(key); results.append(r)
     return results
@@ -72,7 +92,8 @@ def _dedupe_motor_results(results):
     unique=[]; seen=set()
     for result in results:
         family="Vantilatör" if result.component_type=="Vantilatör" else "Aspiratör" if result.component_type=="Aspiratör" else result.component_role
-        key=(result.equipment_id,family,result.value_kw,result.quantity)
+        # Include direction/role so equal-power Supply and Return fans never collide.
+        key=(result.equipment_id,family,result.component_role,result.value_kw,result.quantity)
         if key in seen: continue
         seen.add(key); unique.append(result)
     return unique
