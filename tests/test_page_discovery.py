@@ -1,4 +1,5 @@
 from stage1_page_discovery import (
+    _dedupe_motor_results,
     build_stage1_motor_records,
     discover_motor_power_page,
     extract_equipment_id,
@@ -84,6 +85,14 @@ Fan Model / Qty. RH56C.CR/SM20-B38 / 1x1 RH50C.CR/SM20-B28 / 1x1
 Fan Motor Power / Nominal Rpm 5.5 [kW] (1x1) / 1455 [1/min] 2.2 [kW] (1x1) / 1444 [1/min]
 """
 
+SYSTEMAIR_DETAIL_EXHAUST = """
+Unit Reference AHU-EF-07
+Plug fan Exhaust air
+Fan data Motor data
+Model / Quantity in WxH Std-IE3-50-100-4-2.2 / 1x1
+Rated Power [kW] 2.200 x (1x1)
+"""
+
 
 def test_page_6_wins_for_explicit_rated_motor_power():
     ranked = discover_motor_power_page([PAGE_1, PAGE_2, PAGE_6])
@@ -134,6 +143,18 @@ def test_summary_dual_columns_map_supply_and_return_correctly():
         ("return_fan", 2.2, "1x1"),
     ]
     assert all(r.equipment_id == "AHU-EF-07" for r in results)
+
+
+def test_summary_return_and_detail_exhaust_are_one_physical_motor():
+    summary = extract_rated_motor_powers_from_page(SYSTEMAIR_DUAL_SUMMARY, page_number=1)
+    detail = extract_rated_motor_power_from_page(SYSTEMAIR_DETAIL_EXHAUST, page_number=10)
+    assert detail is not None
+    deduped = _dedupe_motor_results(summary + [detail])
+    assert len(deduped) == 2
+    assert [(r.component_type, r.value_kw) for r in deduped] == [
+        ("Vantilatör", 5.5),
+        ("Aspiratör", 2.2),
+    ]
 
 
 def test_realistic_pw02_supply_page_creates_physical_motor():
