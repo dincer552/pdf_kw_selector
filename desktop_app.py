@@ -5,7 +5,7 @@ import tkinter as tk
 from pathlib import Path
 from tkinter import filedialog, messagebox, ttk
 from stage1_page_discovery import build_stage1_motor_records, find_rated_motor_powers_in_pdf
-VERSION = "v0.2.5"
+VERSION = "v0.2.6"
 class App(tk.Tk):
     def __init__(self):
         super().__init__(); self.title(f"PDF kW Selector {VERSION} — PDF 1 Test"); self.geometry("1000x680"); self.minsize(880,600); self.pdf1=None; self.results=[]; self._build()
