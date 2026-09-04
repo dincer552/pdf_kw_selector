@@ -1,10 +1,4 @@
-"""Project-name discovery from Systemair engineering PDFs.
-
-The explicit project field ("Proje Name" / "Project Name") is preferred
-when present. A header-level "Project" value is retained as a secondary
-candidate. We keep both raw and normalized values so later project matching
-can make a deliberate decision instead of losing source evidence.
-"""
+"""Project-name discovery from Systemair engineering PDFs."""
 from __future__ import annotations
 
 from dataclasses import dataclass, asdict
@@ -50,8 +44,9 @@ class ProjectDiscovery:
 
 
 def normalize_project_name(value: str) -> str:
-    """Normalize a project name for comparison without destroying raw text."""
+    """Normalize project names while preserving Turkish letter equivalence."""
     value = unicodedata.normalize("NFKC", value or "")
+    value = value.replace("İ", "I").replace("ı", "i")
     value = value.replace("–", "-").replace("—", "-").replace("−", "-")
     value = value.casefold()
     value = "".join(
@@ -63,8 +58,7 @@ def normalize_project_name(value: str) -> str:
 
 
 def _clean_value(value: str) -> str:
-    value = re.sub(r"\s+", " ", value or "").strip(" :-\t")
-    return value
+    return re.sub(r"\s+", " ", value or "").strip(" :-\t")
 
 
 def _candidate(value: str, source: str, page: int, confidence: str) -> ProjectCandidate | None:
@@ -76,7 +70,6 @@ def _candidate(value: str, source: str, page: int, confidence: str) -> ProjectCa
 
 
 def discover_project_from_text(pages: list[str]) -> ProjectDiscovery:
-    """Discover project candidates from already extracted page text."""
     candidates: list[ProjectCandidate] = []
 
     for page_number, text in enumerate(pages, start=1):
@@ -89,7 +82,11 @@ def discover_project_from_text(pages: list[str]) -> ProjectDiscovery:
                 if not value:
                     for next_line in lines[index + 1:index + 6]:
                         next_line = _clean_value(next_line)
-                        if next_line and not re.match(r"^(?:order\s+number|unit\s+number|unit\s+reference)\s*:", next_line, re.I):
+                        if next_line and not re.match(
+                            r"^(?:order\s+number|unit\s+number|unit\s+reference)\s*:",
+                            next_line,
+                            re.I,
+                        ):
                             value = next_line
                             break
                 item = _candidate(value, "project_name_field", page_number, "HIGH")
@@ -103,7 +100,6 @@ def discover_project_from_text(pages: list[str]) -> ProjectDiscovery:
                 if item:
                     candidates.append(item)
 
-    # Keep first occurrence of each (normalized, source) pair.
     unique: list[ProjectCandidate] = []
     seen: set[tuple[str, str]] = set()
     for item in candidates:
