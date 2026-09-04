@@ -1,4 +1,4 @@
-"""Desktop GUI for PDF kW Selector - multi-PDF input and project discovery."""
+"""Desktop GUI for PDF kW Selector - multi-PDF, project and AHU discovery."""
 from __future__ import annotations
 
 import json
@@ -6,13 +6,14 @@ import tkinter as tk
 from pathlib import Path
 from tkinter import filedialog, messagebox, ttk
 
+from ahu_matching import discover_equipment
 from batch_input import discover_pdfs
 from motor_compare import MotorComparison, compare_motor_records
 from project_discovery import discover_project
 from stage1_page_discovery import build_stage1_motor_records, find_rated_motor_powers_in_pdf
 from stage2_pdf_discovery import build_pdf2_motor_records, find_pdf2_motor_powers
 
-VERSION = "v0.4.1"
+VERSION = "v0.4.2"
 
 
 class App(tk.Tk):
@@ -30,6 +31,8 @@ class App(tk.Tk):
         self.pdf2_motors = []
         self.pdf1_projects = []
         self.pdf2_projects = []
+        self.pdf1_ahus = []
+        self.pdf2_ahus = []
         self.comparisons: list[MotorComparison] = []
         self._build()
 
@@ -39,7 +42,7 @@ class App(tk.Tk):
         outer.columnconfigure(0, weight=1)
         outer.rowconfigure(2, weight=1)
         ttk.Label(outer, text="PDF kW SELECTOR", font=("Segoe UI", 19, "bold")).grid(row=0, column=0, sticky="w")
-        ttk.Label(outer, text=f"{VERSION}  •  Multi-PDF + Project Discovery", font=("Segoe UI", 10)).grid(row=0, column=0, sticky="e")
+        ttk.Label(outer, text=f"{VERSION}  •  Multi-PDF + Project + AHU Discovery", font=("Segoe UI", 10)).grid(row=0, column=0, sticky="e")
 
         top = ttk.Frame(outer)
         top.grid(row=1, column=0, sticky="ew", pady=(10, 8))
@@ -124,28 +127,31 @@ class App(tk.Tk):
         self.pdf1_inputs, self.pdf2_inputs = [], []
         self.pdf1 = self.pdf2 = None
         self.pdf1_motors, self.pdf2_motors = [], []
-        self.pdf1_projects, self.pdf2_projects, self.comparisons = [], [], []
+        self.pdf1_projects, self.pdf2_projects = [], []
+        self.pdf1_ahus, self.pdf2_ahus, self.comparisons = [], [], []
         self._update_label(self.pdf1_label, [])
         self._update_label(self.pdf2_label, [])
         for item in self.tree.get_children(): self.tree.delete(item)
         self.status.configure(text="Seçimler temizlendi.")
 
     def _analyze_pdf1_batch(self):
-        motors, results, projects = [], [], []
+        motors, results, projects, ahus = [], [], [], []
         for item in self.pdf1_inputs:
             path = Path(item.path)
             projects.append(discover_project(path))
+            ahus.append(discover_equipment(path))
             found = find_rated_motor_powers_in_pdf(path)
             results.extend(found)
             motors.extend(record for result in found for record in build_stage1_motor_records(result))
-        return results, motors, projects
+        return results, motors, projects, ahus
 
     def _analyze_pdf2_batch(self):
-        motors, results, projects = [], [], []
+        motors, results, projects, ahus = [], [], [], []
         counters: dict[tuple[str, str], int] = {}
         for item in self.pdf2_inputs:
             path = Path(item.path)
             projects.append(discover_project(path))
+            ahus.append(discover_equipment(path))
             found = find_pdf2_motor_powers(path)
             results.extend(found)
             for result in found:
@@ -154,17 +160,17 @@ class App(tk.Tk):
                 records = build_pdf2_motor_records(result, start_index=current)
                 motors.extend(records)
                 counters[key] = current + len(records) - 1
-        return results, motors, projects
+        return results, motors, projects, ahus
 
     def compare(self):
         if not self.pdf1_inputs or not self.pdf2_inputs:
             messagebox.showwarning("PDF eksik", "PDF 1 ve PDF 2 tarafına en az bir PDF veya klasör ekleyin.")
             return
         try:
-            self.status.configure(text="Toplu PDF + Project Discovery analizi yapılıyor...")
+            self.status.configure(text="Toplu PDF + Project + AHU Discovery analizi yapılıyor...")
             self.update_idletasks()
-            self.pdf1_results, self.pdf1_motors, self.pdf1_projects = self._analyze_pdf1_batch()
-            self.pdf2_results, self.pdf2_motors, self.pdf2_projects = self._analyze_pdf2_batch()
+            self.pdf1_results, self.pdf1_motors, self.pdf1_projects, self.pdf1_ahus = self._analyze_pdf1_batch()
+            self.pdf2_results, self.pdf2_motors, self.pdf2_projects, self.pdf2_ahus = self._analyze_pdf2_batch()
             self.comparisons = compare_motor_records(self.pdf1_motors, self.pdf2_motors)
         except Exception as exc:
             messagebox.showerror("Analiz hatası", str(exc))
@@ -176,10 +182,14 @@ class App(tk.Tk):
         for result in self.comparisons:
             counts[result.status] = counts.get(result.status, 0) + 1
             self.tree.insert("", "end", values=(result.component_label,result.component_type,self._fmt(result.pdf1_kw),self._fmt(result.pdf2_kw),self._fmt(result.difference_kw),result.status,result.pdf1_page or "-",result.pdf2_page or "-"))
-        self.status.configure(text=f"✓ {len(self.comparisons)} MOTOR — MATCH {counts['MATCH']} | MISMATCH {counts['MISMATCH']} | PDF1 {counts['ONLY_IN_PDF1']} | PDF2 {counts['ONLY_IN_PDF2']}")
+        pdf1_ahu_count = sum(len(x.unique_ids()) for x in self.pdf1_ahus)
+        pdf2_ahu_count = sum(len(x.unique_ids()) for x in self.pdf2_ahus)
+        self.status.configure(text=f"✓ {len(self.comparisons)} MOTOR | AHU PDF1 {pdf1_ahu_count} | AHU PDF2 {pdf2_ahu_count} | MATCH {counts['MATCH']} | MISMATCH {counts['MISMATCH']}")
         detail = {
             "pdf1_projects": [p.to_dict() for p in self.pdf1_projects],
             "pdf2_projects": [p.to_dict() for p in self.pdf2_projects],
+            "pdf1_ahus": [a.to_dict() for a in self.pdf1_ahus],
+            "pdf2_ahus": [a.to_dict() for a in self.pdf2_ahus],
             "comparison": [r.to_dict() for r in self.comparisons],
         }
         self._set_detail(json.dumps(detail, ensure_ascii=False, indent=2))
@@ -206,6 +216,8 @@ class App(tk.Tk):
             "pdf2_files": [r.to_dict() for r in self.pdf2_inputs],
             "pdf1_projects": [r.to_dict() for r in self.pdf1_projects],
             "pdf2_projects": [r.to_dict() for r in self.pdf2_projects],
+            "pdf1_ahus": [r.to_dict() for r in self.pdf1_ahus],
+            "pdf2_ahus": [r.to_dict() for r in self.pdf2_ahus],
             "pdf1_motors": [r.to_dict() for r in self.pdf1_motors],
             "pdf2_motors": [r.to_dict() for r in self.pdf2_motors],
             "comparison": [r.to_dict() for r in self.comparisons],
