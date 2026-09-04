@@ -2,6 +2,7 @@
 from __future__ import annotations
 
 import json
+import sys
 import tkinter as tk
 from pathlib import Path
 from tkinter import filedialog, messagebox, ttk
@@ -9,6 +10,7 @@ from tkinter import filedialog, messagebox, ttk
 from ahu_matching import normalize_equipment_id
 from batch_analysis import analyze_batch
 from batch_input import discover_pdfs
+from updater import apply_update, check_for_update, download_update, restart_with_update
 
 VERSION = "v0.5.3"
 
@@ -63,6 +65,7 @@ class App(tk.Tk):
         ttk.Button(actions, text="TOPLU ANALİZ", command=self.compare).pack(side="left")
         ttk.Button(actions, text="SEÇİMLERİ TEMİZLE", command=self.clear_inputs).pack(side="left", padx=8)
         ttk.Button(actions, text="JSON KAYDET", command=self.save_json).pack(side="left")
+        ttk.Button(actions, text="GÜNCELLEME KONTROL ET", command=self.check_updates).pack(side="left", padx=8)
         self.status = ttk.Label(actions, text="PDF 1 ve PDF 2 tarafına dosya veya klasör ekleyin.")
         self.status.pack(side="right")
 
@@ -158,31 +161,43 @@ class App(tk.Tk):
             ahu = normalize_equipment_id(comparison.equipment_id)
             project = ahu_context.get(ahu, "-")
             self.tree.insert(
-                "",
-                "end",
-                values=(
-                    project,
-                    ahu,
-                    comparison.component_label,
-                    comparison.component_type,
-                    self._fmt(comparison.pdf1_kw),
-                    self._fmt(comparison.pdf2_kw),
-                    self._fmt(comparison.difference_kw),
-                    comparison.status,
-                    comparison.pdf1_page or "-",
-                    comparison.pdf2_page or "-",
-                ),
+                "", "end", values=(project, ahu, comparison.component_label, comparison.component_type,
+                    self._fmt(comparison.pdf1_kw), self._fmt(comparison.pdf2_kw), self._fmt(comparison.difference_kw),
+                    comparison.status, comparison.pdf1_page or "-", comparison.pdf2_page or "-")
             )
 
-        self.status.configure(
-            text=(
-                f"✓ Proje {len(self.analysis.project_matches)} | AHU {len(self.analysis.ahu_matches)} | "
-                f"Motor {len(self.analysis.motor_comparisons)} | "
-                f"MATCH {counts['MATCH']} | MISMATCH {counts['MISMATCH']} | "
-                f"PDF1 {counts['ONLY_IN_PDF1']} | PDF2 {counts['ONLY_IN_PDF2']}"
-            )
-        )
+        self.status.configure(text=(
+            f"✓ Proje {len(self.analysis.project_matches)} | AHU {len(self.analysis.ahu_matches)} | "
+            f"Motor {len(self.analysis.motor_comparisons)} | MATCH {counts['MATCH']} | MISMATCH {counts['MISMATCH']} | "
+            f"PDF1 {counts['ONLY_IN_PDF1']} | PDF2 {counts['ONLY_IN_PDF2']}"
+        ))
         self._set_detail(json.dumps(self.analysis.to_dict(), ensure_ascii=False, indent=2))
+
+    def check_updates(self):
+        try:
+            info = check_for_update(Path(sys.executable))
+        except Exception as exc:
+            messagebox.showerror("Güncelleme kontrolü", f"Güncelleme kontrol edilemedi:\n{exc}")
+            return
+        if not info["available"]:
+            messagebox.showinfo("Güncelleme", f"Programınız güncel.\nSürüm: {VERSION}")
+            return
+        answer = messagebox.askyesno("Yeni sürüm bulundu", f"Yeni sürüm mevcut: {info['version']}\nMevcut sürüm: {VERSION}\n\nŞimdi güncellensin mi?")
+        if not answer:
+            return
+        try:
+            self.status.configure(text="Yeni sürüm indiriliyor...")
+            self.update_idletasks()
+            temp_exe = download_update(info["download_url"])
+            if info.get("digest") and __import__("hashlib").sha256(temp_exe.read_bytes()).hexdigest().lower() != info["digest"].lower():
+                temp_exe.unlink(missing_ok=True)
+                raise RuntimeError("İndirilen EXE'nin SHA-256 doğrulaması başarısız.")
+            restart_with_update(temp_exe, Path(sys.executable))
+        except SystemExit:
+            raise
+        except Exception as exc:
+            messagebox.showerror("Güncelleme", f"Güncelleme başarısız:\n{exc}")
+            self.status.configure(text="Güncelleme başarısız")
 
     @staticmethod
     def _fmt(value): return "-" if value is None else f"{value:g}"
@@ -206,4 +221,7 @@ class App(tk.Tk):
 
 
 if __name__ == "__main__":
-    App().mainloop()
+    if len(sys.argv) >= 2 and sys.argv[1] == "--apply-update":
+        apply_update(sys.argv[2], sys.argv[3], int(sys.argv[4]))
+    else:
+        App().mainloop()
