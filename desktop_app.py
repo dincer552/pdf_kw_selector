@@ -1,4 +1,4 @@
-"""Desktop GUI for PDF kW Selector - multi-PDF input and comparison."""
+"""Desktop GUI for PDF kW Selector - multi-PDF input and project discovery."""
 from __future__ import annotations
 
 import json
@@ -8,10 +8,11 @@ from tkinter import filedialog, messagebox, ttk
 
 from batch_input import discover_pdfs
 from motor_compare import MotorComparison, compare_motor_records
+from project_discovery import discover_project
 from stage1_page_discovery import build_stage1_motor_records, find_rated_motor_powers_in_pdf
 from stage2_pdf_discovery import build_pdf2_motor_records, find_pdf2_motor_powers
 
-VERSION = "v0.4.0"
+VERSION = "v0.4.1"
 
 
 class App(tk.Tk):
@@ -22,12 +23,13 @@ class App(tk.Tk):
         self.minsize(1020, 650)
         self.pdf1_inputs = []
         self.pdf2_inputs = []
-        self.pdf1: Path | None = None
-        self.pdf2: Path | None = None
+        self.pdf1 = self.pdf2 = None
         self.pdf1_results = []
         self.pdf2_results = []
         self.pdf1_motors = []
         self.pdf2_motors = []
+        self.pdf1_projects = []
+        self.pdf2_projects = []
         self.comparisons: list[MotorComparison] = []
         self._build()
 
@@ -36,9 +38,8 @@ class App(tk.Tk):
         outer.pack(fill="both", expand=True)
         outer.columnconfigure(0, weight=1)
         outer.rowconfigure(2, weight=1)
-
         ttk.Label(outer, text="PDF kW SELECTOR", font=("Segoe UI", 19, "bold")).grid(row=0, column=0, sticky="w")
-        ttk.Label(outer, text=f"{VERSION}  •  Multi-PDF / klasör input + motor karşılaştırma", font=("Segoe UI", 10)).grid(row=0, column=0, sticky="e")
+        ttk.Label(outer, text=f"{VERSION}  •  Multi-PDF + Project Discovery", font=("Segoe UI", 10)).grid(row=0, column=0, sticky="e")
 
         top = ttk.Frame(outer)
         top.grid(row=1, column=0, sticky="ew", pady=(10, 8))
@@ -87,15 +88,13 @@ class App(tk.Tk):
 
     def _add_inputs(self, target: str):
         paths = filedialog.askopenfilenames(title=f"{target} PDF dosyalarını seç", filetypes=[("PDF files", "*.pdf"), ("All files", "*.*")])
-        if not paths:
-            return
-        self._merge_inputs(target, list(paths))
+        if paths:
+            self._merge_inputs(target, list(paths))
 
     def _add_folder(self, target: str):
         path = filedialog.askdirectory(title=f"{target} PDF klasörünü seç")
-        if not path:
-            return
-        self._merge_inputs(target, [path])
+        if path:
+            self._merge_inputs(target, [path])
 
     def _merge_inputs(self, target: str, paths):
         current = self.pdf1_inputs if target == "PDF1" else self.pdf2_inputs
@@ -124,28 +123,29 @@ class App(tk.Tk):
     def clear_inputs(self):
         self.pdf1_inputs, self.pdf2_inputs = [], []
         self.pdf1 = self.pdf2 = None
-        self.pdf1_motors, self.pdf2_motors, self.comparisons = [], [], []
+        self.pdf1_motors, self.pdf2_motors = [], []
+        self.pdf1_projects, self.pdf2_projects, self.comparisons = [], [], []
         self._update_label(self.pdf1_label, [])
         self._update_label(self.pdf2_label, [])
         for item in self.tree.get_children(): self.tree.delete(item)
         self.status.configure(text="Seçimler temizlendi.")
 
     def _analyze_pdf1_batch(self):
-        motors = []
-        results = []
+        motors, results, projects = [], [], []
         for item in self.pdf1_inputs:
             path = Path(item.path)
+            projects.append(discover_project(path))
             found = find_rated_motor_powers_in_pdf(path)
             results.extend(found)
             motors.extend(record for result in found for record in build_stage1_motor_records(result))
-        return results, motors
+        return results, motors, projects
 
     def _analyze_pdf2_batch(self):
-        motors = []
-        results = []
+        motors, results, projects = [], [], []
         counters: dict[tuple[str, str], int] = {}
         for item in self.pdf2_inputs:
             path = Path(item.path)
+            projects.append(discover_project(path))
             found = find_pdf2_motor_powers(path)
             results.extend(found)
             for result in found:
@@ -154,17 +154,17 @@ class App(tk.Tk):
                 records = build_pdf2_motor_records(result, start_index=current)
                 motors.extend(records)
                 counters[key] = current + len(records) - 1
-        return results, motors
+        return results, motors, projects
 
     def compare(self):
         if not self.pdf1_inputs or not self.pdf2_inputs:
             messagebox.showwarning("PDF eksik", "PDF 1 ve PDF 2 tarafına en az bir PDF veya klasör ekleyin.")
             return
         try:
-            self.status.configure(text="Toplu PDF analizi yapılıyor...")
+            self.status.configure(text="Toplu PDF + Project Discovery analizi yapılıyor...")
             self.update_idletasks()
-            self.pdf1_results, self.pdf1_motors = self._analyze_pdf1_batch()
-            self.pdf2_results, self.pdf2_motors = self._analyze_pdf2_batch()
+            self.pdf1_results, self.pdf1_motors, self.pdf1_projects = self._analyze_pdf1_batch()
+            self.pdf2_results, self.pdf2_motors, self.pdf2_projects = self._analyze_pdf2_batch()
             self.comparisons = compare_motor_records(self.pdf1_motors, self.pdf2_motors)
         except Exception as exc:
             messagebox.showerror("Analiz hatası", str(exc))
@@ -177,7 +177,12 @@ class App(tk.Tk):
             counts[result.status] = counts.get(result.status, 0) + 1
             self.tree.insert("", "end", values=(result.component_label,result.component_type,self._fmt(result.pdf1_kw),self._fmt(result.pdf2_kw),self._fmt(result.difference_kw),result.status,result.pdf1_page or "-",result.pdf2_page or "-"))
         self.status.configure(text=f"✓ {len(self.comparisons)} MOTOR — MATCH {counts['MATCH']} | MISMATCH {counts['MISMATCH']} | PDF1 {counts['ONLY_IN_PDF1']} | PDF2 {counts['ONLY_IN_PDF2']}")
-        self._set_detail(json.dumps([r.to_dict() for r in self.comparisons], ensure_ascii=False, indent=2))
+        detail = {
+            "pdf1_projects": [p.to_dict() for p in self.pdf1_projects],
+            "pdf2_projects": [p.to_dict() for p in self.pdf2_projects],
+            "comparison": [r.to_dict() for r in self.comparisons],
+        }
+        self._set_detail(json.dumps(detail, ensure_ascii=False, indent=2))
 
     @staticmethod
     def _fmt(value): return "-" if value is None else f"{value:g}"
@@ -193,8 +198,18 @@ class App(tk.Tk):
             messagebox.showwarning("Sonuç yok", "Önce KARŞILAŞTIR çalıştırın.")
             return
         path = filedialog.asksaveasfilename(title="Toplu karşılaştırmayı kaydet", defaultextension=".json", filetypes=[("JSON", "*.json")])
-        if not path: return
-        payload = {"version":VERSION,"pdf1_files":[r.to_dict() for r in self.pdf1_inputs],"pdf2_files":[r.to_dict() for r in self.pdf2_inputs],"pdf1_motors":[r.to_dict() for r in self.pdf1_motors],"pdf2_motors":[r.to_dict() for r in self.pdf2_motors],"comparison":[r.to_dict() for r in self.comparisons]}
+        if not path:
+            return
+        payload = {
+            "version": VERSION,
+            "pdf1_files": [r.to_dict() for r in self.pdf1_inputs],
+            "pdf2_files": [r.to_dict() for r in self.pdf2_inputs],
+            "pdf1_projects": [r.to_dict() for r in self.pdf1_projects],
+            "pdf2_projects": [r.to_dict() for r in self.pdf2_projects],
+            "pdf1_motors": [r.to_dict() for r in self.pdf1_motors],
+            "pdf2_motors": [r.to_dict() for r in self.pdf2_motors],
+            "comparison": [r.to_dict() for r in self.comparisons],
+        }
         Path(path).write_text(json.dumps(payload, ensure_ascii=False, indent=2), encoding="utf-8")
         messagebox.showinfo("Kaydedildi", f"Sonuç kaydedildi:\n{path}")
 
