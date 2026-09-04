@@ -112,17 +112,21 @@ def _is_known_field_value(value: str) -> bool:
 
 
 def _find_multiline_project_name(lines: list[str], start_index: int) -> str:
-    """Find the natural-language value belonging to an empty project-name field."""
+    """Find the natural-language project value after an empty Project Name label.
+
+    ``pages`` normally contains one complete extracted page per item, but test
+    doubles and some PDF extractors can split the same logical header into
+    separate fragments.  The caller therefore provides a flattened line
+    stream, allowing the scan to cross fragment/page boundaries.
+    """
     look = start_index + 1
-    while look < min(len(lines), start_index + 30):
+    limit = min(len(lines), start_index + 30)
+    while look < limit:
         value = _clean_value(lines[look])
         if not value:
             look += 1
             continue
-        if _is_field_label(value):
-            look += 1
-            continue
-        if _is_known_field_value(value):
+        if _is_field_label(value) or _is_known_field_value(value):
             look += 1
             continue
         if _looks_like_project_name(value):
@@ -134,28 +138,29 @@ def _find_multiline_project_name(lines: list[str], start_index: int) -> str:
 def discover_project_from_text(pages: list[str]) -> ProjectDiscovery:
     candidates: list[ProjectCandidate] = []
 
+    # Keep the original page association, but flatten text fragments so a
+    # logical Project Name field can span multiple extracted fragments/pages.
+    fragments: list[tuple[int, str]] = []
     for page_number, text in enumerate(pages, start=1):
-        lines = [line.strip() for line in (text or "").splitlines()]
-        index = 0
-        while index < len(lines):
-            line = lines[index]
-            match = _LABEL_RE.match(line)
-            if match:
-                value = _strip_header_metadata(match.group(1))
-                if not value:
-                    value = _find_multiline_project_name(lines, index)
-                item = _candidate(value, "project_name_field", page_number, "HIGH")
-                if item:
-                    candidates.append(item)
-                index += 1
-                continue
+        for line in (text or "").splitlines():
+            fragments.append((page_number, line.strip()))
 
-            if _HEADER_RE.match(line):
-                item = _candidate(line, "project_header", page_number, "MEDIUM")
-                if item:
-                    candidates.append(item)
+    for index, (page_number, line) in enumerate(fragments):
+        match = _LABEL_RE.match(line)
+        if match:
+            value = _strip_header_metadata(match.group(1))
+            if not value:
+                flattened_lines = [fragment for _, fragment in fragments]
+                value = _find_multiline_project_name(flattened_lines, index)
+            item = _candidate(value, "project_name_field", page_number, "HIGH")
+            if item:
+                candidates.append(item)
+            continue
 
-            index += 1
+        if _HEADER_RE.match(line):
+            item = _candidate(line, "project_header", page_number, "MEDIUM")
+            if item:
+                candidates.append(item)
 
     unique: list[ProjectCandidate] = []
     seen: set[tuple[str, str]] = set()
