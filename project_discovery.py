@@ -33,7 +33,7 @@ _GENERIC_FAN_PROJECT_RE = re.compile(
 _GENERIC_ENGINEERING_FIELD_PATTERNS = (
     re.compile(r"^(?:(?:supply|return|exhaust|activation|reactivation)\s+)?(?:fan\s+)?(?:air\s+volume|motor\s+power|power|capacity|nominal\s+rpm)$", re.I),
     re.compile(r"^(?:rotor\s+)?heat\s+recovery(?:\s+unit)?\s+motor\s+power$", re.I),
-    re.compile(r"^electrical\s+(?:heater|heating)(?:\s+power)?$", re.I),
+    re.compile(r"^electrical\s+(?:heater|heating)(?:\s+total)?\s+power(?:\s+stage\s+number)?$", re.I),
     re.compile(r"^unit\s+(?:total|overall)\s+power$", re.I),
     re.compile(r"^(?:total|electrical)\s+(?:heating|cooling|power)$", re.I),
     re.compile(r"^(?:shaft\s+power|vfd\s+(?:included|excluded|dahil|hariç)|nominal\s+rpm)$", re.I),
