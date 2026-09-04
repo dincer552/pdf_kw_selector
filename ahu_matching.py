@@ -2,18 +2,18 @@
 from __future__ import annotations
 
 from dataclasses import dataclass, asdict
+from difflib import SequenceMatcher
 import re
 import unicodedata
-from difflib import SequenceMatcher
 from pathlib import Path
 
 from pypdf import PdfReader
 
 
 _UNIT_PATTERNS = [
-    re.compile(r"\bunit\s+reference\s*[:=]?\s*([A-Z0-9][A-Z0-9_-]{1,})", re.I),
-    re.compile(r"\bunit\s+number\s*[:=]?\s*([A-Z0-9][A-Z0-9_-]{1,})", re.I),
-    re.compile(r"\bAHU[_ -]?([A-Z0-9][A-Z0-9_-]{0,})", re.I),
+    ("unit_reference", re.compile(r"\bunit\s+reference\s*[:=]?\s*([A-Z0-9][A-Z0-9_-]{1,})", re.I)),
+    ("unit_number", re.compile(r"\bunit\s+number\s*[:=]?\s*([A-Z0-9][A-Z0-9_-]{1,})", re.I)),
+    ("ahu_token", re.compile(r"\b(AHU[_ -]?[A-Z0-9][A-Z0-9_-]{0,})\b", re.I)),
 ]
 
 
@@ -25,12 +25,10 @@ def normalize_equipment_id(value: str | None) -> str:
     value = re.sub(r"-+", "-", value)
     if value.startswith("AHU-"):
         tail = value[4:]
-        # AHU-A-1, AHU-A-01 and AHU_A_1 should remain semantically aligned.
         tail = re.sub(r"(?<=-)(0+)(\d+)", r"\2", tail)
         return "AHU-" + tail
     if value.startswith("AHU") and not value.startswith("AHU-"):
-        tail = value[3:]
-        tail = tail.lstrip("-")
+        tail = value[3:].lstrip("-")
         tail = re.sub(r"(?<=-)(0+)(\d+)", r"\2", tail)
         return "AHU-" + tail
     return re.sub(r"(?<=-)(0+)(\d+)", r"\2", value)
@@ -68,19 +66,20 @@ def discover_equipment_from_text(pages: list[str]) -> AHUDiscovery:
     occurrences: list[EquipmentOccurrence] = []
     seen_page: set[tuple[str, int]] = set()
     for page_no, text in enumerate(pages, start=1):
-        for pattern in _UNIT_PATTERNS:
+        for source, pattern in _UNIT_PATTERNS:
             for match in pattern.finditer(text or ""):
                 raw = match.group(1).strip(" .,:;)]}")
+                if source == "ahu_token":
+                    raw = raw.replace("_", "-")
                 if not raw:
                     continue
                 normalized = normalize_equipment_id(raw)
-                if len(normalized) < 4:
+                if not normalized.startswith("AHU-") or len(normalized) < 6:
                     continue
                 key = (normalized, page_no)
                 if key in seen_page:
                     continue
                 seen_page.add(key)
-                source = "unit_reference" if "unit\\s+reference" in pattern.pattern.lower() else "unit_number" if "unit\\s+number" in pattern.pattern.lower() else "ahu_token"
                 occurrences.append(EquipmentOccurrence(raw, normalized, page_no, source))
     occurrences.sort(key=lambda x: (x.page, x.normalized, x.source))
     return AHUDiscovery(tuple(occurrences))
@@ -125,7 +124,6 @@ def score_ahu_ids(left: str | None, right: str | None) -> tuple[float, str, str]
     if lt and rt and lt == rt:
         return 0.98, "NORMALIZED_MATCH", "same AHU suffix after normalization"
 
-    # Do not allow partial numeric similarities to silently match distinct AHUs.
     lnums = re.findall(r"\d+", l)
     rnums = re.findall(r"\d+", r)
     if lnums and rnums and lnums[-1] != rnums[-1]:
@@ -143,7 +141,6 @@ def match_ahu_ids(left: str | None, right: str | None, *, left_page: int | None 
 
 
 def match_ahu_lists(left: list[EquipmentOccurrence], right: list[EquipmentOccurrence]) -> list[AHUMatch]:
-    # Match each unique normalized ID once using highest score, then expose unmatched IDs.
     left_unique = {}
     right_unique = {}
     for item in left:
