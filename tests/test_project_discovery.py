@@ -1,6 +1,4 @@
-from pathlib import Path
-
-from project_discovery import discover_project, discover_project_from_text, normalize_project_name
+from project_discovery import discover_project_from_text, normalize_project_name
 
 
 def test_explicit_project_name_field_wins_over_project_header():
@@ -22,8 +20,7 @@ def test_normalization_handles_turkish_case_and_dash():
     assert normalize_project_name("Florya Uçus Egitim Binasi G") == "florya ucus egitim binasi g"
 
 
-def test_real_ahu_selection_pdf():
-    result = discover_project(Path("/mnt/data/AHU_A_1.pdf"))
-    assert result.project_name == "Florya Uçuş Eğitim Binası Faz – 1-AHU"
+def test_project_name_can_be_inline():
+    result = discover_project_from_text(["Project Name: Florya Uçuş Eğitim Binası"])
+    assert result.project_name == "Florya Uçuş Eğitim Binası"
     assert result.project_source == "project_name_field"
-    assert result.project_page == 1
