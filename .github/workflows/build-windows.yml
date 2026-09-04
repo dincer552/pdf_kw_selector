@@ -5,6 +5,9 @@ on:
   push:
     branches: [ main ]
 
+permissions:
+  contents: write
+
 jobs:
   build-windows:
     runs-on: windows-latest
@@ -25,6 +28,20 @@ jobs:
         run: pytest -q
       - name: Build EXE
         run: pyinstaller --noconfirm --clean --onefile --windowed --name PDF_KW_Selector_v0.5.3 desktop_app.py
+      - name: Prepare latest updater asset
+        shell: pwsh
+        run: Copy-Item dist/PDF_KW_Selector_v0.5.3.exe dist/PDF_KW_Selector_latest.exe
+      - name: Publish latest release
+        env:
+          GH_TOKEN: ${{ github.token }}
+        shell: bash
+        run: |
+          if gh release view latest >/dev/null 2>&1; then
+            gh release upload latest dist/PDF_KW_Selector_latest.exe --clobber
+            gh release edit latest --title "PDF kW Selector - Latest" --notes "Latest CI-tested Windows build from main. Commit: $GITHUB_SHA"
+          else
+            gh release create latest dist/PDF_KW_Selector_latest.exe --target "$GITHUB_SHA" --title "PDF kW Selector - Latest" --notes "Latest CI-tested Windows build from main. Commit: $GITHUB_SHA"
+          fi
       - uses: actions/upload-artifact@v4
         with:
           name: PDF_KW_Selector_v0.5.3_Windows
