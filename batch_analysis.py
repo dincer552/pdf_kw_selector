@@ -6,6 +6,7 @@ from pathlib import Path
 
 from ahu_matching import AHUMatch, discover_equipment, match_ahu_lists, normalize_equipment_id
 from motor_compare import MotorComparison, compare_motor_records
+from motor_database import build_comparison_key
 from project_discovery import ProjectDiscovery, discover_project
 from project_matching import ProjectMatch, match_discoveries
 from stage1_page_discovery import build_stage1_motor_records, find_rated_motor_powers_in_pdf
@@ -61,8 +62,13 @@ class BatchAnalysis:
 
 def _discover_documents(paths: list[str | Path], side: str) -> list[BatchDocument]:
     documents: list[BatchDocument] = []
+    seen_paths: set[str] = set()
     for raw in paths:
         path = Path(raw).expanduser().resolve()
+        key = str(path).casefold()
+        if key in seen_paths or not path.is_file():
+            continue
+        seen_paths.add(key)
         project = discover_project(path)
         equipment = discover_equipment(path)
         documents.append(BatchDocument(str(path), side, project, equipment.unique_ids()))
@@ -88,25 +94,37 @@ def _files_for_ahu(documents: list[BatchDocument], normalized_ahu: str | None) -
     )
 
 
+def _dedupe_motor_records(records):
+    """Keep one physical motor per equipment/type/index across overlapping PDFs."""
+    unique = {}
+    for record in records:
+        key = build_comparison_key(record)
+        unique.setdefault(key, record)
+    return list(unique.values())
+
+
 def _extract_side_motors(paths: tuple[str, ...], side: str, target_ahu: str | None):
     records = []
+    counters: dict[tuple[str, str], int] = {}
     target = normalize_equipment_id(target_ahu) if target_ahu else None
+
     for path in paths:
         if side == "PDF1":
             found = find_rated_motor_powers_in_pdf(path)
             records.extend(record for result in found for record in build_stage1_motor_records(result))
         else:
             found = find_pdf2_motor_powers(path)
-            counters: dict[tuple[str, str], int] = {}
             for result in found:
-                key = (normalize_equipment_id(result.equipment_id), result.component_type)
+                key = (normalize_equipment_id(result.equipment_id), result.component_type.strip().lower())
                 start = counters.get(key, 1)
                 expanded = build_pdf2_motor_records(result, start_index=start)
                 records.extend(expanded)
                 counters[key] = start + len(expanded)
+
+    records = _dedupe_motor_records(records)
     if target is None:
         return records
-    return [r for r in records if normalize_equipment_id(r.equipment_id) == target]
+    return [record for record in records if normalize_equipment_id(record.equipment_id) == target]
 
 
 def _pair_project_groups(left_groups, right_groups):
@@ -142,12 +160,10 @@ def analyze_batch(pdf1_paths: list[str | Path], pdf2_paths: list[str | Path]) ->
     ahu_batches: list[BatchAHU] = []
     motor_comparisons: list[MotorComparison] = []
 
-    left_by_key = left_groups
-    right_by_key = right_groups
-    for left_key, right_key, project_match in _pair_project_groups(left_by_key, right_by_key):
+    for left_key, right_key, project_match in _pair_project_groups(left_groups, right_groups):
         project_matches.append(project_match)
-        left_group = left_by_key[left_key]
-        right_group = right_by_key[right_key]
+        left_group = left_groups[left_key]
+        right_group = right_groups[right_key]
 
         left_equipment = []
         right_equipment = []
