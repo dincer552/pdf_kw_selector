@@ -10,7 +10,7 @@ from project_discovery import ProjectDiscovery, ProjectCandidate, normalize_proj
 
 # Words commonly introduced by document-specific naming rather than the core project.
 _CONTEXT_TOKENS = {
-    "faz", "phase", "ahu", "unit", "g", "grup", "group",
+    "proje", "project", "name", "faz", "phase", "ahu", "unit", "g", "grup", "group",
     "rev", "revision", "revizyon", "drawing", "elektrik", "uretim", "üretim",
 }
 
@@ -31,6 +31,13 @@ def _numeric_tokens(value: str | None) -> set[str]:
     return set(re.findall(r"\d+", normalize_project_name(value or "")))
 
 
+def _matching_display_name(value: str | None) -> str | None:
+    """Remove a document-label prefix for non-exact human-readable matches."""
+    if value is None:
+        return None
+    return re.sub(r"^\s*project\s+", "", value, flags=re.I).strip() or value
+
+
 @dataclass(frozen=True)
 class ProjectMatch:
     left_name: str | None
@@ -48,12 +55,7 @@ class ProjectMatch:
 
 
 def score_project_names(left: str | None, right: str | None) -> tuple[float, str, str]:
-    """Return (score 0..1, status, reason) for two project names.
-
-    Matching is conservative: exact/normalized equality is automatic. Strong
-    shared core names can become HIGH confidence, but contradictory numeric
-    identifiers keep the result at REVIEW_REQUIRED.
-    """
+    """Return (score 0..1, status, reason) for two project names."""
     left_n = normalize_project_name(left or "")
     right_n = normalize_project_name(right or "")
     if not left_n or not right_n:
@@ -76,7 +78,6 @@ def score_project_names(left: str | None, right: str | None) -> tuple[float, str
     right_nums = _numeric_tokens(right_n)
     numeric_conflict = bool(left_nums and right_nums and left_nums.isdisjoint(right_nums))
 
-    # Core-token agreement is intentionally weighted more than raw edit distance.
     score = min(1.0, 0.50 * jaccard + 0.35 * coverage + 0.15 * sequence)
 
     if numeric_conflict and len(intersection) < 4:
@@ -121,13 +122,27 @@ def _best_candidate(discovery: ProjectDiscovery, target: ProjectDiscovery) -> tu
 
 
 def match_discoveries(left: ProjectDiscovery, right: ProjectDiscovery) -> ProjectMatch:
-    """Match two discovery objects, considering all retained candidates."""
+    """Match two discovery objects, considering all retained candidates.
+
+    Exact normalized matches preserve the raw discovered value. For a non-exact
+    match, a leading document-label ``Project`` is removed from the display value
+    while the normalized/source data remains faithful to discovery.
+    """
     candidate, score, status, reason = _best_candidate(left, right)
+    right_raw = candidate.value if candidate else right.project_name
+    left_raw = left.project_name
+    if status != "EXACT":
+        left_display = _matching_display_name(left_raw)
+        right_display = _matching_display_name(right_raw)
+    else:
+        left_display = left_raw
+        right_display = right_raw
+
     return ProjectMatch(
-        left_name=left.project_name,
-        right_name=candidate.value if candidate else right.project_name,
+        left_name=left_display,
+        right_name=right_display,
         left_normalized=left.project_name_normalized,
-        right_normalized=normalize_project_name(candidate.value if candidate else (right.project_name or "")) or None,
+        right_normalized=normalize_project_name(right_raw or "") or None,
         score=round(max(score, 0.0), 4),
         status=status,
         reason=reason,
