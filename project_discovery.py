@@ -96,7 +96,9 @@ def discover_project_from_text(pages: list[str]) -> ProjectDiscovery:
 
             match = _HEADER_RE.match(line)
             if match:
-                item = _candidate(match.group(1), "project_header", page_number, "MEDIUM")
+                # Preserve the complete raw header for discovery consumers.
+                # Matching layers can ignore the document-label prefix when needed.
+                item = _candidate(line, "project_header", page_number, "MEDIUM")
                 if item:
                     candidates.append(item)
 
