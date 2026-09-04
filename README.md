@@ -2,11 +2,9 @@
 
 Engineering PDF'lerinden **doğru motor anma gücünü (kW) bulup fiziksel motor bazında normalize eden ve iki PDF arasında doğrulayan** motor.
 
-## Güncel durum — v0.3.3
+## Güncel hedef
 
-Mevcut sistem tekil PDF çiftlerinde PDF 1 (seçim/referans) ile PDF 2 (elektrik/sipariş) arasında motor bazında kW karşılaştırması yapabiliyor.
-
-Bir sonraki ana hedef artık tek bir PDF çifti değil, **çoklu PDF + klasör tarama + proje eşleştirme + AHU eşleştirme + toplu karşılaştırma** sistemine geçmektir.
+Sistem artık tekil PDF çifti mantığından **çoklu PDF + klasör tarama + proje eşleştirme + AHU eşleştirme + toplu motor karşılaştırma** mimarisine ilerliyor.
 
 ## Mevcut motor akışı
 
@@ -59,7 +57,7 @@ ve özet quantity 2x1 ise
 
 ## PDF 2 motor gücü keşfi
 
-PDF 2 elektrik/sipariş çizimlerinde motor gücü öncelikle **özel motor bağlantı sayfasından** alınır. Örneğin:
+PDF 2 elektrik/sipariş çizimlerinde motor gücü öncelikle **özel motor bağlantı sayfasından** alınır.
 
 ```text
 Supply Motor Connections-1
@@ -77,8 +75,6 @@ Return Motor Connections-1
 
 → `Return` → `Aspiratör` → `Asp` → `5.5 kW`
 
-Title Page'deki fan motor güçleri quantity bilgisi için fallback olarak kullanılabilir; aynı motorun bağlantı sayfası varsa bağlantı sayfasındaki elektriksel motor değeri tercih edilir.
-
 ## Kritik kural
 
 Karşılaştırmanın hedefi **motor Rated Power / Anma gücü**dür.
@@ -92,86 +88,33 @@ Karşılaştırmanın hedefi **motor Rated Power / Anma gücü**dür.
 - VSD dahil / hariç toplam güç
 - Motorla ilgisiz diğer kW değerleri
 
-## Fiziksel motor karşılaştırması
-
-Her motor için ana anahtar:
-
-```text
-ekipman + komponent tipi + fiziksel motor index
-```
-
-Örnek:
-
-```text
-AHU-EF-01 + Vantilatör + 1 → Vant 1
-AHU-EF-01 + Aspiratör  + 1 → Asp 1
-```
-
-Sonuçlar:
-
-- `MATCH` — kW farkı tolerans içinde
-- `MISMATCH` — kW farkı tolerans dışında
-- `ONLY_IN_PDF1` — motor yalnız PDF 1'de bulundu
-- `ONLY_IN_PDF2` — motor yalnız PDF 2'de bulundu
-
-Varsayılan karşılaştırma toleransı `0.01 kW`.
-
-# 🚀 Yeni ana geliştirme planı — Multi-PDF Project Manager
-
-Hedefimiz programı tek PDF çifti analiz eden bir araçtan, **klasörlerden yüzlerce PDF'i alıp projeleri otomatik eşleştiren ve sonunda toplu motor kW karşılaştırması çıkaran bir mühendislik kontrol aracına** dönüştürmek.
+# Multi-PDF / Project / AHU mimarisi
 
 ## Genel hedef akış
 
 ```text
-KULLANICI
-   │
-   ├── Birden fazla PDF seç
-   │       veya
-   └── Bir / birden fazla klasör seç
-   │
-   ▼
-[1] PDF TOPLAMA / TARAMA
-   │
-   ▼
-[2] PDF METADATA + PROJE İSMİ ÇIKARMA
-   │
-   ▼
-[3] PDF'LERİ PROJE BAZINDA GRUPLAMA
-   │
-   ▼
-[4] PROJE İSİMLERİNİ EŞLEŞTİRME
-   │
-   ▼
-[5] EŞLEŞEN PROJE İÇİN AHU / EQUIPMENT EŞLEŞTİRME
-   │
-   ▼
-[6] PDF 1 MOTOR DATABASE + PDF 2 MOTOR DATABASE
-   │
-   ▼
-[7] MOTOR BAZINDA kW KARŞILAŞTIRMA
-   │
-   ▼
-[8] TOPLU KARŞILAŞTIRMA EKRANI
-   │
-   ├── Proje özeti
-   ├── AHU özeti
-   ├── Motor özeti
-   ├── MATCH
-   ├── MISMATCH
-   ├── ONLY PDF1
-   ├── ONLY PDF2
-   └── REVIEW / AMBIGUOUS
+PDF TOPLAMA
+   ↓
+PROJECT DISCOVERY
+   ↓
+PROJECT MATCHING
+   ↓
+AHU / EQUIPMENT DISCOVERY
+   ↓
+AHU MATCHING
+   ↓
+MOTOR DATABASE
+   ↓
+MOTOR kW COMPARISON
+   ↓
+TOPLU SONUÇ EKRANI
 ```
 
 ---
 
-## Faz 1 — Çoklu PDF ekleme
+## Faz 1 — Multi-PDF Input ✅
 
-### Amaç
-
-Kullanıcı artık tek tek PDF seçmek zorunda kalmayacak.
-
-Desteklenecek girişler:
+Destekleniyor:
 
 ```text
 [+] PDF Ekle
@@ -180,231 +123,137 @@ Desteklenecek girişler:
 [+] Alt klasörleri tara
 ```
 
-Program bütün `.pdf` dosyalarını tek bir çalışma havuzuna alacak.
+Aynı dosya tekrar eklenmez; PDF olmayan girdiler atlanır.
 
-### Gereksinimler
-
-- Aynı PDF'nin iki kez eklenmesini engelle.
-- Dosya adı, tam yol, dosya boyutu ve mümkünse hash bilgisini tut.
-- Klasör taramasında alt klasörleri opsiyonel olarak dahil et.
-- Bozuk / okunamayan PDF'yi tüm işlemi durdurmadan `ERROR` olarak işaretle.
-- Kullanıcıya toplam PDF sayısını göster.
-
-Örnek:
+### Veri modeli
 
 ```text
-3 klasör
-   ↓
-147 PDF bulundu
-   ↓
-142 okunabilir
-5 hata
-```
-
-### Yeni veri modeli
-
-```text
-PDFDocument
+PdfInput
 ├── path
 ├── filename
-├── file_hash
-├── page_count
-├── project_name
-├── project_name_raw
-├── document_type
-├── equipment_ids[]
-└── status
+├── source
+└── size_bytes
 ```
 
 ---
 
-## Faz 2 — PDF'lerden proje ismini çıkarma
+## Faz 2 — Project Discovery ✅
 
-### Amaç
+PDF içindeki proje bilgisi dosya adından önce aranır.
 
-Dosya adına güvenmek yerine PDF'nin içindeki gerçek proje bilgisini bulacağız.
-
-Öncelik sırası:
+Öncelik:
 
 ```text
-1. PDF içindeki açık Proje Name / Project Name alanı
-2. Title Page / kapak bilgisi
-3. Unit / Project metadata
-4. Dosya adı
-5. Gerekirse REVIEW
+1. Proje Name / Project Name
+2. Project header
+3. REVIEW
 ```
 
-### Önemli kural
+Raw değer, normalize değer, kaynak sayfa ve confidence korunur.
 
-PDF'de aynı anda çok sayıda isim, müşteri, proje, sipariş veya ekipman bilgisi bulunabilir. Sistem rastgele ilk metni proje adı olarak kabul etmeyecek.
-
-Her proje adı için:
+Örnek gerçek PDF:
 
 ```text
-raw value
-normalized value
-source page
-source field
-confidence
+PDF 1:
+Florya Uçuş Eğitim Binası Faz – 1-AHU
+
+PDF 2:
+Florya Uçus Egitim Binasi G
 ```
 
-tutulacak.
-
-Örnek:
-
-```text
-Raw:
-25END092
-
-Normalized:
-25END092
-
-Source:
-Title Page / Project Name
-
-Confidence:
-HIGH
-```
+Bu iki ifade sonraki Project Matching aşamasında güvenli aday olarak değerlendirilir; sırf benziyor diye körlemesine birleştirilmez.
 
 ---
 
-## Faz 3 — PDF'leri proje bazında gruplama
+## Faz 3 — Project Matching ✅
 
-Proje adı çıkarıldıktan sonra PDF'ler proje altında toplanacak.
-
-```text
-PROJE A
-├── seçim PDF 1
-├── elektrik PDF 2
-├── elektrik PDF 3
-└── diğer çizimler
-
-PROJE B
-├── seçim PDF 1
-└── elektrik PDF 2
-```
-
-Aynı projenin farklı PDF'lerinde küçük yazım farkları olabileceği için doğrudan string eşitliği yeterli olmayacak.
-
-Örneğin:
+`project_matching.py` ile:
 
 ```text
-25END092
-25END-092
-25END_092
-25END 092
+EXACT
+HIGH_CONFIDENCE
+MEDIUM_CONFIDENCE
+REVIEW_REQUIRED
+NO_MATCH
 ```
 
-normalize edilerek aynı aday proje olarak değerlendirilecek.
+sonuçları üretiliyor.
 
-Ancak **fazla agresif normalizasyon yapılmayacak**; yanlış iki projeyi birleştirmek yerine `REVIEW` üretmek tercih edilecek.
+One-to-one eşleştirme vardır. Sayısal kimlik çelişkileri gerektiğinde `REVIEW_REQUIRED` üretir.
 
 ---
 
-## Faz 4 — Proje isimlerini eşleştirme motoru
+## Faz 4 — AHU / Equipment Matching ✅
 
-Burada iki seviyeli eşleştirme yapılacak.
-
-### Seviye A — Kesin eşleşme
+Yeni modül:
 
 ```text
-normalize(project_name_a) == normalize(project_name_b)
+ahu_matching.py
 ```
 
-→ `EXACT MATCH`
-
-### Seviye B — Güvenli aday eşleşme
-
-Aşağıdaki yardımcı bilgiler birlikte değerlendirilecek:
-
-- normalize edilmiş proje adı
-- dosya adı
-- müşteri / proje alanı
-- sipariş numarası
-- tarih
-- ortak ekipman referansları
-
-Sonuç:
+PDF içinden aşağıdaki kaynaklardan ekipman/AHU kimliği çıkarılır:
 
 ```text
-HIGH CONFIDENCE
-MEDIUM CONFIDENCE
-REVIEW REQUIRED
-NO MATCH
+Unit Reference
+Unit Number
+AHU token
 ```
 
-### Kritik prensip
-
-**Benzer görünen iki proje otomatik olarak birleştirilmeyecek.**
-
-Özellikle aynı müşterinin aynı tipte birden fazla AHU projesi varsa yanlış eşleştirme, kW karşılaştırmasında zincirleme hata oluşturur.
-
----
-
-## Faz 5 — Eşleşen projelerin AHU isimlerini eşleştirme
-
-Proje eşleşmesinden sonra ikinci eşleştirme seviyesi başlayacak.
+Kimlikler normalize edilir:
 
 ```text
-PROJE A
-PDF 1                    PDF 2
-AHU-01       ↔            AHU-01
-AHU-02       ↔            AHU-02
-AHU-03       ↔            AHU-03
+AHU_A_1   → AHU-A-1
+AHU-A-01  → AHU-A-1
+AHU_A_1A  → AHU-A-1A
+AHU_A_2   → AHU-A-2
 ```
 
-Fakat isimler birebir aynı olmak zorunda değil.
-
-Desteklenecek normalize örnekleri:
+### Kritik güvenlik kuralı
 
 ```text
-AHU-01
-AHU01
-AHU_01
-
-AHU-EF-01
-AHU_EF_01
+AHU-A-1
+AHU-A-1A
+AHU-A-2
 ```
 
-Ayrıca mevcut `PW-02 → PW2` gibi kontrollü ekipman normalizasyonları korunacak.
+birbirine sadece benzedikleri için otomatik eşleştirilmez.
 
-### AHU eşleştirme sonucu
+Sonuç tipleri:
 
 ```text
 EXACT
 NORMALIZED_MATCH
-AMBIGUOUS
+REVIEW_REQUIRED
 ONLY_IN_PDF1
 ONLY_IN_PDF2
 ```
 
-Her eşleşme için kaynak PDF ve kaynak sayfa saklanacak.
+### Kullanılan gerçek test PDF'leri
+
+Aynı proje altında farklı AHU'ları temsil eden üç gerçek PDF ile test senaryosu oluşturuldu:
+
+```text
+AHU_A_1(2).pdf → AHU-A-1
+AHU_A_1A.pdf   → AHU-A-1A
+AHU_A_2.pdf    → AHU-A-2
+```
+
+Bu üç ekipman **üç ayrı AHU** olarak korunmalıdır; `AHU-A-1A` hiçbir koşulda `AHU-A-1` ile sessizce birleştirilmemelidir.
 
 ---
 
-## Faz 6 — Proje + AHU motor database oluşturma
+## Faz 5 — Proje + AHU motor database
 
-Bu aşamada mevcut motor motoru kullanılacak; ancak artık tek dosya değil, hiyerarşik yapı üzerinde çalışacak.
+Proje ve AHU eşleşmesinden sonra mevcut motor parser'ları kullanılacak.
 
 ```text
 Project
 └── AHU / Equipment
     ├── PDF 1 motors
-    │   ├── Vant 1
-    │   ├── Vant 2
-    │   ├── Asp 1
-    │   ├── Asp 2
-    │   └── ...
-    │
     └── PDF 2 motors
-        ├── Vant 1
-        ├── Vant 2
-        ├── Asp 1
-        ├── Asp 2
-        └── ...
 ```
 
-Özellikle karmaşık projelerde:
+Karmaşık projelerde:
 
 ```text
 2 Supply
@@ -412,15 +261,13 @@ Project
 2 Activation / Reaktivasyon
 ```
 
-gibi fanların birbirine karışmaması sağlanacak.
+ayrı fiziksel motor grupları olarak korunacak.
 
-**Activation / Reaktivasyon ayrı komponent ailesi olarak korunacak; Aspiratör'e dönüştürülmeyecek.**
+**Activation / Reaktivasyon Aspiratör'e dönüştürülmeyecek.**
 
 ---
 
-## Faz 7 — Motor eşleştirme ve kW karşılaştırma
-
-Artık mevcut motor karşılaştırma mantığı proje + AHU seviyesine taşınacak.
+## Faz 6 — Motor kW karşılaştırma
 
 Ana anahtar:
 
@@ -431,32 +278,10 @@ project
 + physical_motor_index
 ```
 
-Örnek:
+Sonuçlar:
 
 ```text
-25END092
-AHU-03
-Vantilatör
-Vant 1
-```
-
-PDF 1:
-
-```text
-22.0 kW
-```
-
-PDF 2:
-
-```text
-22.0 kW
-```
-
-→ `MATCH`
-
-Diğer sonuçlar:
-
-```text
+MATCH
 MISMATCH
 ONLY_IN_PDF1
 ONLY_IN_PDF2
@@ -465,27 +290,15 @@ REVIEW_REQUIRED
 
 ---
 
-# Faz 8 — Toplu karşılaştırma ekranı
+## Faz 7 — Toplu karşılaştırma ekranı
 
-En önemli yeni kullanıcı arayüzü bu olacak.
-
-## Ana ekran
+Hedef ekran:
 
 ```text
-┌─────────────────────────────────────────────────────────────┐
-│ PDF KW SELECTOR — TOPLU PROJE KARŞILAŞTIRMA                 │
-├─────────────────────────────────────────────────────────────┤
-│ PDF: 147     PROJE: 18     AHU: 63     MOTOR: 184          │
-├─────────────────────────────────────────────────────────────┤
-│ PROJE        AHU       MATCH   FARKLI   PDF1   PDF2 REVIEW │
-│ 25END092     AHU-01      6       1       0      0      0    │
-│ 25END092     AHU-02      4       0       1      0      0    │
-│ 25END093     AHU-01      5       0       0      1      0    │
-│ ...                                                         │
-└─────────────────────────────────────────────────────────────┘
+PROJE → AHU → MOTOR → PDF1 kW ↔ PDF2 kW
 ```
 
-### Filtreler
+Filtreler:
 
 - Proje
 - AHU
@@ -495,41 +308,18 @@ En önemli yeni kullanıcı arayüzü bu olacak.
 - ONLY PDF1
 - ONLY PDF2
 - REVIEW
-- Güç farkı
-- Kaynak PDF
-
-### Detay ekranı
-
-Bir AHU seçildiğinde:
-
-```text
-PROJE: 25END092
-AHU: AHU-03
-
-Motor      Tip           PDF1      PDF2      Fark      Durum
-Vant 1     Vantilatör    22.0      22.0      0.0       MATCH
-Vant 2     Vantilatör    22.0      22.0      0.0       MATCH
-Asp 1      Aspiratör     15.0      15.0      0.0       MATCH
-Asp 2      Aspiratör     15.0      15.0      0.0       MATCH
-```
-
-Her satırdan kaynak sayfaya kadar inilebilecek.
 
 ---
 
-# Faz 9 — Toplu rapor
+## Faz 8 — Rapor
 
-Sonuçlar sadece GUI'de gösterilmeyecek.
-
-İlk aşamada:
+Planlanan çıktılar:
 
 ```text
 JSON
 CSV
 Excel
 ```
-
-çıktıları planlanıyor.
 
 Rapor seviyeleri:
 
@@ -542,263 +332,112 @@ Rapor seviyeleri:
 6. REVIEW listesi
 ```
 
-Örnek özet:
-
-```text
-TOPLAM PROJE             18
-TOPLAM AHU               63
-TOPLAM MOTOR            184
-
-MATCH                   169
-MISMATCH                  8
-ONLY PDF1                 3
-ONLY PDF2                 2
-REVIEW                    2
-```
-
 ---
 
-# Faz 10 — Güvenlik ve yanlış eşleşme kontrolü
-
-Çoklu PDF sisteminde en kritik konu yanlış eşleştirme riskidir.
-
-Bu nedenle her seviyede confidence tutulacak:
+# Teknik mimari
 
 ```text
-PDF confidence
-Project confidence
-AHU confidence
-Motor confidence
-```
+INPUT
+├── batch_input.py
 
-Örneğin:
+PROJECT
+├── project_discovery.py
+└── project_matching.py
 
-```text
-Project: HIGH
-AHU: HIGH
-Motor: HIGH
-→ otomatik karşılaştır
-```
+EQUIPMENT
+└── ahu_matching.py
 
-ve:
-
-```text
-Project: MEDIUM
-AHU: AMBIGUOUS
-→ karşılaştırmayı durdur
-→ REVIEW_REQUIRED
-```
-
-Sistem **yanlış eşleştirip sahte MATCH üretmektense REVIEW üretmeyi tercih edecek.**
-
----
-
-# Teknik mimari planı
-
-Mevcut modüller korunarak yeni katmanlar eklenecek.
-
-```text
-PDF INPUT LAYER
-├── pdf_input_manager.py
-├── folder_scanner.py
-└── pdf_document.py
-
-PROJECT LAYER
-├── project_extractor.py
-├── project_normalizer.py
-└── project_matcher.py
-
-EQUIPMENT LAYER
-├── equipment_extractor.py
-├── equipment_normalizer.py
-└── equipment_matcher.py
-
-MOTOR LAYER
+MOTOR
 ├── stage1_page_discovery.py
 ├── stage2_pdf_discovery.py
 ├── motor_database.py
 └── motor_compare.py
 
-BATCH LAYER
-├── batch_analyzer.py
-├── batch_results.py
-└── report_export.py
-
-UI LAYER
+UI
 └── desktop_app.py
 ```
 
-Yeni katmanlar mevcut motor parser'larını yeniden yazmak yerine onların üzerine kurulacak.
+Yeni katmanlar mevcut motor parser'larının üzerine kurulur.
 
 ---
 
 # Geliştirme sırası
 
-## Milestone 1 — Multi-PDF Input
+## Milestone 1 — Multi-PDF Input ✅
 
 ```text
-[ ] Çoklu PDF seçimi
-[ ] Klasör seçimi
-[ ] Alt klasör tarama
-[ ] Duplicate kontrolü
-[ ] PDFDocument modeli
-[ ] Dosya listesi GUI
-[ ] Testler
+[x] Çoklu PDF seçimi
+[x] Klasör seçimi
+[x] Alt klasör tarama
+[x] Duplicate kontrolü
+[x] PDF input modeli
+[x] GUI entegrasyonu
+[x] Testler
 ```
 
-## Milestone 2 — Project Discovery
+## Milestone 2 — Project Discovery ✅
 
 ```text
-[ ] Project Name extractor
-[ ] Raw / normalized değerler
-[ ] Source page / field
-[ ] Confidence
-[ ] Project grouping
-[ ] Test PDF'leri
+[x] Project Name extractor
+[x] Raw / normalized değerler
+[x] Source page / field
+[x] Confidence
+[x] GUI entegrasyonu
+[x] Testler
 ```
 
-## Milestone 3 — Project Matching
+## Milestone 3 — Project Matching ✅
 
 ```text
-[ ] Exact match
-[ ] Normalized match
-[ ] Candidate scoring
-[ ] Ambiguous detection
-[ ] REVIEW_REQUIRED
-[ ] Testler
+[x] Exact match
+[x] Normalized match
+[x] Candidate scoring
+[x] Ambiguous detection
+[x] REVIEW_REQUIRED
+[x] One-to-one pairing
+[x] Testler
 ```
 
-## Milestone 4 — AHU Matching
+## Milestone 4 — AHU Matching ✅
 
 ```text
-[ ] PDF içinden equipment listesi
-[ ] AHU normalize
-[ ] PDF1 ↔ PDF2 AHU matching
-[ ] ONLY_IN_PDF1
-[ ] ONLY_IN_PDF2
-[ ] AMBIGUOUS
-[ ] Testler
+[x] PDF içinden equipment listesi
+[x] AHU normalize
+[x] PDF1 ↔ PDF2 AHU matching engine
+[x] ONLY_IN_PDF1
+[x] ONLY_IN_PDF2
+[x] REVIEW_REQUIRED
+[x] 1 / 1A / 2 ayrımı
+[x] Testler
 ```
 
-## Milestone 5 — Batch Motor Analysis
+## Milestone 5 — Proje + AHU bazlı toplu analiz ⏳
 
 ```text
-[ ] Proje bazında motor database
-[ ] AHU bazında motor database
-[ ] Mevcut Stage 1 entegrasyonu
-[ ] Mevcut Stage 2 entegrasyonu
-[ ] Motor comparison
-[ ] Review propagation
-[ ] Testler
+[ ] Project → AHU hierarchical grouping
+[ ] Eşleşen project altında AHU pairing
+[ ] AHU → motor database bağlantısı
+[ ] batch analyzer
+[ ] toplu sonuç modeli
 ```
 
-## Milestone 6 — Toplu GUI
+## Milestone 6 — Toplu karşılaştırma ekranı ⏳
 
 ```text
 [ ] Proje listesi
 [ ] AHU listesi
 [ ] Motor detayları
-[ ] Filtreleme
-[ ] Durum özetleri
-[ ] Kaynak sayfa gösterimi
-[ ] Büyük veri setinde performans
+[ ] Filtreler
+[ ] REVIEW ekranı
+[ ] Kaynak PDF/sayfa bağlantıları
 ```
 
-## Milestone 7 — Raporlama + EXE
+## Milestone 7 — Rapor + EXE ⏳
 
 ```text
-[ ] JSON export
-[ ] CSV export
-[ ] Excel export
-[ ] Summary report
-[ ] Error report
+[ ] JSON
+[ ] CSV
+[ ] Excel
 [ ] Windows EXE
-[ ] Gerçek büyük proje testleri
+[ ] örnek büyük proje testi
 ```
-
----
-
-# Test stratejisi
-
-Yeni sistem sadece tekil örneklerle değil, gerçek karmaşık projelerle test edilecek.
-
-Özellikle şu senaryolar zorunlu test olacak:
-
-```text
-✓ 1x1 fan
-✓ 2x1 fan
-✓ 3x1 fan
-✓ Aynı projede birden fazla AHU
-✓ Aynı projede Supply + Return + Activation
-✓ Return Motor Connections-1 / -2
-✓ Aynı kW değerine sahip birden fazla motor
-✓ Summary + detail sayfasının duplicate olmaması
-✓ Proje adı PDF1/PDF2 arasında farklı formatta
-✓ AHU adı AHU-01 / AHU01 / AHU_01
-✓ Eksik PDF
-✓ Eksik AHU
-✓ Fazla PDF
-✓ Ambiguous project
-✓ Ambiguous AHU
-✓ Bozuk PDF
-```
-
-## Kalite kuralı
-
-Yeni bir özellik eklendiğinde:
-
-```text
-Kod değişikliği
-    ↓
-Unit test
-    ↓
-Gerçek PDF testi
-    ↓
-pytest -q
-    ↓
-Windows EXE build
-    ↓
-EXE gerçek PDF testi
-```
-
-Eski çalışan motor mantığı yeni toplu sistem uğruna bozulmayacak.
-
----
-
-# Mevcut modüller
-
-- `stage1_page_discovery.py` — PDF 1 doğru fan bloğu/sayfa ve Rated Power keşfi.
-- `motor_database.py` — motor grubunu fiziksel motor kayıtlarına genişletir.
-- `stage2_pdf_discovery.py` — PDF 2 elektrik motor bağlantı sayfalarından motor kW keşfi.
-- `motor_compare.py` — iki fiziksel motor database'ini motor bazında karşılaştırır.
-- `kw_compare.py` — genel/semantik kW alan karşılaştırma yardımcıları.
-- `pdf_kw_selector.py` — bağlam duyarlı kW adayı seçimi.
-- `desktop_app.py` — mevcut PDF 1 + PDF 2 seçim, analiz ve karşılaştırma arayüzü.
-- `tests/test_stage2.py` — PDF 2 bağlantı sayfası, quantity expansion ve karşılaştırma testleri.
-- `.github/workflows/build-windows.yml` — testler başarılıysa Windows EXE üretir.
-
-# Yeni hedef mimari
-
-Programın nihai amacı:
-
-```text
-KLASÖRLER / PDF'LER
-        ↓
-PDF HAVUZU
-        ↓
-PROJE KEŞFİ
-        ↓
-PROJE EŞLEŞTİRME
-        ↓
-AHU EŞLEŞTİRME
-        ↓
-MOTOR DATABASE
-        ↓
-MOTOR BAZINDA kW KARŞILAŞTIRMA
-        ↓
-TOPLU SONUÇ EKRANI
-        ↓
-RAPOR / EXCEL / JSON
-```
-
-Bu mimaride mevcut `Stage 1` ve `Stage 2` motor güç keşfi **temel motor olarak korunacak**; yeni geliştirme bunun üzerine orchestration/batch katmanı olarak kurulacak.
