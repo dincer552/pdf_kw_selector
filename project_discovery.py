@@ -24,6 +24,8 @@ _TRAILING_HEADER_RE = re.compile(
     r"\s+(?:creation\s+date|revision\s+date|revision\s+no)\b.*$",
     re.I,
 )
+_NUMERIC_ONLY_RE = re.compile(r"^[\d\s./_-]+$")
+_AHU_ONLY_RE = re.compile(r"^AHU[-_ ]?[A-Z0-9_-]+$", re.I)
 
 
 @dataclass(frozen=True)
@@ -75,6 +77,17 @@ def _is_field_label(value: str) -> bool:
     return bool(_FIELD_LABEL_RE.match(_clean_value(value)))
 
 
+def _looks_like_project_name(value: str) -> bool:
+    value = _clean_value(value)
+    if not value or _is_field_label(value):
+        return False
+    if _NUMERIC_ONLY_RE.fullmatch(value) or _AHU_ONLY_RE.fullmatch(value):
+        return False
+    normalized = normalize_project_name(value)
+    tokens = normalized.split()
+    return len(tokens) >= 2 and sum(bool(re.search(r"[a-z]", token)) for token in tokens) >= 2
+
+
 def _strip_header_metadata(value: str) -> str:
     """Remove creation/revision columns appended to a mixed Systemair header."""
     return _clean_value(_TRAILING_HEADER_RE.sub("", value or ""))
@@ -90,6 +103,40 @@ def _candidate(value: str, source: str, page: int, confidence: str) -> ProjectCa
     return ProjectCandidate(value, normalized, source, page, confidence)
 
 
+def _find_multiline_project_name(lines: list[str], start_index: int) -> str:
+    """Find a plausible project value after an empty Proje/Project Name label.
+
+    Systemair PDF table extraction can interleave document labels and their
+    values. We therefore skip known field labels, their obvious values
+    (order numbers / AHU identifiers), and accept the first line that looks
+    like a natural-language project name.
+    """
+    look = start_index + 1
+    skipped_value_for_label = False
+    while look < min(len(lines), start_index + 20):
+        next_line = _clean_value(lines[look])
+        if not next_line:
+            look += 1
+            continue
+        if _is_field_label(next_line):
+            skipped_value_for_label = True
+            look += 1
+            continue
+        if skipped_value_for_label:
+            if _NUMERIC_ONLY_RE.fullmatch(next_line) or _AHU_ONLY_RE.fullmatch(next_line):
+                skipped_value_for_label = False
+                look += 1
+                continue
+            # A natural-language line after a field label is the most likely
+            # project value. Do not discard it merely because the field value
+            # itself could not be classified with certainty.
+            skipped_value_for_label = False
+        if _looks_like_project_name(next_line):
+            return _strip_header_metadata(next_line)
+        look += 1
+    return ""
+
+
 def discover_project_from_text(pages: list[str]) -> ProjectDiscovery:
     candidates: list[ProjectCandidate] = []
 
@@ -101,26 +148,8 @@ def discover_project_from_text(pages: list[str]) -> ProjectDiscovery:
             match = _LABEL_RE.match(line)
             if match:
                 value = _strip_header_metadata(match.group(1))
-                # PDF table extraction can place the next field label directly
-                # after "Proje Name:". Never accept that label as the project.
-                if _is_field_label(value):
-                    value = ""
                 if not value:
-                    look = index + 1
-                    while look < min(len(lines), index + 10):
-                        next_line = _clean_value(lines[look])
-                        if not next_line:
-                            look += 1
-                            continue
-                        if _is_field_label(next_line):
-                            look += 1
-                            # A field label is commonly followed by its value;
-                            # skip that value too, then continue searching.
-                            if look < len(lines) and not _is_field_label(lines[look]):
-                                look += 1
-                            continue
-                        value = _strip_header_metadata(next_line)
-                        break
+                    value = _find_multiline_project_name(lines, index)
                 item = _candidate(value, "project_name_field", page_number, "HIGH")
                 if item:
                     candidates.append(item)
