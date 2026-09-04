@@ -30,24 +30,24 @@ _GENERIC_FAN_PROJECT_RE = re.compile(
     r"^(?:(?:supply|return|exhaust|activation|reactivation)(?:\s+[/ -]?\s*reactivation)?\s+fan\s+(?:air\s+volume|motor\s+power)|fan\s+(?:air\s+volume|motor\s+power))$",
     re.I,
 )
+_GENERIC_ENGINEERING_FIELD_RE = re.compile(
+    r"^(?:(?:supply|return|exhaust|activation|reactivation)\s+)?"
+    r"(?:fan\s+)?(?:air\s+volume|motor\s+power|power|capacity|nominal\s+rpm)"
+    r"|(?:rotor\s+)?heat\s+recovery(?:\s+unit)?\s+motor\s+power"
+    r"|electrical\s+(?:heater|heating)(?:\s+power)?"
+    r"|unit\s+(?:total|overall)\s+power"
+    r"|(?:total|electrical)\s+(?:heating|cooling|power)"
+    r"|shaft\s+power|vfd\s+(?:included|excluded|dahil|hariç)|nominal\s+rpm)$",
+    re.I,
+)
 _GENERIC_FAN_PROJECT_SET = {
-    "fan air volume",
-    "supply fan air volume",
-    "return fan air volume",
-    "exhaust fan air volume",
-    "activation fan air volume",
-    "reactivation fan air volume",
-    "activation reactivation fan air volume",
-    "fan motor power",
-    "supply fan motor power",
-    "return fan motor power",
-    "exhaust fan motor power",
-    "activation fan motor power",
-    "reactivation fan motor power",
-    "activation reactivation fan motor power",
-    "supply air volume",
-    "return air volume",
-    "exhaust air volume",
+    "fan air volume", "supply fan air volume", "return fan air volume",
+    "exhaust fan air volume", "activation fan air volume",
+    "reactivation fan air volume", "activation reactivation fan air volume",
+    "fan motor power", "supply fan motor power", "return fan motor power",
+    "exhaust fan motor power", "activation fan motor power",
+    "reactivation fan motor power", "activation reactivation fan motor power",
+    "supply air volume", "return air volume", "exhaust air volume",
 }
 
 
@@ -105,7 +105,11 @@ def _is_generic_project_name(value: str) -> bool:
     normalized = normalize_project_name(_clean_value(value))
     if not normalized:
         return False
-    return normalized in _GENERIC_FAN_PROJECT_SET or bool(_GENERIC_FAN_PROJECT_RE.fullmatch(normalized))
+    return (
+        normalized in _GENERIC_FAN_PROJECT_SET
+        or bool(_GENERIC_FAN_PROJECT_RE.fullmatch(normalized))
+        or bool(_GENERIC_ENGINEERING_FIELD_RE.fullmatch(normalized))
+    )
 
 
 def _looks_like_project_name(value: str) -> bool:
@@ -144,13 +148,7 @@ def _is_known_field_value(value: str) -> bool:
 
 
 def _find_multiline_project_name(lines: list[str], start_index: int) -> str:
-    """Find the natural-language project value after an empty Project Name label.
-
-    ``pages`` normally contains one complete extracted page per item, but test
-    doubles and some PDF extractors can split the same logical header into
-    separate fragments. The caller therefore provides a flattened line stream,
-    allowing the scan to cross fragment/page boundaries.
-    """
+    """Find the natural-language project value after an empty Project Name label."""
     look = start_index + 1
     limit = min(len(lines), start_index + 30)
     while look < limit:
@@ -169,9 +167,6 @@ def _find_multiline_project_name(lines: list[str], start_index: int) -> str:
 
 def discover_project_from_text(pages: list[str]) -> ProjectDiscovery:
     candidates: list[ProjectCandidate] = []
-
-    # Keep the original page association, but flatten text fragments so a
-    # logical Project Name field can span multiple extracted fragments/pages.
     fragments: list[tuple[int, str]] = []
     for page_number, text in enumerate(pages, start=1):
         for line in (text or "").splitlines():
@@ -217,7 +212,6 @@ def discover_project_from_text(pages: list[str]) -> ProjectDiscovery:
 
 
 def discover_project(path: str | Path) -> ProjectDiscovery:
-    """Extract and discover the project name from a PDF."""
     reader = PdfReader(str(path))
     pages = [(page.extract_text() or "") for page in reader.pages]
     return discover_project_from_text(pages)
