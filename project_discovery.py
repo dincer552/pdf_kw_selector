@@ -27,7 +27,7 @@ _TRAILING_HEADER_RE = re.compile(
 _NUMERIC_ONLY_RE = re.compile(r"^[\d\s./_-]+$")
 _AHU_ONLY_RE = re.compile(r"^AHU[-_ ]?[A-Z0-9_-]+$", re.I)
 _GENERIC_FAN_PROJECT_RE = re.compile(
-    r"^(?:supply|return|exhaust|activation|reactivation)(?:\s+[/ -]?\s*reactivation)?\s+fan\s+air\s+volume$",
+    r"^(?:(?:supply|return|exhaust|activation|reactivation)(?:\s+[/ -]?\s*reactivation)?\s+fan\s+(?:air\s+volume|motor\s+power)|fan\s+(?:air\s+volume|motor\s+power))$",
     re.I,
 )
 _GENERIC_FAN_PROJECT_SET = {
@@ -38,6 +38,13 @@ _GENERIC_FAN_PROJECT_SET = {
     "activation fan air volume",
     "reactivation fan air volume",
     "activation reactivation fan air volume",
+    "fan motor power",
+    "supply fan motor power",
+    "return fan motor power",
+    "exhaust fan motor power",
+    "activation fan motor power",
+    "reactivation fan motor power",
+    "activation reactivation fan motor power",
     "supply air volume",
     "return air volume",
     "exhaust air volume",
