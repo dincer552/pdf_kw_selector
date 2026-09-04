@@ -80,6 +80,8 @@ Florya Uçus Egitim Binasi G
 
 Türkçe karakter, aksan ve tire farklılıkları normalize edilir; kaynak metin kaybolmaz.
 
+Project Discovery ayrıca Systemair mixed-header satırlarında `Creation date`, `Revision Date` gibi kolonları proje adına dahil etmez; boş `Proje Name:` alanında `Order Number`, numarası ve `Unit Number` gibi doküman alanlarını atlayıp sonraki doğal dil proje satırını arar.
+
 ## Faz 3 — Project Matching ✅
 
 `project_matching.py` ile:
@@ -317,6 +319,8 @@ Yeni batch katmanı mevcut motor parser'larını yeniden yazmak yerine onların 
 [x] Confidence
 [x] GUI entegrasyonu
 [x] Testler
+[x] Systemair mixed-header metadata temizleme
+[x] Çok satırlı Proje Name alanı
 ```
 
 ## Milestone 3 — Project Matching ✅
