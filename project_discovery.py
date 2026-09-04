@@ -71,13 +71,19 @@ def _clean_value(value: str) -> str:
     return re.sub(r"\s+", " ", value or "").strip(" :-\t")
 
 
+def _is_field_label(value: str) -> bool:
+    return bool(_FIELD_LABEL_RE.match(_clean_value(value)))
+
+
 def _strip_header_metadata(value: str) -> str:
-    """Remove creation/revision columns appended to a mixed PDF header line."""
+    """Remove creation/revision columns appended to a mixed Systemair header."""
     return _clean_value(_TRAILING_HEADER_RE.sub("", value or ""))
 
 
 def _candidate(value: str, source: str, page: int, confidence: str) -> ProjectCandidate | None:
     value = _strip_header_metadata(value)
+    if _is_field_label(value):
+        return None
     normalized = normalize_project_name(value)
     if not normalized or normalized in _GENERIC_TOKENS:
         return None
@@ -89,36 +95,44 @@ def discover_project_from_text(pages: list[str]) -> ProjectDiscovery:
 
     for page_number, text in enumerate(pages, start=1):
         lines = [line.strip() for line in (text or "").splitlines()]
-        skip_next_value = False
-        for index, line in enumerate(lines):
-            if skip_next_value:
-                skip_next_value = False
-                continue
-
+        index = 0
+        while index < len(lines):
+            line = lines[index]
             match = _LABEL_RE.match(line)
             if match:
                 value = _strip_header_metadata(match.group(1))
+                # PDF table extraction can place the next field label directly
+                # after "Proje Name:". Never accept that label as the project.
+                if _is_field_label(value):
+                    value = ""
                 if not value:
-                    for next_line in lines[index + 1:index + 10]:
-                        next_line = _clean_value(next_line)
+                    look = index + 1
+                    while look < min(len(lines), index + 10):
+                        next_line = _clean_value(lines[look])
                         if not next_line:
+                            look += 1
                             continue
-                        if _FIELD_LABEL_RE.match(next_line):
-                            skip_next_value = True
+                        if _is_field_label(next_line):
+                            look += 1
+                            # A field label is commonly followed by its value;
+                            # skip that value too, then continue searching.
+                            if look < len(lines) and not _is_field_label(lines[look]):
+                                look += 1
                             continue
                         value = _strip_header_metadata(next_line)
                         break
                 item = _candidate(value, "project_name_field", page_number, "HIGH")
                 if item:
                     candidates.append(item)
+                index += 1
                 continue
 
             if _HEADER_RE.match(line):
-                # Keep the raw "Project ..." header for traceability. Only
-                # strip metadata columns such as Creation date / Revision date.
                 item = _candidate(line, "project_header", page_number, "MEDIUM")
                 if item:
                     candidates.append(item)
+
+            index += 1
 
     unique: list[ProjectCandidate] = []
     seen: set[tuple[str, str]] = set()
