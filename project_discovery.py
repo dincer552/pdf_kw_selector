@@ -26,6 +26,22 @@ _TRAILING_HEADER_RE = re.compile(
 )
 _NUMERIC_ONLY_RE = re.compile(r"^[\d\s./_-]+$")
 _AHU_ONLY_RE = re.compile(r"^AHU[-_ ]?[A-Z0-9_-]+$", re.I)
+_GENERIC_FAN_PROJECT_RE = re.compile(
+    r"^(?:supply|return|exhaust|activation|reactivation)(?:\s+[/ -]?\s*reactivation)?\s+fan\s+air\s+volume$",
+    re.I,
+)
+_GENERIC_FAN_PROJECT_SET = {
+    "fan air volume",
+    "supply fan air volume",
+    "return fan air volume",
+    "exhaust fan air volume",
+    "activation fan air volume",
+    "reactivation fan air volume",
+    "activation reactivation fan air volume",
+    "supply air volume",
+    "return air volume",
+    "exhaust air volume",
+}
 
 
 @dataclass(frozen=True)
@@ -77,9 +93,17 @@ def _is_field_label(value: str) -> bool:
     return bool(_FIELD_LABEL_RE.match(_clean_value(value)))
 
 
+def _is_generic_project_name(value: str) -> bool:
+    """Reject engineering field labels that look like a project name but are not one."""
+    normalized = normalize_project_name(_clean_value(value))
+    if not normalized:
+        return False
+    return normalized in _GENERIC_FAN_PROJECT_SET or bool(_GENERIC_FAN_PROJECT_RE.fullmatch(normalized))
+
+
 def _looks_like_project_name(value: str) -> bool:
     value = _clean_value(value)
-    if not value or _is_field_label(value):
+    if not value or _is_field_label(value) or _is_generic_project_name(value):
         return False
     if _NUMERIC_ONLY_RE.fullmatch(value) or _AHU_ONLY_RE.fullmatch(value):
         return False
@@ -108,6 +132,7 @@ def _is_known_field_value(value: str) -> bool:
     return bool(
         _NUMERIC_ONLY_RE.fullmatch(value)
         or _AHU_ONLY_RE.fullmatch(value)
+        or _is_generic_project_name(value)
     )
 
 
@@ -116,8 +141,8 @@ def _find_multiline_project_name(lines: list[str], start_index: int) -> str:
 
     ``pages`` normally contains one complete extracted page per item, but test
     doubles and some PDF extractors can split the same logical header into
-    separate fragments.  The caller therefore provides a flattened line
-    stream, allowing the scan to cross fragment/page boundaries.
+    separate fragments. The caller therefore provides a flattened line stream,
+    allowing the scan to cross fragment/page boundaries.
     """
     look = start_index + 1
     limit = min(len(lines), start_index + 30)
