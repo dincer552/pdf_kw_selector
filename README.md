@@ -2,95 +2,9 @@
 
 Engineering PDF'lerinden **doğru motor anma gücünü (kW) bulup fiziksel motor bazında normalize eden ve iki PDF arasında doğrulayan** motor.
 
-## Güncel hedef
+## Güncel durum
 
-Sistem artık tekil PDF çifti mantığından **çoklu PDF + klasör tarama + proje eşleştirme + AHU eşleştirme + toplu motor karşılaştırma** mimarisine ilerliyor.
-
-## Mevcut motor akışı
-
-```text
-PDF 1 — Seçim / Referans
-        ↓
-Doğru fan bloğunu ve Rated Power / Anma gücünü bul
-        ↓
-1x1 / 2x1 / 3x1 → fiziksel motor database
-        ↓
-PDF 2 — Elektrik / Sipariş
-        ↓
-Supply / Return / Exhaust Motor Connections sayfalarını bul
-        ↓
-Motorun elektrik çizimindeki kW değerini bul
-        ↓
-1x1 / 2x1 / 3x1 → PDF 2 fiziksel motor database
-        ↓
-PDF 1 ↔ PDF 2 aynı ekipman + komponent + motor index
-        ↓
-MATCH / MISMATCH / ONLY_IN_PDF1 / ONLY_IN_PDF2
-```
-
-## Motor mantığı
-
-```text
-Supply air  → Vantilatör → Vant
-Return air  → Aspiratör  → Asp
-Exhaust air → Aspiratör  → Asp
-
-1x1 → 1 fiziksel motor
-2x1 → 2 fiziksel motor
-3x1 → 3 fiziksel motor
-```
-
-Örneğin:
-
-```text
-PDF 1:
-Rated Power [kW] 22,000 x (2x1)
-→ Vant 1 = 22.0 kW
-→ Vant 2 = 22.0 kW
-
-PDF 2:
-Supply Motor Connections-1 → 22.0 kW
-ve özet quantity 2x1 ise
-→ Vant 1 = 22.0 kW
-→ Vant 2 = 22.0 kW
-```
-
-## PDF 2 motor gücü keşfi
-
-PDF 2 elektrik/sipariş çizimlerinde motor gücü öncelikle **özel motor bağlantı sayfasından** alınır.
-
-```text
-Supply Motor Connections-1
-400 / 3Ph / 50Hz
-7,5 kW 3~
-```
-
-→ `Supply` → `Vantilatör` → `Vant` → `7.5 kW`
-
-```text
-Return Motor Connections-1
-400 / 3Ph / 50Hz
-5,5 kW 3~
-```
-
-→ `Return` → `Aspiratör` → `Asp` → `5.5 kW`
-
-## Kritik kural
-
-Karşılaştırmanın hedefi **motor Rated Power / Anma gücü**dür.
-
-Şunlar motor gücü olarak kullanılmaz:
-
-- Unit Total Power
-- Cooling Capacity
-- Heating Capacity
-- Shaft Power
-- VSD dahil / hariç toplam güç
-- Motorla ilgisiz diğer kW değerleri
-
-# Multi-PDF / Project / AHU mimarisi
-
-## Genel hedef akış
+Sistem artık tekil PDF çifti mantığından **çoklu PDF + klasör tarama + proje keşfi/eşleştirme + AHU keşfi/eşleştirme + proje/AHU bazlı toplu motor analizi** mimarisine geçti.
 
 ```text
 PDF TOPLAMA
@@ -103,18 +17,33 @@ AHU / EQUIPMENT DISCOVERY
    ↓
 AHU MATCHING
    ↓
-MOTOR DATABASE
+BATCH MOTOR ANALYSIS
    ↓
-MOTOR kW COMPARISON
+PDF1 motor database ↔ PDF2 motor database
    ↓
-TOPLU SONUÇ EKRANI
+MATCH / MISMATCH / ONLY_IN_PDF1 / ONLY_IN_PDF2
 ```
+
+## Motor mantığı
+
+```text
+Supply air  → Vantilatör → Vant
+Return air  → Aspiratör  → Asp
+Exhaust air → Aspiratör  → Asp
+Activation  → Reaktivasyon → ayrı aile
+
+1x1 → 1 fiziksel motor
+2x1 → 2 fiziksel motor
+3x1 → 3 fiziksel motor
+```
+
+Karşılaştırma hedefi **motor Rated Power / Anma gücü**dür. `Unit Total Power`, kapasite, shaft power veya VSD toplam gücü motor Rated Power yerine kullanılmaz.
 
 ---
 
-## Faz 1 — Multi-PDF Input ✅
+# Fazlar
 
-Destekleniyor:
+## Faz 1 — Multi-PDF Input ✅
 
 ```text
 [+] PDF Ekle
@@ -123,23 +52,11 @@ Destekleniyor:
 [+] Alt klasörleri tara
 ```
 
-Aynı dosya tekrar eklenmez; PDF olmayan girdiler atlanır.
-
-### Veri modeli
-
-```text
-PdfInput
-├── path
-├── filename
-├── source
-└── size_bytes
-```
-
----
+Aynı dosya tekrar eklenmez ve PDF olmayan girdiler atlanır.
 
 ## Faz 2 — Project Discovery ✅
 
-PDF içindeki proje bilgisi dosya adından önce aranır.
+PDF içindeki gerçek proje adı dosya adından önce aranır.
 
 Öncelik:
 
@@ -149,9 +66,9 @@ PDF içindeki proje bilgisi dosya adından önce aranır.
 3. REVIEW
 ```
 
-Raw değer, normalize değer, kaynak sayfa ve confidence korunur.
+Raw değer, normalize değer, kaynak sayfa/alan ve confidence korunur.
 
-Örnek gerçek PDF:
+Gerçek test örneği:
 
 ```text
 PDF 1:
@@ -161,9 +78,7 @@ PDF 2:
 Florya Uçus Egitim Binasi G
 ```
 
-Bu iki ifade sonraki Project Matching aşamasında güvenli aday olarak değerlendirilir; sırf benziyor diye körlemesine birleştirilmez.
-
----
+Türkçe karakter, aksan ve tire farklılıkları normalize edilir; kaynak metin kaybolmaz.
 
 ## Faz 3 — Project Matching ✅
 
@@ -177,21 +92,11 @@ REVIEW_REQUIRED
 NO_MATCH
 ```
 
-sonuçları üretiliyor.
-
-One-to-one eşleştirme vardır. Sayısal kimlik çelişkileri gerektiğinde `REVIEW_REQUIRED` üretir.
-
----
+One-to-one proje eşleştirme uygulanır. Çelişkili sayısal kimliklerde otomatik eşleşme yerine `REVIEW_REQUIRED` tercih edilir.
 
 ## Faz 4 — AHU / Equipment Matching ✅
 
-Yeni modül:
-
-```text
-ahu_matching.py
-```
-
-PDF içinden aşağıdaki kaynaklardan ekipman/AHU kimliği çıkarılır:
+`ahu_matching.py` PDF içinden:
 
 ```text
 Unit Reference
@@ -199,7 +104,9 @@ Unit Number
 AHU token
 ```
 
-Kimlikler normalize edilir:
+kaynaklarını kullanır.
+
+Örnek normalize:
 
 ```text
 AHU_A_1   → AHU-A-1
@@ -208,7 +115,7 @@ AHU_A_1A  → AHU-A-1A
 AHU_A_2   → AHU-A-2
 ```
 
-### Kritik güvenlik kuralı
+Kritik kural:
 
 ```text
 AHU-A-1
@@ -216,60 +123,47 @@ AHU-A-1A
 AHU-A-2
 ```
 
-birbirine sadece benzedikleri için otomatik eşleştirilmez.
+birbirine benzedikleri için otomatik eşleştirilmez.
 
-Sonuç tipleri:
-
-```text
-EXACT
-NORMALIZED_MATCH
-REVIEW_REQUIRED
-ONLY_IN_PDF1
-ONLY_IN_PDF2
-```
-
-### Kullanılan gerçek test PDF'leri
-
-Aynı proje altında farklı AHU'ları temsil eden üç gerçek PDF ile test senaryosu oluşturuldu:
+Gerçek test grupları:
 
 ```text
-AHU_A_1(2).pdf → AHU-A-1
-AHU_A_1A.pdf   → AHU-A-1A
-AHU_A_2.pdf    → AHU-A-2
+A serisi: AHU-A-1 / AHU-A-1A / AHU-A-2
+C serisi: AHU-C-1 / AHU-C-1-A / AHU-C-2-A
 ```
 
-Bu üç ekipman **üç ayrı AHU** olarak korunmalıdır; `AHU-A-1A` hiçbir koşulda `AHU-A-1` ile sessizce birleştirilmemelidir.
+## Faz 5 — Batch Motor Analysis 🚧 AKTİF
 
----
-
-## Faz 5 — Proje + AHU motor database
-
-Proje ve AHU eşleşmesinden sonra mevcut motor parser'ları kullanılacak.
+Yeni orchestrator:
 
 ```text
-Project
-└── AHU / Equipment
-    ├── PDF 1 motors
-    └── PDF 2 motors
+batch_analysis.py
 ```
 
-Karmaşık projelerde:
+Artık motor analizi doğrudan tüm PDF'ler üzerinde yapılmak yerine hiyerarşi ile yürütülüyor:
 
 ```text
-2 Supply
-2 Return
-2 Activation / Reaktivasyon
+PROJECT
+└── AHU
+    ├── PDF 1 motorları
+    └── PDF 2 motorları
 ```
 
-ayrı fiziksel motor grupları olarak korunacak.
+Akış:
 
-**Activation / Reaktivasyon Aspiratör'e dönüştürülmeyecek.**
+```text
+1. PDF'leri keşfet
+2. Project Discovery
+3. Projeleri grupla
+4. Project Matching ile birebir eşleştir
+5. Eşleşen proje içindeki AHU'ları çıkar
+6. AHU Matching ile birebir eşleştir
+7. Sadece eşleşen AHU'nun motorlarını analiz et
+8. Fiziksel motor kayıtlarına genişlet
+9. Motor index bazında kW karşılaştır
+```
 
----
-
-## Faz 6 — Motor kW karşılaştırma
-
-Ana anahtar:
+Ana motor anahtarı:
 
 ```text
 project
@@ -285,52 +179,57 @@ MATCH
 MISMATCH
 ONLY_IN_PDF1
 ONLY_IN_PDF2
-REVIEW_REQUIRED
 ```
+
+### PDF 2 için önemli geliştirme
+
+Dedicated `Supply / Return / Exhaust / Activation Motor Connections` sayfası varsa o sayfa önceliklidir.
+
+Bağlantı sayfası yoksa kontrollü bir **Fan Motor Power summary fallback** kullanılır.
+
+Örneğin yalnız Supply motoru bulunan özet:
+
+```text
+Fan Motor Power / Nominal Rpm
+11 [kW] (2x1)
+```
+
+→ `Vant 1 = 11 kW`
+→ `Vant 2 = 11 kW`
+
+Bu fallback, PDF2'nin sadece supply fan özeti bulunan gerçek formatlarını da destekler.
+
+### Karmaşık fan grupları
+
+Özellikle:
+
+```text
+2 Supply
+2 Return
+2 Activation / Reaktivasyon
+```
+
+gibi projelerde aileler kesinlikle birbirine karıştırılmaz.
+
+**Activation / Reaktivasyon Aspiratör değildir; ayrı komponent ailesidir.**
 
 ---
 
-## Faz 7 — Toplu karşılaştırma ekranı
+# Şu an kullanılan gerçek test PDF'leri
 
-Hedef ekran:
-
-```text
-PROJE → AHU → MOTOR → PDF1 kW ↔ PDF2 kW
-```
-
-Filtreler:
-
-- Proje
-- AHU
-- Motor tipi
-- MATCH
-- MISMATCH
-- ONLY PDF1
-- ONLY PDF2
-- REVIEW
-
----
-
-## Faz 8 — Rapor
-
-Planlanan çıktılar:
+Testlerde farklı AHU ve motor yapıları kullanılıyor:
 
 ```text
-JSON
-CSV
-Excel
+AHU_A_1(2).pdf   → AHU-A-1
+AHU_A_1A.pdf     → AHU-A-1A
+AHU_A_2.pdf      → AHU-A-2
+
+AHU_C_1.pdf      → AHU-C-1
+AHU_C_1_A.pdf    → AHU-C-1-A
+AHU_C_2_A.pdf    → AHU-C-2-A
 ```
 
-Rapor seviyeleri:
-
-```text
-1. Genel proje özeti
-2. Proje → AHU özeti
-3. AHU → motor özeti
-4. Sadece hatalı motorlar
-5. Sadece eşleşmeyen PDF/AHU'lar
-6. REVIEW listesi
-```
+Ayrıca gerçek `AHU-A-1` örneğinde PDF 1 seçim tarafında 2 adet 11 kW Supply motoru bulunuyor; üretim tarafında da `Supply` için `2x1` ve 11 kW bilgisi mevcut. Bu yapı Batch Motor Analysis için temel smoke-test senaryosudur.
 
 ---
 
@@ -347,6 +246,9 @@ PROJECT
 EQUIPMENT
 └── ahu_matching.py
 
+BATCH
+└── batch_analysis.py
+
 MOTOR
 ├── stage1_page_discovery.py
 ├── stage2_pdf_discovery.py
@@ -357,11 +259,11 @@ UI
 └── desktop_app.py
 ```
 
-Yeni katmanlar mevcut motor parser'larının üzerine kurulur.
+Yeni batch katmanı mevcut motor parser'larını yeniden yazmak yerine onların üstünde orchestration yapar.
 
 ---
 
-# Geliştirme sırası
+# Milestone durumu
 
 ## Milestone 1 — Multi-PDF Input ✅
 
@@ -403,7 +305,7 @@ Yeni katmanlar mevcut motor parser'larının üzerine kurulur.
 ```text
 [x] PDF içinden equipment listesi
 [x] AHU normalize
-[x] PDF1 ↔ PDF2 AHU matching engine
+[x] PDF1 ↔ PDF2 AHU matching
 [x] ONLY_IN_PDF1
 [x] ONLY_IN_PDF2
 [x] REVIEW_REQUIRED
@@ -411,14 +313,17 @@ Yeni katmanlar mevcut motor parser'larının üzerine kurulur.
 [x] Testler
 ```
 
-## Milestone 5 — Proje + AHU bazlı toplu analiz ⏳
+## Milestone 5 — Batch Motor Analysis 🚧
 
 ```text
-[ ] Project → AHU hierarchical grouping
-[ ] Eşleşen project altında AHU pairing
-[ ] AHU → motor database bağlantısı
-[ ] batch analyzer
-[ ] toplu sonuç modeli
+[x] Project → AHU hierarchical grouping
+[x] Eşleşen project altında AHU pairing
+[x] AHU → motor database bağlantısı
+[x] Batch analysis orchestrator
+[x] PDF2 single-supply summary fallback
+[ ] Çoklu gerçek proje smoke testleri
+[ ] Motor sonuçlarına Project/AHU metadata eklenmesi
+[ ] REVIEW_REQUIRED'ın motor katmanına tam taşınması
 ```
 
 ## Milestone 6 — Toplu karşılaştırma ekranı ⏳
@@ -439,5 +344,5 @@ Yeni katmanlar mevcut motor parser'larının üzerine kurulur.
 [ ] CSV
 [ ] Excel
 [ ] Windows EXE
-[ ] örnek büyük proje testi
+[ ] Büyük proje testi
 ```
