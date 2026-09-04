@@ -1,9 +1,9 @@
 """Stage 2: discover motor rated power in the second/electrical PDF.
 
 Dedicated connection pages are authoritative when they contain a motor kW.
-When a connection page shows the motor wiring but the drawing does not print
-kW on that page, the title-page motor-power summary supplies the value and
-quantity. Supply, Return and Activation are kept as separate fan families.
+When no dedicated connection page is present, the title-page fan motor power
+summary is used as a controlled fallback. Supply, Return and Activation are
+kept as separate fan families.
 """
 from __future__ import annotations
 
@@ -25,6 +25,11 @@ SUMMARY_GROUPED_KW_RE = re.compile(
     r"(?P<value>\d+(?:[.,]\d+)?)\s*\[?\s*kW\s*\]?\s*\(\s*"
     r"(?P<quantity>\d+\s*[x×]\s*\d+)\s*\)", re.I
 )
+SUMMARY_FAN_MOTOR_RE = re.compile(
+    r"fan\s+motor\s+power\s*/?\s*nominal\s+rpm\s*"
+    r"(?P<value>\d+(?:[.,]\d+)?)\s*\[?\s*kW\s*\]?\s*"
+    r"\(\s*(?P<quantity>\d+\s*[x×]\s*\d+)\s*\)", re.I
+)
 SUMMARY_PAIR_RE = re.compile(
     r"fan\s+motor\s+power\s*/?\s*nominal\s+rpm\s*"
     r"(?P<supply_value>\d+(?:[.,]\d+)?)\s*\[?\s*kW\s*\]?\s*"
@@ -34,7 +39,7 @@ SUMMARY_PAIR_RE = re.compile(
     r"\(\s*(?P<return_quantity>\d+\s*[x×]\s*\d+)\s*\)", re.I
 )
 EQUIPMENT_RE = re.compile(
-    r"\bVE\.A\.D\.\d+\b|\bAHU[_-][A-Z0-9]+[_-]\d+\b|\bAHU[-_ ]?\d+\b", re.I
+    r"\bVE\.A\.D\.\d+\b|\bAHU[_-][A-Z0-9]+[_-]\d+(?:[_-][A-Z0-9]+)?\b|\bAHU[-_ ]?\d+\b", re.I
 )
 
 
@@ -98,10 +103,14 @@ def _summary_quantities(page_texts: list[str]) -> dict[str, tuple[float, str]]:
             ):
                 found[role] = (float(match.group("value").replace(",", ".")), _quantity(match.group("quantity")))
             continue
-        match = SUMMARY_PAIR_RE.search(cleaned)
-        if match:
-            found["supply_fan"] = (float(match.group("supply_value").replace(",", ".")), _quantity(match.group("supply_quantity")))
-            found["return_fan"] = (float(match.group("return_value").replace(",", ".")), _quantity(match.group("return_quantity")))
+        pair = SUMMARY_PAIR_RE.search(cleaned)
+        if pair:
+            found["supply_fan"] = (float(pair.group("supply_value").replace(",", ".")), _quantity(pair.group("supply_quantity")))
+            found["return_fan"] = (float(pair.group("return_value").replace(",", ".")), _quantity(pair.group("return_quantity")))
+            continue
+        single = SUMMARY_FAN_MOTOR_RE.search(cleaned)
+        if single:
+            found.setdefault("supply_fan", (float(single.group("value").replace(",", ".")), _quantity(single.group("quantity"))))
     return found
 
 
@@ -184,8 +193,7 @@ def find_pdf2_motor_powers(path: str | Path) -> list[PDF2MotorResult]:
             result = _fallback_connection_page(text, page_number, equipment_id, summary)
         if result:
             results.append(result)
-    results = _dedupe(results)
-    return _apply_summary_quantities(results, summary)
+    return _apply_summary_quantities(_dedupe(results), summary)
 
 
 def build_pdf2_motor_records(result: PDF2MotorResult, start_index: int = 1) -> list[MotorRecord]:
