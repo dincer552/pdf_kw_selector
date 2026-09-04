@@ -10,6 +10,9 @@ jobs:
     runs-on: windows-latest
     steps:
       - uses: actions/checkout@v4
+      - name: Verify checkout
+        shell: bash
+        run: git rev-parse HEAD
       - uses: actions/setup-python@v5
         with:
           python-version: '3.11'
