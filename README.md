@@ -132,72 +132,94 @@ A serisi: AHU-A-1 / AHU-A-1A / AHU-A-2
 C serisi: AHU-C-1 / AHU-C-1-A / AHU-C-2-A
 ```
 
+Bu testlerde farklı AHU kimlikleri birbirine yanlış bağlanmadan ayrıştırılmıştır.
+
 ## Faz 5 — Batch Motor Analysis 🚧 AKTİF
 
-Yeni orchestrator:
+`batch_analysis.py` artık **Project → AHU → fiziksel motor** zincirini tek bir orchestration katmanında yürütüyor.
 
 ```text
-batch_analysis.py
+PDF 1 / PDF 2
+      ↓
+Project Discovery
+      ↓
+Project Matching
+      ↓
+AHU Discovery
+      ↓
+AHU Matching
+      ↓
+Eşleşen AHU dosyalarını seç
+      ↓
+Stage 1 / Stage 2 motor keşfi
+      ↓
+Fiziksel motor expansion
+      ↓
+Motor index bazında kW karşılaştırması
 ```
 
-Artık motor analizi doğrudan tüm PDF'ler üzerinde yapılmak yerine hiyerarşi ile yürütülüyor:
+### Batch kuralları
+
+- Aynı fiziksel motor birden fazla örtüşen PDF'de görünüyorsa tek kayda indirgenir.
+- PDF2 tarafında aynı fan ailesinin birden fazla Motor Connections sayfası varsa motor index'leri dosyalar arasında devam ettirilir.
+- `1x1 / 2x1 / 3x1` fiziksel motor sayısı olarak korunur.
+- `Activation / Reaktivasyon` ayrı aile olarak korunur.
+- Eşleşmeyen veya belirsiz AHU'ya motor karşılaştırması uygulanmaz.
+
+### PDF2 motor keşfi
+
+Öncelik sırası:
 
 ```text
-PROJECT
-└── AHU
-    ├── PDF 1 motorları
-    └── PDF 2 motorları
+1. Supply / Return / Exhaust / Activation Motor Connections
+2. Motor Connections üzerindeki 3 faz kW
+3. Dedicated bağlantı sayfası yoksa kontrollü Fan Motor Power summary fallback
 ```
 
-Akış:
-
-```text
-1. PDF'leri keşfet
-2. Project Discovery
-3. Projeleri grupla
-4. Project Matching ile birebir eşleştir
-5. Eşleşen proje içindeki AHU'ları çıkar
-6. AHU Matching ile birebir eşleştir
-7. Sadece eşleşen AHU'nun motorlarını analiz et
-8. Fiziksel motor kayıtlarına genişlet
-9. Motor index bazında kW karşılaştır
-```
-
-Ana motor anahtarı:
-
-```text
-project
-+ equipment
-+ component_type
-+ physical_motor_index
-```
-
-Sonuçlar:
-
-```text
-MATCH
-MISMATCH
-ONLY_IN_PDF1
-ONLY_IN_PDF2
-```
-
-### PDF 2 için önemli geliştirme
-
-Dedicated `Supply / Return / Exhaust / Activation Motor Connections` sayfası varsa o sayfa önceliklidir.
-
-Bağlantı sayfası yoksa kontrollü bir **Fan Motor Power summary fallback** kullanılır.
-
-Örneğin yalnız Supply motoru bulunan özet:
+Örneğin:
 
 ```text
 Fan Motor Power / Nominal Rpm
 11 [kW] (2x1)
 ```
 
-→ `Vant 1 = 11 kW`
-→ `Vant 2 = 11 kW`
+summary-only fallback ile:
 
-Bu fallback, PDF2'nin sadece supply fan özeti bulunan gerçek formatlarını da destekler.
+```text
+Vant 1 = 11 kW
+Vant 2 = 11 kW
+```
+
+olarak fiziksel motorlara genişletilir.
+
+### Güncel gerçek smoke-test
+
+Kullanılan örnek:
+
+```text
+PDF 1: AHU_A_1(3).pdf
+PDF 2: EC-Florya-Rev5-Üreti_AHU-A-1_PER_18(2).pdf
+```
+
+Beklenen yapı:
+
+```text
+Proje:
+Florya Uçuş Eğitim Binası Faz – 1-AHU
+↕
+Florya Uçus Egitim Binasi G
+
+AHU:
+AHU-A-1
+↕
+AHU-A-1
+
+Motor:
+Vant 1   11.0 ↔ 11.0  MATCH
+Vant 2   11.0 ↔ 11.0  MATCH
+```
+
+PDF1 seçim dokümanında Supply fan motor gücü `11 kW (2x1)` olarak bulunuyor. PDF2 üretim dokümanında aynı AHU için `Fan Motor Power / Nominal Rpm 11 kW (2x1)` bulunuyor.
 
 ### Karmaşık fan grupları
 
@@ -212,6 +234,8 @@ Bu fallback, PDF2'nin sadece supply fan özeti bulunan gerçek formatlarını da
 gibi projelerde aileler kesinlikle birbirine karıştırılmaz.
 
 **Activation / Reaktivasyon Aspiratör değildir; ayrı komponent ailesidir.**
+
+Önceki gerçek testte iki ayrı `Return Motor Connections` sayfasının `Asp 1` ve `Asp 2` olarak ayrılması da doğrulanmıştır.
 
 ---
 
@@ -229,7 +253,14 @@ AHU_C_1_A.pdf    → AHU-C-1-A
 AHU_C_2_A.pdf    → AHU-C-2-A
 ```
 
-Ayrıca gerçek `AHU-A-1` örneğinde PDF 1 seçim tarafında 2 adet 11 kW Supply motoru bulunuyor; üretim tarafında da `Supply` için `2x1` ve 11 kW bilgisi mevcut. Bu yapı Batch Motor Analysis için temel smoke-test senaryosudur.
+Batch smoke-test:
+
+```text
+AHU_A_1(3).pdf
+EC-Florya-Rev5-Üreti_AHU-A-1_PER_18(2).pdf
+```
+
+Bu çift aynı proje + aynı AHU + aynı 2 adet Supply motoru senaryosunu doğrulamak için kullanılıyor.
 
 ---
 
@@ -310,6 +341,8 @@ Yeni batch katmanı mevcut motor parser'larını yeniden yazmak yerine onların 
 [x] ONLY_IN_PDF2
 [x] REVIEW_REQUIRED
 [x] 1 / 1A / 2 ayrımı
+[x] A serisi gerçek test
+[x] C serisi gerçek test
 [x] Testler
 ```
 
@@ -321,8 +354,12 @@ Yeni batch katmanı mevcut motor parser'larını yeniden yazmak yerine onların 
 [x] AHU → motor database bağlantısı
 [x] Batch analysis orchestrator
 [x] PDF2 single-supply summary fallback
+[x] Örtüşen fiziksel motor deduplication
+[x] Çoklu PDF2 motor index devamlılığı
+[x] GUI entegrasyonu
+[x] 2x1 Supply smoke-test
 [ ] Çoklu gerçek proje smoke testleri
-[ ] Motor sonuçlarına Project/AHU metadata eklenmesi
+[ ] Motor sonuçlarına Project/AHU metadata'nın result modeline taşınması
 [ ] REVIEW_REQUIRED'ın motor katmanına tam taşınması
 ```
 
