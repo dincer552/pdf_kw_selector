@@ -15,7 +15,7 @@ _GENERIC_TOKENS = {
     "creation date", "revision no", "date",
 }
 _LABEL_RE = re.compile(r"^\s*(?:proje\s*name|project\s*name)\s*[:=]?\s*(.*?)\s*$", re.I)
-_HEADER_RE = re.compile(r"^\s*project\b(?:\s+|[:=]\s*)(.*?)\s*$", re.I)
+_HEADER_RE = re.compile(r"^\s*project\b.*$", re.I)
 _FIELD_LABEL_RE = re.compile(
     r"^\s*(?:order\s+number|unit\s+(?:number|reference)|revision\s+(?:date|no)|creation\s+date)\s*[:=]?\s*$",
     re.I,
@@ -72,7 +72,7 @@ def _clean_value(value: str) -> str:
 
 
 def _strip_header_metadata(value: str) -> str:
-    """Drop document-column metadata accidentally joined to the Project header."""
+    """Remove creation/revision columns appended to a mixed PDF header line."""
     return _clean_value(_TRAILING_HEADER_RE.sub("", value or ""))
 
 
@@ -89,14 +89,22 @@ def discover_project_from_text(pages: list[str]) -> ProjectDiscovery:
 
     for page_number, text in enumerate(pages, start=1):
         lines = [line.strip() for line in (text or "").splitlines()]
+        skip_next_value = False
         for index, line in enumerate(lines):
+            if skip_next_value:
+                skip_next_value = False
+                continue
+
             match = _LABEL_RE.match(line)
             if match:
                 value = _strip_header_metadata(match.group(1))
                 if not value:
                     for next_line in lines[index + 1:index + 10]:
                         next_line = _clean_value(next_line)
-                        if not next_line or _FIELD_LABEL_RE.match(next_line):
+                        if not next_line:
+                            continue
+                        if _FIELD_LABEL_RE.match(next_line):
+                            skip_next_value = True
                             continue
                         value = _strip_header_metadata(next_line)
                         break
@@ -105,10 +113,10 @@ def discover_project_from_text(pages: list[str]) -> ProjectDiscovery:
                     candidates.append(item)
                 continue
 
-            match = _HEADER_RE.match(line)
-            if match:
-                value = _strip_header_metadata(match.group(1))
-                item = _candidate(value, "project_header", page_number, "MEDIUM")
+            if _HEADER_RE.match(line):
+                # Keep the raw "Project ..." header for traceability. Only
+                # strip metadata columns such as Creation date / Revision date.
+                item = _candidate(line, "project_header", page_number, "MEDIUM")
                 if item:
                     candidates.append(item)
 
