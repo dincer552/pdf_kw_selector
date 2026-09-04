@@ -11,9 +11,19 @@ from pypdf import PdfReader
 
 _GENERIC_TOKENS = {
     "proje", "project", "name", "projectname", "prj", "projectno",
+    "order number", "unit number", "unit reference", "revision date",
+    "creation date", "revision no", "date",
 }
-_LABEL_RE = re.compile(r"^\s*(?:proje\s*name|project\s*name)\s*:\s*(.*?)\s*$", re.I)
-_HEADER_RE = re.compile(r"^\s*project\s+(.+?)\s*$", re.I)
+_LABEL_RE = re.compile(r"^\s*(?:proje\s*name|project\s*name)\s*[:=]?\s*(.*?)\s*$", re.I)
+_HEADER_RE = re.compile(r"^\s*project\b(?:\s+|[:=]\s*)(.*?)\s*$", re.I)
+_FIELD_LABEL_RE = re.compile(
+    r"^\s*(?:order\s+number|unit\s+(?:number|reference)|revision\s+(?:date|no)|creation\s+date)\s*[:=]?\s*$",
+    re.I,
+)
+_TRAILING_HEADER_RE = re.compile(
+    r"\s+(?:creation\s+date|revision\s+date|revision\s+no)\b.*$",
+    re.I,
+)
 
 
 @dataclass(frozen=True)
@@ -61,8 +71,13 @@ def _clean_value(value: str) -> str:
     return re.sub(r"\s+", " ", value or "").strip(" :-\t")
 
 
+def _strip_header_metadata(value: str) -> str:
+    """Drop document-column metadata accidentally joined to the Project header."""
+    return _clean_value(_TRAILING_HEADER_RE.sub("", value or ""))
+
+
 def _candidate(value: str, source: str, page: int, confidence: str) -> ProjectCandidate | None:
-    value = _clean_value(value)
+    value = _strip_header_metadata(value)
     normalized = normalize_project_name(value)
     if not normalized or normalized in _GENERIC_TOKENS:
         return None
@@ -77,18 +92,14 @@ def discover_project_from_text(pages: list[str]) -> ProjectDiscovery:
         for index, line in enumerate(lines):
             match = _LABEL_RE.match(line)
             if match:
-                inline = _clean_value(match.group(1))
-                value = inline
+                value = _strip_header_metadata(match.group(1))
                 if not value:
-                    for next_line in lines[index + 1:index + 6]:
+                    for next_line in lines[index + 1:index + 10]:
                         next_line = _clean_value(next_line)
-                        if next_line and not re.match(
-                            r"^(?:order\s+number|unit\s+number|unit\s+reference)\s*:",
-                            next_line,
-                            re.I,
-                        ):
-                            value = next_line
-                            break
+                        if not next_line or _FIELD_LABEL_RE.match(next_line):
+                            continue
+                        value = _strip_header_metadata(next_line)
+                        break
                 item = _candidate(value, "project_name_field", page_number, "HIGH")
                 if item:
                     candidates.append(item)
@@ -96,9 +107,8 @@ def discover_project_from_text(pages: list[str]) -> ProjectDiscovery:
 
             match = _HEADER_RE.match(line)
             if match:
-                # Preserve the complete raw header for discovery consumers.
-                # Matching layers can ignore the document-label prefix when needed.
-                item = _candidate(line, "project_header", page_number, "MEDIUM")
+                value = _strip_header_metadata(match.group(1))
+                item = _candidate(value, "project_header", page_number, "MEDIUM")
                 if item:
                     candidates.append(item)
 
