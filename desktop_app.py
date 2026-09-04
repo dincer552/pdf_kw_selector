@@ -1,4 +1,4 @@
-"""Desktop GUI for PDF kW Selector - PDF 1 + PDF 2 comparison."""
+"""Desktop GUI for PDF kW Selector - multi-PDF input and comparison."""
 from __future__ import annotations
 
 import json
@@ -6,19 +6,22 @@ import tkinter as tk
 from pathlib import Path
 from tkinter import filedialog, messagebox, ttk
 
+from batch_input import discover_pdfs
 from motor_compare import MotorComparison, compare_motor_records
 from stage1_page_discovery import build_stage1_motor_records, find_rated_motor_powers_in_pdf
 from stage2_pdf_discovery import build_pdf2_motor_records, find_pdf2_motor_powers
 
-VERSION = "v0.3.3"
+VERSION = "v0.4.0"
 
 
 class App(tk.Tk):
     def __init__(self):
         super().__init__()
-        self.title(f"PDF kW Selector {VERSION} — PDF 1 + PDF 2")
-        self.geometry("1120x720")
-        self.minsize(980, 620)
+        self.title(f"PDF kW Selector {VERSION} — Multi-PDF")
+        self.geometry("1180x760")
+        self.minsize(1020, 650)
+        self.pdf1_inputs = []
+        self.pdf2_inputs = []
         self.pdf1: Path | None = None
         self.pdf2: Path | None = None
         self.pdf1_results = []
@@ -33,106 +36,151 @@ class App(tk.Tk):
         outer.pack(fill="both", expand=True)
         outer.columnconfigure(0, weight=1)
         outer.rowconfigure(2, weight=1)
+
+        ttk.Label(outer, text="PDF kW SELECTOR", font=("Segoe UI", 19, "bold")).grid(row=0, column=0, sticky="w")
+        ttk.Label(outer, text=f"{VERSION}  •  Multi-PDF / klasör input + motor karşılaştırma", font=("Segoe UI", 10)).grid(row=0, column=0, sticky="e")
+
         top = ttk.Frame(outer)
-        top.grid(row=0, column=0, sticky="ew")
+        top.grid(row=1, column=0, sticky="ew", pady=(10, 8))
         top.columnconfigure(0, weight=1)
         top.columnconfigure(1, weight=1)
-        self.pdf1_label = self._file_box(top, "PDF 1 — Seçim / ekipman", 0, self.select_pdf1)
-        self.pdf2_label = self._file_box(top, "PDF 2 — Elektrik / sürücü", 1, self.select_pdf2)
-        actions = ttk.Frame(outer)
-        actions.grid(row=1, column=0, sticky="ew", pady=10)
-        ttk.Button(actions, text="KARŞILAŞTIR", command=self.compare).pack(side="left")
-        ttk.Button(actions, text="JSON KAYDET", command=self.save_json).pack(side="left", padx=8)
-        self.status = ttk.Label(actions, text="Hazır")
-        self.status.pack(side="right")
-        result_frame = ttk.Frame(outer)
+        self.pdf1_label = self._file_box(top, "PDF 1 — Seçim / ekipman", 0, self.add_pdf1_files, self.add_pdf1_folder)
+        self.pdf2_label = self._file_box(top, "PDF 2 — Elektrik / sürücü", 1, self.add_pdf2_files, self.add_pdf2_folder)
+
+        result_frame = ttk.LabelFrame(outer, text="Karşılaştırma", padding=8)
         result_frame.grid(row=2, column=0, sticky="nsew")
         result_frame.columnconfigure(0, weight=1)
         result_frame.rowconfigure(0, weight=1)
         cols = ("label", "type", "pdf1", "pdf2", "diff", "status", "page1", "page2")
-        headings = {"label":"Motor","type":"Tip","pdf1":"PDF 1 kW","pdf2":"PDF 2 kW","diff":"Fark","status":"Durum","page1":"PDF1 Sayfa","page2":"PDF2 Sayfa"}
-        widths = {"label":110,"type":110,"pdf1":90,"pdf2":90,"diff":80,"status":120,"page1":90,"page2":90}
+        headings = {"label":"Motor", "type":"Tip", "pdf1":"PDF1 kW", "pdf2":"PDF2 kW", "diff":"Fark", "status":"Durum", "page1":"PDF1 Sayfa", "page2":"PDF2 Sayfa"}
+        widths = {"label":100,"type":110,"pdf1":85,"pdf2":85,"diff":75,"status":120,"page1":90,"page2":90}
         self.tree = ttk.Treeview(result_frame, columns=cols, show="headings", height=18)
         for col in cols:
             self.tree.heading(col, text=headings[col])
             self.tree.column(col, width=widths[col], anchor="center")
-        self.tree.pack(fill="both", expand=True, side="left")
+        self.tree.grid(row=0, column=0, sticky="nsew")
         scroll = ttk.Scrollbar(result_frame, orient="vertical", command=self.tree.yview)
-        scroll.pack(fill="y", side="right")
+        scroll.grid(row=0, column=1, sticky="ns")
         self.tree.configure(yscrollcommand=scroll.set)
+
+        actions = ttk.Frame(outer)
+        actions.grid(row=3, column=0, sticky="ew", pady=8)
+        ttk.Button(actions, text="KARŞILAŞTIR", command=self.compare).pack(side="left")
+        ttk.Button(actions, text="SEÇİLENLERİ TEMİZLE", command=self.clear_inputs).pack(side="left", padx=8)
+        ttk.Button(actions, text="JSON KAYDET", command=self.save_json).pack(side="left")
+        self.status = ttk.Label(actions, text="PDF 1 ve PDF 2 için dosya veya klasör ekleyin.")
+        self.status.pack(side="right")
+
         self.detail = tk.Text(outer, height=8, wrap="word", font=("Consolas", 9))
-        self.detail.grid(row=3, column=0, sticky="ew", pady=(10, 0))
+        self.detail.grid(row=4, column=0, sticky="ew")
         self.detail.configure(state="disabled")
 
-    def _file_box(self, parent, title, column, command):
-        box = ttk.LabelFrame(parent, text=title, padding=10)
-        box.grid(row=0, column=column, sticky="nsew", padx=(0, 6) if column == 0 else (6, 0))
-        label = ttk.Label(box, text="Henüz PDF seçilmedi", width=52)
-        label.grid(row=0, column=0, sticky="ew", padx=(0, 8))
-        ttk.Button(box, text="PDF SEÇ", command=command).grid(row=0, column=1)
+    def _file_box(self, parent, title, column, file_command, folder_command):
+        box = ttk.LabelFrame(parent, text=title, padding=8)
+        box.grid(row=0, column=column, sticky="nsew", padx=(0, 5) if column == 0 else (5, 0))
+        label = ttk.Label(box, text="0 PDF seçildi", width=62)
+        label.grid(row=0, column=0, columnspan=2, sticky="ew", pady=(0, 6))
+        ttk.Button(box, text="PDF EKLE", command=file_command).grid(row=1, column=0, sticky="w")
+        ttk.Button(box, text="KLASÖR EKLE", command=folder_command).grid(row=1, column=1, sticky="w", padx=6)
         box.columnconfigure(0, weight=1)
         return label
 
-    def select_pdf1(self):
-        path = filedialog.askopenfilename(title="PDF 1 seç", filetypes=[("PDF files", "*.pdf"), ("All files", "*.*")])
-        if path:
-            self.pdf1 = Path(path)
-            self.pdf1_label.configure(text=str(self.pdf1))
-            self._analyze_pdf1()
+    def _add_inputs(self, target: str):
+        paths = filedialog.askopenfilenames(title=f"{target} PDF dosyalarını seç", filetypes=[("PDF files", "*.pdf"), ("All files", "*.*")])
+        if not paths:
+            return
+        self._merge_inputs(target, list(paths))
 
-    def select_pdf2(self):
-        path = filedialog.askopenfilename(title="PDF 2 seç", filetypes=[("PDF files", "*.pdf"), ("All files", "*.*")])
-        if path:
-            self.pdf2 = Path(path)
-            self.pdf2_label.configure(text=str(self.pdf2))
-            self._analyze_pdf2()
+    def _add_folder(self, target: str):
+        path = filedialog.askdirectory(title=f"{target} PDF klasörünü seç")
+        if not path:
+            return
+        self._merge_inputs(target, [path])
 
-    def _analyze_pdf1(self):
-        try:
-            self.pdf1_results = find_rated_motor_powers_in_pdf(self.pdf1)
-            self.pdf1_motors = [record for result in self.pdf1_results for record in build_stage1_motor_records(result)]
-            self.status.configure(text=f"PDF 1 hazır — {len(self.pdf1_motors)} fiziksel motor")
-            self._set_detail(json.dumps([r.to_dict() for r in self.pdf1_motors], ensure_ascii=False, indent=2))
-        except Exception as exc:
-            self.status.configure(text="PDF 1 ANALİZ HATASI")
-            messagebox.showerror("PDF 1 analiz hatası", str(exc))
+    def _merge_inputs(self, target: str, paths):
+        current = self.pdf1_inputs if target == "PDF1" else self.pdf2_inputs
+        merged = discover_pdfs([item.path for item in current] + list(paths), recursive=True)
+        if target == "PDF1":
+            self.pdf1_inputs = merged
+            self._update_label(self.pdf1_label, merged)
+        else:
+            self.pdf2_inputs = merged
+            self._update_label(self.pdf2_label, merged)
+        self.status.configure(text=f"{target}: {len(merged)} PDF hazır")
 
-    def _analyze_pdf2(self):
-        try:
-            self.pdf2_results = find_pdf2_motor_powers(self.pdf2)
-            counters: dict[str, int] = {}
-            motors = []
-            for result in self.pdf2_results:
-                current = counters.get(result.component_type, 0) + 1
+    def _update_label(self, label, items):
+        if not items:
+            label.configure(text="0 PDF seçildi")
+            return
+        names = [Path(item.path).name for item in items[:3]]
+        suffix = " ..." if len(items) > 3 else ""
+        label.configure(text=f"{len(items)} PDF: " + ", ".join(names) + suffix)
+
+    def add_pdf1_files(self): self._add_inputs("PDF1")
+    def add_pdf1_folder(self): self._add_folder("PDF1")
+    def add_pdf2_files(self): self._add_inputs("PDF2")
+    def add_pdf2_folder(self): self._add_folder("PDF2")
+
+    def clear_inputs(self):
+        self.pdf1_inputs, self.pdf2_inputs = [], []
+        self.pdf1 = self.pdf2 = None
+        self.pdf1_motors, self.pdf2_motors, self.comparisons = [], [], []
+        self._update_label(self.pdf1_label, [])
+        self._update_label(self.pdf2_label, [])
+        for item in self.tree.get_children(): self.tree.delete(item)
+        self.status.configure(text="Seçimler temizlendi.")
+
+    def _analyze_pdf1_batch(self):
+        motors = []
+        results = []
+        for item in self.pdf1_inputs:
+            path = Path(item.path)
+            found = find_rated_motor_powers_in_pdf(path)
+            results.extend(found)
+            motors.extend(record for result in found for record in build_stage1_motor_records(result))
+        return results, motors
+
+    def _analyze_pdf2_batch(self):
+        motors = []
+        results = []
+        counters: dict[tuple[str, str], int] = {}
+        for item in self.pdf2_inputs:
+            path = Path(item.path)
+            found = find_pdf2_motor_powers(path)
+            results.extend(found)
+            for result in found:
+                key = (result.equipment_id or path.stem, result.component_type)
+                current = counters.get(key, 0) + 1
                 records = build_pdf2_motor_records(result, start_index=current)
                 motors.extend(records)
-                counters[result.component_type] = current + len(records) - 1
-            self.pdf2_motors = motors
-            self.status.configure(text=f"PDF 2 hazır — {len(self.pdf2_motors)} fiziksel motor")
-            self._set_detail(json.dumps([r.to_dict() for r in self.pdf2_motors], ensure_ascii=False, indent=2))
-        except Exception as exc:
-            self.status.configure(text="PDF 2 ANALİZ HATASI")
-            messagebox.showerror("PDF 2 analiz hatası", str(exc))
+                counters[key] = current + len(records) - 1
+        return results, motors
 
     def compare(self):
-        if not self.pdf1 or not self.pdf2:
-            messagebox.showwarning("PDF eksik", "Karşılaştırma için hem PDF 1 hem PDF 2 seçilmelidir.")
+        if not self.pdf1_inputs or not self.pdf2_inputs:
+            messagebox.showwarning("PDF eksik", "PDF 1 ve PDF 2 tarafına en az bir PDF veya klasör ekleyin.")
             return
-        self._analyze_pdf1()
-        self._analyze_pdf2()
-        self.comparisons = compare_motor_records(self.pdf1_motors, self.pdf2_motors)
-        for item in self.tree.get_children():
-            self.tree.delete(item)
+        try:
+            self.status.configure(text="Toplu PDF analizi yapılıyor...")
+            self.update_idletasks()
+            self.pdf1_results, self.pdf1_motors = self._analyze_pdf1_batch()
+            self.pdf2_results, self.pdf2_motors = self._analyze_pdf2_batch()
+            self.comparisons = compare_motor_records(self.pdf1_motors, self.pdf2_motors)
+        except Exception as exc:
+            messagebox.showerror("Analiz hatası", str(exc))
+            self.status.configure(text="Analiz hatası")
+            return
+
+        for item in self.tree.get_children(): self.tree.delete(item)
         counts = {"MATCH":0,"MISMATCH":0,"ONLY_IN_PDF1":0,"ONLY_IN_PDF2":0}
         for result in self.comparisons:
             counts[result.status] = counts.get(result.status, 0) + 1
             self.tree.insert("", "end", values=(result.component_label,result.component_type,self._fmt(result.pdf1_kw),self._fmt(result.pdf2_kw),self._fmt(result.difference_kw),result.status,result.pdf1_page or "-",result.pdf2_page or "-"))
-        self.status.configure(text=f"✓ {len(self.comparisons)} MOTOR — EŞLEŞEN: {counts['MATCH']}  |  FARKLI: {counts['MISMATCH']}  |  SADECE PDF1: {counts['ONLY_IN_PDF1']}  |  SADECE PDF2: {counts['ONLY_IN_PDF2']}")
+        self.status.configure(text=f"✓ {len(self.comparisons)} MOTOR — MATCH {counts['MATCH']} | MISMATCH {counts['MISMATCH']} | PDF1 {counts['ONLY_IN_PDF1']} | PDF2 {counts['ONLY_IN_PDF2']}")
         self._set_detail(json.dumps([r.to_dict() for r in self.comparisons], ensure_ascii=False, indent=2))
 
     @staticmethod
-    def _fmt(value):
-        return "-" if value is None else f"{value:g}"
+    def _fmt(value): return "-" if value is None else f"{value:g}"
 
     def _set_detail(self, text):
         self.detail.configure(state="normal")
@@ -142,12 +190,11 @@ class App(tk.Tk):
 
     def save_json(self):
         if not self.comparisons:
-            messagebox.showwarning("Sonuç yok", "Önce iki PDF seçip KARŞILAŞTIR çalıştırın.")
+            messagebox.showwarning("Sonuç yok", "Önce KARŞILAŞTIR çalıştırın.")
             return
-        path = filedialog.asksaveasfilename(title="Karşılaştırma sonucunu kaydet", defaultextension=".json", filetypes=[("JSON", "*.json")])
-        if not path:
-            return
-        payload = {"version":VERSION,"pdf1":str(self.pdf1),"pdf2":str(self.pdf2),"pdf1_motors":[r.to_dict() for r in self.pdf1_motors],"pdf2_motors":[r.to_dict() for r in self.pdf2_motors],"comparison":[r.to_dict() for r in self.comparisons]}
+        path = filedialog.asksaveasfilename(title="Toplu karşılaştırmayı kaydet", defaultextension=".json", filetypes=[("JSON", "*.json")])
+        if not path: return
+        payload = {"version":VERSION,"pdf1_files":[r.to_dict() for r in self.pdf1_inputs],"pdf2_files":[r.to_dict() for r in self.pdf2_inputs],"pdf1_motors":[r.to_dict() for r in self.pdf1_motors],"pdf2_motors":[r.to_dict() for r in self.pdf2_motors],"comparison":[r.to_dict() for r in self.comparisons]}
         Path(path).write_text(json.dumps(payload, ensure_ascii=False, indent=2), encoding="utf-8")
         messagebox.showinfo("Kaydedildi", f"Sonuç kaydedildi:\n{path}")
 
