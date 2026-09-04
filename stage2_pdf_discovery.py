@@ -2,8 +2,8 @@
 
 Dedicated connection pages are authoritative when they contain a motor kW.
 When no dedicated connection page is present, the title-page fan motor power
-summary is used as a controlled fallback. Supply, Return and Activation are
-kept as separate fan families.
+summary is used as a controlled fallback. Supply, Return, Exhaust and
+Activation are kept as separate fan families.
 """
 from __future__ import annotations
 
@@ -39,7 +39,7 @@ SUMMARY_PAIR_RE = re.compile(
     r"\(\s*(?P<return_quantity>\d+\s*[x×]\s*\d+)\s*\)", re.I
 )
 EQUIPMENT_RE = re.compile(
-    r"\bVE\.A\.D\.\d+\b|\bAHU[_-][A-Z0-9]+[_-]\d+(?:[_-][A-Z0-9]+)?\b|\bAHU[-_ ]?\d+\b", re.I
+    r"\bVE\.A\.D\.\d+\b|\bAHU[_-][A-Z0-9]+(?:[_-][A-Z0-9]+)+\b|\bAHU[-_ ]?\d+\b", re.I
 )
 
 
@@ -143,8 +143,36 @@ def _fallback_connection_page(text: str, page_number: int, equipment_id: str | N
     value, quantity = item
     return PDF2MotorResult(
         equipment_id, _component(direction_match.group("direction"))[0], role,
-        value, quantity, page_number, "summary fallback: Fan Motor Power",
+        value, quantity, page_number, "summary fallback: Fan Motor Power", "medium",
     )
+
+
+def _summary_only_results(equipment_id: str | None, summary: dict[str, tuple[float, str]], page_number: int = 1) -> list[PDF2MotorResult]:
+    """Use title-page summary when there are no dedicated Motor Connections pages."""
+    if not equipment_id:
+        return []
+    labels = {
+        "supply_fan": ("Vantilatör", "supply_fan"),
+        "return_fan": ("Aspiratör", "return_fan"),
+        "exhaust_fan": ("Aspiratör", "exhaust_fan"),
+        "activation_fan": ("Reaktivasyon", "activation_fan"),
+    }
+    results: list[PDF2MotorResult] = []
+    for role, (value, quantity) in summary.items():
+        component_type, component_role = labels[role]
+        results.append(
+            PDF2MotorResult(
+                equipment_id,
+                component_type,
+                component_role,
+                value,
+                quantity,
+                page_number,
+                "summary-only fallback: Fan Motor Power / Nominal Rpm",
+                "medium",
+            )
+        )
+    return results
 
 
 def _apply_summary_quantities(results: list[PDF2MotorResult], summary: dict[str, tuple[float, str]]) -> list[PDF2MotorResult]:
@@ -193,7 +221,12 @@ def find_pdf2_motor_powers(path: str | Path) -> list[PDF2MotorResult]:
             result = _fallback_connection_page(text, page_number, equipment_id, summary)
         if result:
             results.append(result)
-    return _apply_summary_quantities(_dedupe(results), summary)
+
+    results = _dedupe(results)
+    if not results and summary:
+        results = _summary_only_results(equipment_id, summary, page_number=1)
+
+    return _apply_summary_quantities(results, summary)
 
 
 def build_pdf2_motor_records(result: PDF2MotorResult, start_index: int = 1) -> list[MotorRecord]:
