@@ -95,7 +95,7 @@ def _strip_header_metadata(value: str) -> str:
 
 def _candidate(value: str, source: str, page: int, confidence: str) -> ProjectCandidate | None:
     value = _strip_header_metadata(value)
-    if _is_field_label(value):
+    if not _looks_like_project_name(value):
         return None
     normalized = normalize_project_name(value)
     if not normalized or normalized in _GENERIC_TOKENS:
@@ -103,36 +103,30 @@ def _candidate(value: str, source: str, page: int, confidence: str) -> ProjectCa
     return ProjectCandidate(value, normalized, source, page, confidence)
 
 
-def _find_multiline_project_name(lines: list[str], start_index: int) -> str:
-    """Find a plausible project value after an empty Proje/Project Name label.
+def _is_known_field_value(value: str) -> bool:
+    value = _clean_value(value)
+    return bool(
+        _NUMERIC_ONLY_RE.fullmatch(value)
+        or _AHU_ONLY_RE.fullmatch(value)
+    )
 
-    Systemair PDF table extraction can interleave document labels and their
-    values. We therefore skip known field labels, their obvious values
-    (order numbers / AHU identifiers), and accept the first line that looks
-    like a natural-language project name.
-    """
+
+def _find_multiline_project_name(lines: list[str], start_index: int) -> str:
+    """Find the natural-language value belonging to an empty project-name field."""
     look = start_index + 1
-    skipped_value_for_label = False
-    while look < min(len(lines), start_index + 20):
-        next_line = _clean_value(lines[look])
-        if not next_line:
+    while look < min(len(lines), start_index + 30):
+        value = _clean_value(lines[look])
+        if not value:
             look += 1
             continue
-        if _is_field_label(next_line):
-            skipped_value_for_label = True
+        if _is_field_label(value):
             look += 1
             continue
-        if skipped_value_for_label:
-            if _NUMERIC_ONLY_RE.fullmatch(next_line) or _AHU_ONLY_RE.fullmatch(next_line):
-                skipped_value_for_label = False
-                look += 1
-                continue
-            # A natural-language line after a field label is the most likely
-            # project value. Do not discard it merely because the field value
-            # itself could not be classified with certainty.
-            skipped_value_for_label = False
-        if _looks_like_project_name(next_line):
-            return _strip_header_metadata(next_line)
+        if _is_known_field_value(value):
+            look += 1
+            continue
+        if _looks_like_project_name(value):
+            return _strip_header_metadata(value)
         look += 1
     return ""
 
