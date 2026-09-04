@@ -30,15 +30,13 @@ _GENERIC_FAN_PROJECT_RE = re.compile(
     r"^(?:(?:supply|return|exhaust|activation|reactivation)(?:\s+[/ -]?\s*reactivation)?\s+fan\s+(?:air\s+volume|motor\s+power)|fan\s+(?:air\s+volume|motor\s+power))$",
     re.I,
 )
-_GENERIC_ENGINEERING_FIELD_RE = re.compile(
-    r"^(?:(?:supply|return|exhaust|activation|reactivation)\s+)?"
-    r"(?:fan\s+)?(?:air\s+volume|motor\s+power|power|capacity|nominal\s+rpm)"
-    r"|(?:rotor\s+)?heat\s+recovery(?:\s+unit)?\s+motor\s+power"
-    r"|electrical\s+(?:heater|heating)(?:\s+power)?"
-    r"|unit\s+(?:total|overall)\s+power"
-    r"|(?:total|electrical)\s+(?:heating|cooling|power)"
-    r"|shaft\s+power|vfd\s+(?:included|excluded|dahil|hariç)|nominal\s+rpm)$",
-    re.I,
+_GENERIC_ENGINEERING_FIELD_PATTERNS = (
+    re.compile(r"^(?:(?:supply|return|exhaust|activation|reactivation)\s+)?(?:fan\s+)?(?:air\s+volume|motor\s+power|power|capacity|nominal\s+rpm)$", re.I),
+    re.compile(r"^(?:rotor\s+)?heat\s+recovery(?:\s+unit)?\s+motor\s+power$", re.I),
+    re.compile(r"^electrical\s+(?:heater|heating)(?:\s+power)?$", re.I),
+    re.compile(r"^unit\s+(?:total|overall)\s+power$", re.I),
+    re.compile(r"^(?:total|electrical)\s+(?:heating|cooling|power)$", re.I),
+    re.compile(r"^(?:shaft\s+power|vfd\s+(?:included|excluded|dahil|hariç)|nominal\s+rpm)$", re.I),
 )
 _GENERIC_FAN_PROJECT_SET = {
     "fan air volume", "supply fan air volume", "return fan air volume",
@@ -105,11 +103,9 @@ def _is_generic_project_name(value: str) -> bool:
     normalized = normalize_project_name(_clean_value(value))
     if not normalized:
         return False
-    return (
-        normalized in _GENERIC_FAN_PROJECT_SET
-        or bool(_GENERIC_FAN_PROJECT_RE.fullmatch(normalized))
-        or bool(_GENERIC_ENGINEERING_FIELD_RE.fullmatch(normalized))
-    )
+    if normalized in _GENERIC_FAN_PROJECT_SET or bool(_GENERIC_FAN_PROJECT_RE.fullmatch(normalized)):
+        return True
+    return any(pattern.fullmatch(normalized) for pattern in _GENERIC_ENGINEERING_FIELD_PATTERNS)
 
 
 def _looks_like_project_name(value: str) -> bool:
