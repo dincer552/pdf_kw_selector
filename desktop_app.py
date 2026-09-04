@@ -6,10 +6,11 @@ import tkinter as tk
 from pathlib import Path
 from tkinter import filedialog, messagebox, ttk
 
+from ahu_matching import normalize_equipment_id
 from batch_analysis import analyze_batch
 from batch_input import discover_pdfs
 
-VERSION = "v0.5.0"
+VERSION = "v0.5.1"
 
 
 class App(tk.Tk):
@@ -143,14 +144,25 @@ class App(tk.Tk):
             self.tree.delete(item)
 
         counts = {"MATCH": 0, "MISMATCH": 0, "ONLY_IN_PDF1": 0, "ONLY_IN_PDF2": 0}
+        ahu_context = {}
+        for batch_ahu in self.analysis.ahu_matches:
+            left = normalize_equipment_id(batch_ahu.match.left_normalized)
+            right = normalize_equipment_id(batch_ahu.match.right_normalized)
+            if left:
+                ahu_context[left] = batch_ahu.project_name or "-"
+            if right:
+                ahu_context[right] = batch_ahu.project_name or "-"
+
         for comparison in self.analysis.motor_comparisons:
             counts[comparison.status] = counts.get(comparison.status, 0) + 1
+            ahu = normalize_equipment_id(comparison.equipment_id)
+            project = ahu_context.get(ahu, "-")
             self.tree.insert(
                 "",
                 "end",
                 values=(
-                    comparison.equipment_id,
-                    comparison.equipment_id,
+                    project,
+                    ahu,
                     comparison.component_label,
                     comparison.component_type,
                     self._fmt(comparison.pdf1_kw),
