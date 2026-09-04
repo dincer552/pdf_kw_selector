@@ -10,7 +10,7 @@ from ahu_matching import normalize_equipment_id
 from batch_analysis import analyze_batch
 from batch_input import discover_pdfs
 
-VERSION = "v0.5.1"
+VERSION = "v0.5.2"
 
 
 class App(tk.Tk):
