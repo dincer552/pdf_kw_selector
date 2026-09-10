@@ -2,12 +2,15 @@
 from __future__ import annotations
 
 import json
+import os
+import subprocess
 import sys
 import tkinter as tk
 from pathlib import Path
 from tkinter import filedialog, messagebox, ttk
 
 from ahu_matching import normalize_equipment_id
+from app_logger import clear_log, exception, info, log_directory, log_file, read_log, startup, warning
 from batch_analysis import analyze_batch
 from batch_input import discover_pdfs
 from updater import apply_update, check_for_update, download_update, restart_with_update
@@ -25,6 +28,8 @@ class App(tk.Tk):
         self.pdf2_inputs = []
         self.analysis = None
         self._build()
+        self.refresh_logs()
+        info("GUI hazır", pdf1_count=0, pdf2_count=0)
 
     def _build(self):
         outer = ttk.Frame(self, padding=12)
@@ -44,10 +49,14 @@ class App(tk.Tk):
         self.pdf1_label = self._file_box(top, "PDF 1 — Seçim / Referans", 0, self.add_pdf1_files, self.add_pdf1_folder)
         self.pdf2_label = self._file_box(top, "PDF 2 — Elektrik / Üretim", 1, self.add_pdf2_files, self.add_pdf2_folder)
 
-        result = ttk.LabelFrame(outer, text="Toplu Motor Karşılaştırması", padding=8)
-        result.grid(row=2, column=0, sticky="nsew")
+        notebook = ttk.Notebook(outer)
+        notebook.grid(row=2, column=0, sticky="nsew")
+
+        result = ttk.Frame(notebook, padding=8)
         result.columnconfigure(0, weight=1)
         result.rowconfigure(0, weight=1)
+        notebook.add(result, text="SONUÇLAR")
+
         cols = ("project", "ahu", "motor", "type", "pdf1", "pdf2", "diff", "status", "page1", "page2")
         headings = {"project":"Proje", "ahu":"AHU", "motor":"Motor", "type":"Tip", "pdf1":"PDF1 kW", "pdf2":"PDF2 kW", "diff":"Fark", "status":"Durum", "page1":"PDF1", "page2":"PDF2"}
         widths = {"project":220, "ahu":105, "motor":80, "type":110, "pdf1":80, "pdf2":80, "diff":70, "status":125, "page1":60, "page2":60}
@@ -60,6 +69,33 @@ class App(tk.Tk):
         scroll.grid(row=0, column=1, sticky="ns")
         self.tree.configure(yscrollcommand=scroll.set)
 
+        detail_frame = ttk.Frame(result)
+        detail_frame.grid(row=1, column=0, columnspan=2, sticky="ew", pady=(8, 0))
+        detail_frame.columnconfigure(0, weight=1)
+        ttk.Label(detail_frame, text="Sonuç JSON / teknik detay").grid(row=0, column=0, sticky="w")
+        self.detail = tk.Text(detail_frame, height=7, wrap="word", font=("Consolas", 9))
+        self.detail.grid(row=1, column=0, sticky="ew")
+        self.detail.configure(state="disabled")
+
+        log_tab = ttk.Frame(notebook, padding=8)
+        log_tab.columnconfigure(0, weight=1)
+        log_tab.rowconfigure(1, weight=1)
+        notebook.add(log_tab, text="HATA / İŞLEM LOGLARI")
+        ttk.Label(log_tab, text=f"Log dosyası: {log_file()}").grid(row=0, column=0, sticky="w", pady=(0, 6))
+        self.log_text = tk.Text(log_tab, wrap="none", font=("Consolas", 9))
+        self.log_text.grid(row=1, column=0, sticky="nsew")
+        log_scroll_y = ttk.Scrollbar(log_tab, orient="vertical", command=self.log_text.yview)
+        log_scroll_y.grid(row=1, column=1, sticky="ns")
+        log_scroll_x = ttk.Scrollbar(log_tab, orient="horizontal", command=self.log_text.xview)
+        log_scroll_x.grid(row=2, column=0, sticky="ew")
+        self.log_text.configure(yscrollcommand=log_scroll_y.set, xscrollcommand=log_scroll_x.set)
+        log_actions = ttk.Frame(log_tab)
+        log_actions.grid(row=3, column=0, sticky="ew", pady=(6, 0))
+        ttk.Button(log_actions, text="LOGLARI YENİLE", command=self.refresh_logs).pack(side="left")
+        ttk.Button(log_actions, text="LOG DOSYASINI AÇ", command=self.open_log_file).pack(side="left", padx=6)
+        ttk.Button(log_actions, text="LOG KLASÖRÜ", command=self.open_log_directory).pack(side="left")
+        ttk.Button(log_actions, text="LOGLARI TEMİZLE", command=self.clear_logs).pack(side="left", padx=6)
+
         actions = ttk.Frame(outer)
         actions.grid(row=3, column=0, sticky="ew", pady=8)
         ttk.Button(actions, text="TOPLU ANALİZ", command=self.compare).pack(side="left")
@@ -68,10 +104,6 @@ class App(tk.Tk):
         ttk.Button(actions, text="GÜNCELLEME KONTROL ET", command=self.check_updates).pack(side="left", padx=8)
         self.status = ttk.Label(actions, text="PDF 1 ve PDF 2 tarafına dosya veya klasör ekleyin.")
         self.status.pack(side="right")
-
-        self.detail = tk.Text(outer, height=8, wrap="word", font=("Consolas", 9))
-        self.detail.grid(row=4, column=0, sticky="ew")
-        self.detail.configure(state="disabled")
 
     def _file_box(self, parent, title, column, file_command, folder_command):
         box = ttk.LabelFrame(parent, text=title, padding=8)
@@ -84,25 +116,44 @@ class App(tk.Tk):
         return label
 
     def _add_inputs(self, target: str):
-        paths = filedialog.askopenfilenames(title=f"{target} PDF dosyalarını seç", filetypes=[("PDF files", "*.pdf"), ("All files", "*.*")])
-        if paths:
-            self._merge_inputs(target, list(paths))
+        try:
+            paths = filedialog.askopenfilenames(title=f"{target} PDF dosyalarını seç", filetypes=[("PDF files", "*.pdf"), ("All files", "*.*")])
+            if paths:
+                info("PDF dosyaları seçildi", target=target, count=len(paths), paths=list(paths))
+                self._merge_inputs(target, list(paths))
+        except Exception as exc:
+            exception("PDF dosya seçme hatası", exc, target=target)
+            messagebox.showerror("Dosya seçme hatası", str(exc))
+            self.refresh_logs()
 
     def _add_folder(self, target: str):
-        path = filedialog.askdirectory(title=f"{target} PDF klasörünü seç")
-        if path:
-            self._merge_inputs(target, [path])
+        try:
+            path = filedialog.askdirectory(title=f"{target} PDF klasörünü seç")
+            if path:
+                info("PDF klasörü seçildi", target=target, path=path)
+                self._merge_inputs(target, [path])
+        except Exception as exc:
+            exception("PDF klasör seçme hatası", exc, target=target)
+            messagebox.showerror("Klasör seçme hatası", str(exc))
+            self.refresh_logs()
 
     def _merge_inputs(self, target: str, paths):
-        current = self.pdf1_inputs if target == "PDF1" else self.pdf2_inputs
-        merged = discover_pdfs([item.path for item in current] + list(paths), recursive=True)
-        if target == "PDF1":
-            self.pdf1_inputs = merged
-            self._update_label(self.pdf1_label, merged)
-        else:
-            self.pdf2_inputs = merged
-            self._update_label(self.pdf2_label, merged)
-        self.status.configure(text=f"{target}: {len(merged)} PDF hazır")
+        try:
+            current = self.pdf1_inputs if target == "PDF1" else self.pdf2_inputs
+            merged = discover_pdfs([item.path for item in current] + list(paths), recursive=True)
+            if target == "PDF1":
+                self.pdf1_inputs = merged
+                self._update_label(self.pdf1_label, merged)
+            else:
+                self.pdf2_inputs = merged
+                self._update_label(self.pdf2_label, merged)
+            info("PDF giriş listesi güncellendi", target=target, count=len(merged), paths=[item.path for item in merged])
+            self.status.configure(text=f"{target}: {len(merged)} PDF hazır")
+            self.refresh_logs()
+        except Exception as exc:
+            exception("PDF girişleri hazırlanamadı", exc, target=target, paths=list(paths))
+            messagebox.showerror("PDF hazırlama hatası", str(exc))
+            self.refresh_logs()
 
     def _update_label(self, label, items):
         if not items:
@@ -118,20 +169,29 @@ class App(tk.Tk):
     def add_pdf2_folder(self): self._add_folder("PDF2")
 
     def clear_inputs(self):
-        self.pdf1_inputs, self.pdf2_inputs = [], []
-        self.analysis = None
-        self._update_label(self.pdf1_label, [])
-        self._update_label(self.pdf2_label, [])
-        for item in self.tree.get_children():
-            self.tree.delete(item)
-        self._set_detail("")
-        self.status.configure(text="Seçimler temizlendi.")
+        try:
+            self.pdf1_inputs, self.pdf2_inputs = [], []
+            self.analysis = None
+            self._update_label(self.pdf1_label, [])
+            self._update_label(self.pdf2_label, [])
+            for item in self.tree.get_children():
+                self.tree.delete(item)
+            self._set_detail("")
+            info("PDF seçimleri temizlendi")
+            self.status.configure(text="Seçimler temizlendi.")
+            self.refresh_logs()
+        except Exception as exc:
+            exception("Seçimleri temizleme hatası", exc)
+            self.refresh_logs()
 
     def compare(self):
         if not self.pdf1_inputs or not self.pdf2_inputs:
+            warning("Toplu analiz başlatılamadı: PDF taraflarından biri boş", pdf1_count=len(self.pdf1_inputs), pdf2_count=len(self.pdf2_inputs))
             messagebox.showwarning("PDF eksik", "PDF 1 ve PDF 2 tarafına en az bir PDF veya klasör ekleyin.")
+            self.refresh_logs()
             return
         try:
+            info("GUI toplu analiz isteği", pdf1_count=len(self.pdf1_inputs), pdf2_count=len(self.pdf2_inputs))
             self.status.configure(text="Project → AHU → Motor toplu analizi yapılıyor...")
             self.update_idletasks()
             self.analysis = analyze_batch(
@@ -139,65 +199,88 @@ class App(tk.Tk):
                 [item.path for item in self.pdf2_inputs],
             )
         except Exception as exc:
-            messagebox.showerror("Toplu analiz hatası", str(exc))
+            exception("GUI toplu analiz hatası", exc)
+            messagebox.showerror("Toplu analiz hatası", f"{type(exc).__name__}: {exc}\n\nDetay HATA / İŞLEM LOGLARI sekmesinde.")
             self.status.configure(text="Toplu analiz hatası")
+            self.refresh_logs()
             return
 
-        for item in self.tree.get_children():
-            self.tree.delete(item)
+        try:
+            for item in self.tree.get_children():
+                self.tree.delete(item)
 
-        counts = {"MATCH": 0, "MISMATCH": 0, "ONLY_IN_PDF1": 0, "ONLY_IN_PDF2": 0}
-        ahu_context = {}
-        for batch_ahu in self.analysis.ahu_matches:
-            left = normalize_equipment_id(batch_ahu.match.left_normalized)
-            right = normalize_equipment_id(batch_ahu.match.right_normalized)
-            if left:
-                ahu_context[left] = batch_ahu.project_name or "-"
-            if right:
-                ahu_context[right] = batch_ahu.project_name or "-"
+            counts = {"MATCH": 0, "MISMATCH": 0, "ONLY_IN_PDF1": 0, "ONLY_IN_PDF2": 0}
+            ahu_context = {}
+            for batch_ahu in self.analysis.ahu_matches:
+                left = normalize_equipment_id(batch_ahu.match.left_normalized)
+                right = normalize_equipment_id(batch_ahu.match.right_normalized)
+                if left:
+                    ahu_context[left] = batch_ahu.project_name or "-"
+                if right:
+                    ahu_context[right] = batch_ahu.project_name or "-"
 
-        for comparison in self.analysis.motor_comparisons:
-            counts[comparison.status] = counts.get(comparison.status, 0) + 1
-            ahu = normalize_equipment_id(comparison.equipment_id)
-            project = ahu_context.get(ahu, "-")
-            self.tree.insert(
-                "", "end", values=(project, ahu, comparison.component_label, comparison.component_type,
-                    self._fmt(comparison.pdf1_kw), self._fmt(comparison.pdf2_kw), self._fmt(comparison.difference_kw),
-                    comparison.status, comparison.pdf1_page or "-", comparison.pdf2_page or "-")
-            )
+            for comparison in self.analysis.motor_comparisons:
+                counts[comparison.status] = counts.get(comparison.status, 0) + 1
+                ahu = normalize_equipment_id(comparison.equipment_id)
+                project = ahu_context.get(ahu, "-")
+                self.tree.insert(
+                    "", "end", values=(project, ahu, comparison.component_label, comparison.component_type,
+                        self._fmt(comparison.pdf1_kw), self._fmt(comparison.pdf2_kw), self._fmt(comparison.difference_kw),
+                        comparison.status, comparison.pdf1_page or "-", comparison.pdf2_page or "-")
+                )
 
-        self.status.configure(text=(
-            f"✓ Proje {len(self.analysis.project_matches)} | AHU {len(self.analysis.ahu_matches)} | "
-            f"Motor {len(self.analysis.motor_comparisons)} | MATCH {counts['MATCH']} | MISMATCH {counts['MISMATCH']} | "
-            f"PDF1 {counts['ONLY_IN_PDF1']} | PDF2 {counts['ONLY_IN_PDF2']}"
-        ))
-        self._set_detail(json.dumps(self.analysis.to_dict(), ensure_ascii=False, indent=2))
+            info("GUI sonuç tablosu oluşturuldu", comparisons=len(self.analysis.motor_comparisons), counts=counts)
+            self.status.configure(text=(
+                f"✓ Proje {len(self.analysis.project_matches)} | AHU {len(self.analysis.ahu_matches)} | "
+                f"Motor {len(self.analysis.motor_comparisons)} | MATCH {counts['MATCH']} | MISMATCH {counts['MISMATCH']} | "
+                f"PDF1 {counts['ONLY_IN_PDF1']} | PDF2 {counts['ONLY_IN_PDF2']}"
+            ))
+            self._set_detail(json.dumps(self.analysis.to_dict(), ensure_ascii=False, indent=2))
+            self.refresh_logs()
+        except Exception as exc:
+            exception("GUI sonuç tablosu oluşturma hatası", exc)
+            messagebox.showerror("Sonuç gösterme hatası", f"{type(exc).__name__}: {exc}\n\nDetay HATA / İŞLEM LOGLARI sekmesinde.")
+            self.refresh_logs()
 
     def check_updates(self):
         try:
-            info = check_for_update(Path(sys.executable))
+            info_data = check_for_update(Path(sys.executable))
         except Exception as exc:
-            messagebox.showerror("Güncelleme kontrolü", f"Güncelleme kontrol edilemedi:\n{exc}")
+            exception("GUI güncelleme kontrolü hatası", exc)
+            messagebox.showerror("Güncelleme kontrolü", f"Güncelleme kontrol edilemedi:\n{type(exc).__name__}: {exc}\n\nDetay HATA / İŞLEM LOGLARI sekmesinde.")
+            self.refresh_logs()
             return
-        if not info["available"]:
+        if not info_data["available"]:
+            info("Program güncel", version=VERSION)
             messagebox.showinfo("Güncelleme", f"Programınız güncel.\nSürüm: {VERSION}")
+            self.refresh_logs()
             return
-        answer = messagebox.askyesno("Yeni sürüm bulundu", f"Yeni sürüm mevcut: {info['version']}\nMevcut sürüm: {VERSION}\n\nŞimdi güncellensin mi?")
+        info("Yeni sürüm bulundu", version=info_data["version"], remote_sha256=info_data.get("digest"), current_sha256=info_data.get("current_digest"))
+        answer = messagebox.askyesno("Yeni sürüm bulundu", f"Yeni sürüm mevcut: {info_data['version']}\nMevcut sürüm: {VERSION}\n\nŞimdi güncellensin mi?")
         if not answer:
+            info("Kullanıcı güncellemeyi iptal etti")
+            self.refresh_logs()
             return
         try:
             self.status.configure(text="Yeni sürüm indiriliyor...")
             self.update_idletasks()
-            temp_exe = download_update(info["download_url"])
-            if info.get("digest") and __import__("hashlib").sha256(temp_exe.read_bytes()).hexdigest().lower() != info["digest"].lower():
+            temp_exe = download_update(info_data["download_url"])
+            downloaded_digest = __import__("hashlib").sha256(temp_exe.read_bytes()).hexdigest().lower()
+            info("İndirilen EXE SHA-256 hesaplandı", sha256=downloaded_digest, expected=info_data.get("digest"), temp=str(temp_exe))
+            if info_data.get("digest") and downloaded_digest != info_data["digest"].lower():
                 temp_exe.unlink(missing_ok=True)
-                raise RuntimeError("İndirilen EXE'nin SHA-256 doğrulaması başarısız.")
+                error_message = "İndirilen EXE'nin SHA-256 doğrulaması başarısız."
+                warning(error_message, expected=info_data.get("digest"), actual=downloaded_digest, url=info_data.get("download_url"))
+                raise RuntimeError(error_message)
+            info("İndirilen EXE SHA-256 doğrulaması başarılı", sha256=downloaded_digest)
             restart_with_update(temp_exe, Path(sys.executable))
         except SystemExit:
             raise
         except Exception as exc:
-            messagebox.showerror("Güncelleme", f"Güncelleme başarısız:\n{exc}")
+            exception("GUI güncelleme uygulama hatası", exc, version=info_data.get("version"))
+            messagebox.showerror("Güncelleme", f"Güncelleme başarısız:\n{type(exc).__name__}: {exc}\n\nDetay HATA / İŞLEM LOGLARI sekmesinde.")
             self.status.configure(text="Güncelleme başarısız")
+            self.refresh_logs()
 
     @staticmethod
     def _fmt(value): return "-" if value is None else f"{value:g}"
@@ -209,19 +292,86 @@ class App(tk.Tk):
             self.detail.insert("1.0", text)
         self.detail.configure(state="disabled")
 
+    def refresh_logs(self):
+        if not hasattr(self, "log_text"):
+            return
+        text = read_log()
+        self.log_text.delete("1.0", "end")
+        self.log_text.insert("1.0", text)
+        self.log_text.see("end")
+
+    def open_log_file(self):
+        try:
+            path = log_file()
+            path.parent.mkdir(parents=True, exist_ok=True)
+            if not path.exists():
+                path.write_text("", encoding="utf-8")
+            if os.name == "nt":
+                os.startfile(str(path))
+            else:
+                subprocess.Popen(["xdg-open", str(path)])
+            info("Log dosyası açıldı", path=str(path))
+            self.refresh_logs()
+        except Exception as exc:
+            exception("Log dosyası açılamadı", exc, path=str(log_file()))
+            messagebox.showerror("Log", f"Log dosyası açılamadı:\n{type(exc).__name__}: {exc}")
+            self.refresh_logs()
+
+    def open_log_directory(self):
+        try:
+            directory = log_directory()
+            directory.mkdir(parents=True, exist_ok=True)
+            if os.name == "nt":
+                os.startfile(str(directory))
+            else:
+                subprocess.Popen(["xdg-open", str(directory)])
+            info("Log klasörü açıldı", path=str(directory))
+        except Exception as exc:
+            exception("Log klasörü açılamadı", exc, path=str(log_directory()))
+            messagebox.showerror("Log", f"Log klasörü açılamadı:\n{type(exc).__name__}: {exc}")
+
+    def clear_logs(self):
+        try:
+            if not messagebox.askyesno("Logları temizle", "Tüm mevcut uygulama logları temizlensin mi?"):
+                return
+            clear_log()
+            info("Log dosyası temizlendi")
+            self.refresh_logs()
+        except Exception as exc:
+            exception("Log temizleme hatası", exc)
+            self.refresh_logs()
+
     def save_json(self):
         if self.analysis is None:
+            warning("JSON kaydetme isteği sonuç olmadan yapıldı")
             messagebox.showwarning("Sonuç yok", "Önce TOPLU ANALİZ çalıştırın.")
+            self.refresh_logs()
             return
         path = filedialog.asksaveasfilename(title="Toplu analizi kaydet", defaultextension=".json", filetypes=[("JSON", "*.json")])
         if not path:
+            info("JSON kaydetme kullanıcı tarafından iptal edildi")
             return
-        Path(path).write_text(json.dumps(self.analysis.to_dict(), ensure_ascii=False, indent=2), encoding="utf-8")
-        messagebox.showinfo("Kaydedildi", f"Sonuç kaydedildi:\n{path}")
+        try:
+            Path(path).write_text(json.dumps(self.analysis.to_dict(), ensure_ascii=False, indent=2), encoding="utf-8")
+            info("JSON sonuç dosyası kaydedildi", path=path)
+            messagebox.showinfo("Kaydedildi", f"Sonuç kaydedildi:\n{path}")
+        except Exception as exc:
+            exception("JSON sonuç dosyası kaydedilemedi", exc, path=path)
+            messagebox.showerror("JSON kaydetme hatası", f"{type(exc).__name__}: {exc}")
+            self.refresh_logs()
 
 
 if __name__ == "__main__":
+    startup()
     if len(sys.argv) >= 2 and sys.argv[1] == "--apply-update":
-        apply_update(sys.argv[2], sys.argv[3], int(sys.argv[4]))
+        try:
+            apply_update(sys.argv[2], sys.argv[3], int(sys.argv[4]))
+        except Exception as exc:
+            exception("Updater modu başarısız", exc, argv=sys.argv)
+            raise
     else:
-        App().mainloop()
+        try:
+            App().mainloop()
+        except Exception as exc:
+            exception("GUI ana döngüsü beklenmedik hata ile kapandı", exc)
+            raise
