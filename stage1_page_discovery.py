@@ -3,7 +3,7 @@ from __future__ import annotations
 
 import re
 import unicodedata
-from dataclasses import asdict, dataclass
+from dataclasses import asdict, dataclass, replace
 
 from app_logger import debug, exception, info, warning
 from motor_database import expand_motor_group
@@ -37,6 +37,10 @@ SUMMARY_GROUPED_KW_RE = re.compile(
 STANDALONE_MOTOR_POWER_RE = re.compile(
     r"(?:anma\s+g[^\s]{0,8}|rated\s+power|fan\s+motor\s+power)\s*\[?\s*kw\s*\]?\s*[:=\-]?\s*"
     r"(?P<value>\d+(?:[.,]\d+)?)",
+    re.IGNORECASE,
+)
+MODEL_BRAND_RE = re.compile(
+    r"\bmodel\s+brand\b\s*[:=\-]?\s*(?P<brand>EBM\s*[- ]?\s*Papst|Standard)\b",
     re.IGNORECASE,
 )
 PAGE_POSITIVE_TERMS = {
@@ -73,6 +77,7 @@ class MotorPowerResult:
     component_type: str | None = None
     component_role: str | None = None
     equipment_id: str | None = None
+    model_brand: str | None = None
 
     def to_dict(self):
         return asdict(self)
@@ -88,6 +93,20 @@ def _ascii(text):
 
 def _has_rated_power(text):
     return bool(RATED_POWER_RE.search(text) or FAN_MOTOR_POWER_RE.search(text) or STANDALONE_MOTOR_POWER_RE.search(text))
+
+
+def extract_model_brand(text: str) -> str | None:
+    """Read the PDF1 Motor data -> Model Brand field."""
+    cleaned = _clean(text)
+    match = MODEL_BRAND_RE.search(cleaned)
+    if not match:
+        return None
+    brand = re.sub(r"\s+", " ", match.group("brand")).strip()
+    if re.fullmatch(r"EBM\s*[- ]?\s*Papst", brand, re.I):
+        return "EBM-Papst"
+    if brand.casefold() == "standard":
+        return "Standard"
+    return brand
 
 
 def _page_score(text):
@@ -179,12 +198,13 @@ def _result_from_match(text, page_number, match, forced_component=None):
     return MotorPowerResult(
         page_number, value, raw, q, "fan_motor_power", "high" if role else "review",
         cleaned[max(0, match.start() - 120):min(len(cleaned), match.end() + 120)],
-        typ, role, extract_equipment_id(cleaned),
+        typ, role, extract_equipment_id(cleaned), extract_model_brand(cleaned),
     )
 
 
 def _summary_results(text, page_number):
     cleaned = _clean(text)
+    brand = extract_model_brand(cleaned)
     out = []
     has_activation = bool(re.search(r"activation\s+fan\s+motor\s+power", cleaned, re.I))
     grouped = list(SUMMARY_GROUPED_KW_RE.finditer(cleaned))
@@ -199,7 +219,7 @@ def _summary_results(text, page_number):
             out.append(MotorPowerResult(
                 page_number, normalize_power(float(raw.replace(",", ".")), "kw"), raw,
                 _normalize_quantity(match.group("quantity")), "fan_motor_power", "high",
-                match.group(0), component_type, role, extract_equipment_id(cleaned),
+                match.group(0), component_type, role, extract_equipment_id(cleaned), brand,
             ))
         return out
 
@@ -213,7 +233,7 @@ def _summary_results(text, page_number):
             out.append(MotorPowerResult(
                 page_number, normalize_power(float(raw.replace(",", ".")), "kw"), raw,
                 _normalize_quantity(match.group(quantity_group)), "fan_motor_power", "high",
-                match.group(0), component[0], component[1], extract_equipment_id(cleaned),
+                match.group(0), component[0], component[1], extract_equipment_id(cleaned), brand,
             ))
     return out
 
@@ -229,8 +249,10 @@ def extract_rated_motor_powers_from_page(text, page_number):
             matches.extend((m.start(), m) for m in p.finditer(cleaned))
         results = []
         seen = set()
+        brand = extract_model_brand(cleaned)
         for _, m in sorted(matches, key=lambda x: x[0]):
             r = _result_from_match(cleaned, page_number, m)
+            r = replace(r, model_brand=brand or r.model_brand)
             key = (m.start(), r.raw_value, r.quantity, r.component_role)
             if r.component_role is None or key in seen:
                 continue
@@ -309,6 +331,7 @@ def build_stage1_motor_records(result):
             group=result.quantity,
             power_kw=result.value_kw,
             source_page=result.page_number,
+            model_brand=result.model_brand,
         )
         return records
     except Exception as exc:
