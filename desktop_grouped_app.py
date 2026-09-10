@@ -47,11 +47,11 @@ def _apply_ebm_rules(analysis):
     """Mark EBM-Papst motors as intentionally excluded from kW comparison.
 
     The physical motor is still paired with the corresponding PDF2 motor so the
-    user can see the PDF2 side, but no kW difference/MISMATCH is calculated for
-    EBM-Papst. Standard motors remain on the normal comparison path.
+    user can see the PDF2 side, but no kW difference/MISMATCH is used for EBM-Papst.
+    Standard motors remain on the normal comparison path.
     """
     if analysis is None:
-        return
+        return None
 
     page_cache: dict[tuple[str, int], bool] = {}
     ebm_count = 0
@@ -65,8 +65,7 @@ def _apply_ebm_rules(analysis):
         equipment = normalize_equipment_id(comparison.equipment_id)
         candidate_paths: list[str] = []
         for ahu in analysis.ahu_matches:
-            left = normalize_equipment_id(ahu.match.left_normalized)
-            if left == equipment:
+            if normalize_equipment_id(ahu.match.left_normalized) == equipment:
                 candidate_paths.extend(ahu.pdf1_files)
 
         is_ebm = False
@@ -83,11 +82,7 @@ def _apply_ebm_rules(analysis):
             continue
 
         ebm_count += 1
-        if comparison.pdf2_kw is None:
-            status = "EBM-PAPST - PDF2 MOTOR YOK"
-        else:
-            status = "EBM-PAPST - kW KONTROLÜ YOK"
-
+        status = "EBM-PAPST - PDF2 MOTOR YOK" if comparison.pdf2_kw is None else "EBM-PAPST - kW KONTROLÜ YOK"
         updated.append(
             replace(
                 comparison,
@@ -97,8 +92,37 @@ def _apply_ebm_rules(analysis):
             )
         )
 
-    analysis.motor_comparisons = tuple(updated) if hasattr(analysis, "motor_comparisons") else analysis.motor_comparisons
     info("EBM-Papst motor kuralları uygulandı", ebm_motor_count=ebm_count)
+    return replace(analysis, motor_comparisons=tuple(updated))
+
+
+def _rerender_modified_rows(app, original_analysis):
+    """Update the already-rendered Treeview rows without running the analysis again."""
+    comparisons = list(original_analysis.motor_comparisons)
+    comparisons.sort(key=lambda item: (
+        # Same ordering as desktop_app.compare().
+        next((
+            normalize_equipment_id(ahu.match.left_normalized)
+            for ahu in original_analysis.ahu_matches
+            if normalize_equipment_id(ahu.match.left_normalized) == normalize_equipment_id(item.equipment_id)
+        ), "-").casefold(),
+        normalize_equipment_id(item.equipment_id).casefold(),
+        item.component_type.casefold(),
+        item.component_index,
+    ))
+
+    item_ids = list(app.tree.get_children())
+    if len(item_ids) != len(comparisons):
+        warning("EBM sonuç satırları yeniden işlenemedi: Treeview satır sayısı farklı", tree_rows=len(item_ids), comparisons=len(comparisons))
+        return
+
+    for item_id, comparison in zip(item_ids, comparisons):
+        values = list(app.tree.item(item_id, "values"))
+        if comparison.status.startswith("EBM-PAPST"):
+            values[2] = comparison.component_label
+            values[7] = comparison.status
+            values[6] = "-"
+            app.tree.item(item_id, values=values)
 
 
 class GroupedApp(BaseApp):
@@ -112,11 +136,9 @@ class GroupedApp(BaseApp):
         try:
             if self.analysis is None:
                 return
-            _apply_ebm_rules(self.analysis)
-            # Re-render rows after EBM statuses/labels are applied.
-            for item_id in self.tree.get_children():
-                self.tree.delete(item_id)
-            self._render_results()
+            original = self.analysis
+            self.analysis = _apply_ebm_rules(original)
+            _rerender_modified_rows(self, self.analysis)
 
             rows = [self.tree.item(item_id, "values") for item_id in self.tree.get_children()]
             grouped = group_result_rows(rows)
