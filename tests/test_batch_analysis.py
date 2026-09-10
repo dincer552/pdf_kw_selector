@@ -3,7 +3,7 @@ from pathlib import Path
 from ahu_matching import discover_equipment_from_text
 from batch_analysis import BatchDocument, _best_project_for_document, _group_documents
 from project_discovery import discover_project_from_text
-from stage2_pdf_discovery import _summary_quantities
+from stage2_pdf_discovery import _equipment_id, _summary_quantities
 
 
 def test_batch_documents_group_by_project():
@@ -47,3 +47,8 @@ def test_equipment_discovery_keeps_distinct_ahus():
         "Unit Reference AHU-A-2",
     ])
     assert set(result.unique_ids()) == {"AHU-A-1", "AHU-A-1A", "AHU-A-2"}
+
+
+def test_pdf2_hks_unit_id_is_discovered():
+    assert _equipment_id("Unit Number HKS_12") == "HKS12"
+    assert _equipment_id("Unit Number HKS-12") == "HKS12"
