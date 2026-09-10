@@ -5,7 +5,7 @@ from dataclasses import asdict, dataclass
 from typing import Iterable
 
 from app_logger import debug, exception, info, warning
-from motor_database import MotorRecord, build_comparison_key
+from motor_database import MotorRecord
 
 
 @dataclass(frozen=True)
@@ -22,6 +22,7 @@ class MotorComparison:
     pdf2_page: int | None = None
     pdf1_group: str | None = None
     pdf2_group: str | None = None
+    explanation: str | None = None
 
     def to_dict(self) -> dict:
         return asdict(self)
@@ -42,12 +43,25 @@ def _index(records: Iterable[MotorRecord]) -> dict[tuple[str, str, int], MotorRe
     return result
 
 
+def _is_ebm_papst(record: MotorRecord | None) -> bool:
+    if record is None:
+        return False
+    brand = (record.model_brand or "").casefold().replace(" ", "")
+    return "ebm-papst" in brand or "ebmpapst" in brand
+
+
 def compare_motor_records(
     pdf1_records: Iterable[MotorRecord],
     pdf2_records: Iterable[MotorRecord],
     tolerance_kw: float = 0.01,
 ) -> list[MotorComparison]:
-    """Compare one physical motor at a time using equipment/type/index as key."""
+    """Compare one physical motor at a time using equipment/type/index as key.
+
+    PDF1 motors explicitly marked Model Brand = EBM-Papst are matched to the
+    corresponding PDF2 motor, but their kW difference is deliberately not
+    calculated. The result is shown as EBM-PAPST / comparison excluded so the
+    user can see why the normal kW check was skipped.
+    """
     try:
         if tolerance_kw < 0:
             raise ValueError("tolerance_kw must be >= 0")
@@ -63,23 +77,35 @@ def compare_motor_records(
             template = a or b
             a_kw = a.power_kw if a else None
             b_kw = b.power_kw if b else None
+            ebm = _is_ebm_papst(a)
 
             if a is None:
                 status = "ONLY_IN_PDF2"
                 difference = None
+                explanation = "PDF1 tarafında karşılığı bulunamadı."
             elif b is None:
                 status = "ONLY_IN_PDF1"
                 difference = None
+                explanation = "PDF2 tarafında karşılığı bulunamadı."
+            elif ebm:
+                status = "EBM_PAPST"
+                difference = None
+                explanation = "PDF1 Model Brand = EBM-Papst; normal kW karşılaştırması yapılmadı. PDF2 motoru eşleştirildi."
             else:
                 if a_kw is None or b_kw is None:
                     warning("Motor karşılaştırması için kW eksik", key=key, pdf1_kw=a_kw, pdf2_kw=b_kw)
                 difference = abs((a_kw or 0.0) - (b_kw or 0.0))
                 status = "MATCH" if difference <= tolerance_kw else "MISMATCH"
+                explanation = "Normal kW karşılaştırması yapıldı."
+
+            label = template.component_label
+            if ebm:
+                label = f"{label} [EBM]"
 
             comparison = MotorComparison(
                 equipment_id=template.equipment_id,
                 component_type=template.component_type,
-                component_label=template.component_label,
+                component_label=label,
                 component_index=template.component_index,
                 pdf1_kw=a_kw,
                 pdf2_kw=b_kw,
@@ -89,11 +115,12 @@ def compare_motor_records(
                 pdf2_page=b.source_page if b else None,
                 pdf1_group=a.source_group if a else None,
                 pdf2_group=b.source_group if b else None,
+                explanation=explanation,
             )
             output.append(comparison)
-            debug("Motor karşılaştırması", key=key, pdf1_kw=a_kw, pdf2_kw=b_kw, difference_kw=difference, status=status)
+            debug("Motor karşılaştırması", key=key, pdf1_kw=a_kw, pdf2_kw=b_kw, difference_kw=difference, status=status, pdf1_brand=a.model_brand if a else None, explanation=explanation)
 
-        info("Motor kW hesaplaması bitti", comparison_count=len(output), match=sum(x.status == "MATCH" for x in output), mismatch=sum(x.status == "MISMATCH" for x in output), only_pdf1=sum(x.status == "ONLY_IN_PDF1" for x in output), only_pdf2=sum(x.status == "ONLY_IN_PDF2" for x in output))
+        info("Motor kW hesaplaması bitti", comparison_count=len(output), match=sum(x.status == "MATCH" for x in output), mismatch=sum(x.status == "MISMATCH" for x in output), ebm_papst=sum(x.status == "EBM_PAPST" for x in output), only_pdf1=sum(x.status == "ONLY_IN_PDF1" for x in output), only_pdf2=sum(x.status == "ONLY_IN_PDF2" for x in output))
         return output
     except Exception as exc:
         exception("Motor kW karşılaştırma hesaplama hatası", exc, tolerance_kw=tolerance_kw)
