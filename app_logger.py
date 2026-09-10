@@ -73,12 +73,26 @@ def _build_handler() -> RotatingFileHandler:
 
 def get_logger() -> logging.Logger:
     global _LOGGER
-    if _LOGGER is not None:
-        return _LOGGER
-
     logger = logging.getLogger("pdf_kw_selector")
     logger.setLevel(logging.DEBUG)
     logger.propagate = False
+
+    desired_path = str(log_file().resolve()).lower()
+    existing_paths = {
+        str(getattr(handler, "baseFilename", "")).lower()
+        for handler in logger.handlers
+        if getattr(handler, "baseFilename", None)
+    }
+
+    # Tests, environment changes and long-running GUI sessions can change the
+    # desired log directory. Never silently keep a handler writing elsewhere.
+    if logger.handlers and desired_path not in existing_paths:
+        for handler in list(logger.handlers):
+            try:
+                handler.flush()
+                handler.close()
+            finally:
+                logger.removeHandler(handler)
 
     if not logger.handlers:
         logger.addHandler(_build_handler())
