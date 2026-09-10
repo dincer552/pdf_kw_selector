@@ -3,16 +3,23 @@ from __future__ import annotations
 
 import sys
 
+import desktop_app as desktop_module
 from app_logger import exception, startup
 from desktop_app import App as BaseApp, VERSION
 from drag_drop import install_pdf_drop_targets
 from result_grouping import group_result_rows
 from updater import apply_update
+from confirmation_workflow import analyze_with_confirmations
+
+
+# desktop_app.compare resolves analyze_batch from its module namespace. Replace that
+# binding for the grouped production entry point so confirmations happen before
+# the actual Project -> AHU -> Motor calculation starts.
+desktop_module.analyze_batch = analyze_with_confirmations
 
 
 class GroupedApp(BaseApp):
     """Base GUI with Project -> AHU visual grouping in the results table."""
-
     def __init__(self):
         super().__init__()
         install_pdf_drop_targets(self, self.pdf1_label.master, self.pdf2_label.master)
