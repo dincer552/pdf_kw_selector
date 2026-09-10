@@ -35,6 +35,14 @@ def normalize_equipment_id(value: str | None) -> str:
         return "AHU-" + tail if tail else "AHU"
     return _normalize_numeric_zeros(value)
 
+
+def _is_supported_equipment_id(normalized: str) -> bool:
+    """Accept AHU IDs plus Systemair HKS unit numbers used on electrical PDFs."""
+    return (
+        normalized.startswith("AHU-")
+        or bool(re.fullmatch(r"HKS-\d+", normalized))
+    )
+
 @dataclass(frozen=True)
 class EquipmentOccurrence:
     equipment_id: str
@@ -66,7 +74,7 @@ def discover_equipment_from_text(pages: list[str]) -> AHUDiscovery:
                 for match in pattern.finditer(text or ""):
                     raw = match.group(1).strip(" .,:;)]}")
                     normalized = normalize_equipment_id(raw)
-                    if not normalized.startswith("AHU-") or len(normalized) < 5:
+                    if not _is_supported_equipment_id(normalized) or len(normalized) < 5:
                         continue
                     key = (normalized, page_no)
                     if key in seen_page:
@@ -75,9 +83,9 @@ def discover_equipment_from_text(pages: list[str]) -> AHUDiscovery:
                     occurrences.append(EquipmentOccurrence(raw, normalized, page_no, source))
         occurrences.sort(key=lambda x: (x.page, x.normalized, x.source))
         result = AHUDiscovery(tuple(occurrences))
-        info("AHU keşfi tamamlandı", page_count=len(pages), occurrence_count=len(occurrences), unique_ids=list(result.unique_ids()))
+        info("AHU/equipment keşfi tamamlandı", page_count=len(pages), occurrence_count=len(occurrences), unique_ids=list(result.unique_ids()))
         if not result.unique_ids():
-            warning("PDF'de geçerli AHU bulunamadı", page_count=len(pages))
+            warning("PDF'de geçerli AHU/equipment bulunamadı", page_count=len(pages))
         return result
     except Exception as exc:
         exception("AHU keşfi hesaplama hatası", exc, page_count=len(pages)); raise
@@ -111,9 +119,9 @@ def score_ahu_ids(left: str | None, right: str | None) -> tuple[float, str, str]
         if not l or not r: return 0.0, "NO_MATCH", "missing equipment reference"
         if l == r: return 1.0, "EXACT", "normalized equipment references are identical"
         lt = _suffix_tokens(l); rt = _suffix_tokens(r)
-        if lt and rt and lt == rt: return 0.98, "NORMALIZED_MATCH", "same AHU suffix after normalization"
+        if lt and rt and lt == rt: return 0.98, "NORMALIZED_MATCH", "same equipment suffix after normalization"
         lnums = re.findall(r"\d+", l); rnums = re.findall(r"\d+", r)
-        if lnums and rnums and lnums[-1] != rnums[-1]: return 0.2, "NO_MATCH", "AHU numeric suffix differs"
+        if lnums and rnums and lnums[-1] != rnums[-1]: return 0.2, "NO_MATCH", "equipment numeric suffix differs"
         seq = SequenceMatcher(None, l, r).ratio()
         if seq >= 0.78: return seq, "REVIEW_REQUIRED", "similar equipment reference requires user confirmation"
         return seq, "NO_MATCH", "insufficient equipment-reference agreement"
@@ -181,5 +189,10 @@ def match_ahu_lists(left: list[EquipmentOccurrence], right: list[EquipmentOccurr
 
 def _suffix_tokens(value: str) -> list[str]:
     normalized = normalize_equipment_id(value)
-    tail = normalized[4:] if normalized.startswith("AHU-") else normalized
+    if normalized.startswith("AHU-"):
+        tail = normalized[4:]
+    else:
+        # For HKS-12 and other supported non-AHU IDs, retain the complete
+        # normalized identifier so HKS-12 and HKS_12 compare identically.
+        tail = normalized
     return [x for x in re.split(r"[-_ ]+", tail) if x]
