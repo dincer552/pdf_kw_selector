@@ -13,6 +13,7 @@ from pypdf import PdfReader
 _UNIT_PATTERNS = [
     ("unit_reference", re.compile(r"\bunit\s+reference\s*[:=]?\s*([A-Z0-9][A-Z0-9_-]{1,})", re.I)),
     ("unit_number", re.compile(r"\bunit\s+number\s*[:=]?\s*([A-Z0-9][A-Z0-9_-]{1,})", re.I)),
+    ("hks_token", re.compile(r"(?<![A-Z0-9])(HKS(?:[_ -]?\d+))\b", re.I)),
     ("ahu_token", re.compile(r"(?<![A-Z0-9])(AHU(?:[_ -]?[A-Z0-9][A-Z0-9_-]{0,}))\b", re.I)),
     ("ahu_embedded", re.compile(r"(?<![A-Z0-9])(?:[A-Z0-9]+[-_ ]+)(AHU(?:[_ -]?[A-Z0-9][A-Z0-9_-]{0,}))\b", re.I)),
 ]
@@ -91,10 +92,32 @@ def discover_equipment_from_text(pages: list[str]) -> AHUDiscovery:
         exception("AHU keşfi hesaplama hatası", exc, page_count=len(pages)); raise
 
 
+def _equipment_from_filename(path: Path) -> EquipmentOccurrence | None:
+    stem = re.sub(r"\s+", "_", path.stem.strip())
+    match = re.fullmatch(r"HKS[_ -]?(\d+)", stem, re.I)
+    if not match:
+        return None
+    raw = f"HKS-{match.group(1)}"
+    normalized = normalize_equipment_id(raw)
+    return EquipmentOccurrence(raw, normalized, 1, "filename")
+
+
 def discover_equipment(path: str | Path) -> AHUDiscovery:
     try:
+        path = Path(path).expanduser().resolve()
         reader = PdfReader(str(path))
-        return discover_equipment_from_text([(page.extract_text() or "") for page in reader.pages])
+        discovery = discover_equipment_from_text([(page.extract_text() or "") for page in reader.pages])
+        if not discovery.unique_ids():
+            filename_occurrence = _equipment_from_filename(path)
+            if filename_occurrence is not None:
+                discovery = AHUDiscovery((filename_occurrence,))
+                info(
+                    "Ekipman ID dosya adından keşfedildi",
+                    path=str(path),
+                    equipment_id=filename_occurrence.equipment_id,
+                    normalized=filename_occurrence.normalized,
+                )
+        return discovery
     except Exception as exc:
         exception("PDF AHU keşfi başarısız", exc, path=str(path)); raise
 
@@ -145,7 +168,6 @@ def _approved_family_match(left_id: str | None, right_id: str | None, approved_v
         ar = normalize_equipment_id(approved_right)
         if not al or not ar:
             continue
-        # Approval is reusable only when the non-numeric AHU prefix/suffix pattern is identical.
         lnums = re.findall(r"\d+", left)
         rnums = re.findall(r"\d+", right)
         alnums = re.findall(r"\d+", al)
@@ -192,7 +214,5 @@ def _suffix_tokens(value: str) -> list[str]:
     if normalized.startswith("AHU-"):
         tail = normalized[4:]
     else:
-        # For HKS-12 and other supported non-AHU IDs, retain the complete
-        # normalized identifier so HKS-12 and HKS_12 compare identically.
         tail = normalized
     return [x for x in re.split(r"[-_ ]+", tail) if x]
