@@ -22,6 +22,11 @@ def _flexible_ahu_key(value: str | None) -> str:
     return re.sub(r"0+(?=\d)", "", compact)
 
 
+def _raw_ahu_key(value: str | None) -> str:
+    """Normalize only cosmetic separators for comparison-rule detection."""
+    return re.sub(r"[^A-Z0-9]", "", (value or "").upper())
+
+
 def _document_identity_tokens(document) -> set[str]:
     """Collect order/project identity codes from PDF text and its path."""
     tokens: set[str] = set()
@@ -29,10 +34,20 @@ def _document_identity_tokens(document) -> set[str]:
         path_text = str(document.path)
         text = "\n".join((page.extract_text() or "") for page in PdfReader(document.path).pages)
         combined = f"{path_text}\n{text}"
+        # Engineering/order identifiers such as 26END004.
         for match in re.findall(r"\b\d{2}[A-Z]{2,}\d{3,}\b", combined, flags=re.I):
             tokens.add(match.upper())
-        for match in re.findall(r"(?:order\s+number|project\s+(?:no|number))\s*[:=]?\s*([A-Z0-9][A-Z0-9_-]+)", combined, flags=re.I):
-            tokens.add(match.upper().strip("_-"))
+        # Explicit identity labels, including split label/value lines.
+        lines = [line.strip() for line in combined.splitlines()]
+        for index, line in enumerate(lines):
+            if re.search(r"\b(?:order|project)\s*(?:number|no|num)\b", line, flags=re.I):
+                tail = re.sub(r"^.*?\b(?:order|project)\s*(?:number|no|num)\b\s*[:=#-]?\s*", "", line, flags=re.I).strip()
+                if tail and re.fullmatch(r"[A-Z0-9][A-Z0-9_-]{2,}", tail, flags=re.I):
+                    tokens.add(tail.strip("_- ").upper())
+                elif index + 1 < len(lines):
+                    nxt = lines[index + 1]
+                    if re.fullmatch(r"[A-Z0-9][A-Z0-9_-]{2,}", nxt, flags=re.I):
+                        tokens.add(nxt.strip("_- ").upper())
     except Exception as exc:
         warning("Proje kimlik numarası keşfi başarısız", path=document.path, error=str(exc))
     return tokens
@@ -50,12 +65,12 @@ def _project_candidate(left_docs, right_docs):
 def _ask_project(left_name: str, right_name: str, shared_tokens: set[str]) -> bool:
     identity = "\nOrtak kimlik: " + ", ".join(sorted(shared_tokens)) if shared_tokens else ""
     text = (
-        "PDF1 ve PDF2 proje adları farklı görünüyor.\n\n"
+        "PDF1 ve PDF2 proje adları birebir aynı değil.\n\n"
         f"PDF1: {left_name}\n"
         f"PDF2: {right_name}"
         f"{identity}\n\n"
         "Bunlar aynı proje mi?\n\n"
-        "EVET: Bu eşleştirmeyi onayla ve hesaplamaya devam et.\n"
+        "EVET: Bu eşleştirmeyi onayla ve bu projedeki AHU'ları eşleştir.\n"
         "HAYIR: Bu proje çiftini eşleştirme."
     )
     return bool(messagebox.askyesno("Proje eşleşmesi onayı", text))
@@ -69,7 +84,7 @@ def _ask_ahu(project: str | None, left: str, right: str, *, reused_rule: bool = 
         f"PDF1 AHU: {left}\n"
         f"PDF2 AHU: {right}\n\n"
         "Bunlar aynı AHU mu?\n\n"
-        "EVET: Bu eşleştirmeyi onayla.\n"
+        "EVET: Bu eşleştirmeyi onayla ve aynı isimlendirme farkını kalan AHU'larda da kullan.\n"
         "HAYIR: Bu AHU çiftini eşleştirme."
         f"{rule}"
     )
@@ -87,16 +102,21 @@ def _project_confirmation_plan(left_groups, right_groups):
         for right_key, right_docs in right_groups.items():
             try:
                 match, shared = _project_candidate(left_docs, right_docs)
-                candidates.append((bool(shared), len(shared), match.score, left_key, right_key, match, shared))
+                # Identity numbers are strong evidence, but still require explicit user approval.
+                # A moderately similar name is also a confirmation candidate when there is
+                # only one project on each side.
+                candidate = bool(shared) or match.score >= 0.45 or (len(left_groups) == 1 and len(right_groups) == 1)
+                candidates.append((candidate, bool(shared), len(shared), match.score, left_key, right_key, match, shared))
             except Exception as exc:
                 exception("Proje onay adayı hesaplanamadı", exc, left=left_key, right=right_key)
 
-    for has_identity, identity_count, score, left_key, right_key, match, shared in sorted(
-        candidates, key=lambda x: (x[0], x[1], x[2]), reverse=True
+    for candidate, has_identity, identity_count, score, left_key, right_key, match, shared in sorted(
+        candidates, key=lambda x: (x[1], x[2], x[3]), reverse=True
     ):
-        if left_key in used_left or right_key in used_right or match.status != "NO_MATCH":
+        if not candidate or left_key in used_left or right_key in used_right:
             continue
-        if not has_identity and not (len(left_groups) == 1 and len(right_groups) == 1):
+        if match.status == "EXACT":
+            # Exact normalized project names need no confirmation.
             continue
         left_name = left_groups[left_key][0].project.project_name or left_key
         right_name = right_groups[right_key][0].project.project_name or right_key
@@ -107,17 +127,17 @@ def _project_confirmation_plan(left_groups, right_groups):
                 approved.add((left_norm, right_norm))
             used_left.add(left_key)
             used_right.add(right_key)
-            info("Kullanıcı proje eşleşmesini onayladı", left=left_name, right=right_name, shared_identity=sorted(shared))
+            info("Kullanıcı proje eşleşmesini onayladı", left=left_name, right=right_name, shared_identity=sorted(shared), score=score)
         else:
-            warning("Kullanıcı proje eşleşmesini reddetti", left=left_name, right=right_name, shared_identity=sorted(shared))
+            warning("Kullanıcı proje eşleşmesini reddetti", left=left_name, right=right_name, shared_identity=sorted(shared), score=score)
     return approved
 
 
 def _build_ahu_confirmations(project_pair_docs):
-    """Ask about uncertain AHUs; after one approval reuse the same flexible rule."""
+    """Ask about AHUs whose raw references differ; reuse the approved rule afterwards."""
     approved: set[tuple[str, str]] = set()
     flexible_auto: set[tuple[str, str]] = set()
-    flexible_rule_enabled = False
+    flexible_rule: tuple[str, str] | None = None
 
     for project_name, left_group, right_group in project_pair_docs:
         left_occurrences = []
@@ -127,18 +147,48 @@ def _build_ahu_confirmations(project_pair_docs):
         for document in right_group:
             right_occurrences.extend(batch.discover_equipment(document.path).equipment_ids)
 
-        left_unique = {x.normalized: x for x in left_occurrences}
-        right_unique = {x.normalized: x for x in right_occurrences}
+        # Keep the raw spelling. The existing matcher normalizes _ / - / spaces too early,
+        # so the confirmation layer must see the original references.
+        left_unique: dict[str, object] = {}
+        right_unique: dict[str, object] = {}
+        for occurrence in left_occurrences:
+            left_unique.setdefault(occurrence.normalized, occurrence)
+        for occurrence in right_occurrences:
+            right_unique.setdefault(occurrence.normalized, occurrence)
+
         unmatched_left = set(left_unique)
         unmatched_right = set(right_unique)
 
-        # Punctuation, underscores, dashes and leading zero differences are safe.
+        # First pass: identical canonical AHUs. If raw strings differ, ask once whether this
+        # formatting difference is acceptable; after approval the same rule is reused.
         for lid in list(unmatched_left):
             for rid in list(unmatched_right):
-                if _flexible_ahu_key(lid) == _flexible_ahu_key(rid):
+                lo = left_unique[lid]
+                ro = right_unique[rid]
+                raw_left = lo.equipment_id
+                raw_right = ro.equipment_id
+                if lid != rid:
+                    continue
+                if raw_left == raw_right:
                     unmatched_left.discard(lid)
                     unmatched_right.discard(rid)
-                    break
+                    continue
+                if flexible_rule is not None:
+                    flexible_auto.add((lid, rid))
+                    unmatched_left.discard(lid)
+                    unmatched_right.discard(rid)
+                    info("Önceki AHU onay kuralı uygulandı", project=project_name, left=raw_left, right=raw_right, rule=flexible_rule)
+                elif _ask_ahu(project_name, raw_left, raw_right):
+                    approved.add((lid, rid))
+                    flexible_rule = (_raw_ahu_key(raw_left), _raw_ahu_key(raw_right))
+                    unmatched_left.discard(lid)
+                    unmatched_right.discard(rid)
+                    info("Kullanıcı AHU isimlendirme farkını onayladı", project=project_name, left=raw_left, right=raw_right, rule=flexible_rule)
+                else:
+                    warning("Kullanıcı AHU isimlendirme farkını reddetti", project=project_name, left=raw_left, right=raw_right)
+                    unmatched_left.discard(lid)
+                    unmatched_right.discard(rid)
+                break
 
         while unmatched_left and unmatched_right:
             pairs = []
@@ -149,7 +199,7 @@ def _build_ahu_confirmations(project_pair_docs):
                     pairs.append((loose, score, lid, rid, reason))
             loose, score, lid, rid, reason = max(pairs, key=lambda x: (x[0], x[1]))
 
-            if flexible_rule_enabled and loose >= 0.75:
+            if flexible_rule is not None and loose >= 0.75:
                 flexible_auto.add((lid, rid))
                 unmatched_left.remove(lid)
                 unmatched_right.remove(rid)
@@ -158,14 +208,17 @@ def _build_ahu_confirmations(project_pair_docs):
 
             if score < 0.45 and loose < 0.70:
                 break
-            if _ask_ahu(project_name, lid, rid, reused_rule=flexible_rule_enabled):
+            raw_left = left_unique[lid].equipment_id
+            raw_right = right_unique[rid].equipment_id
+            if _ask_ahu(project_name, raw_left, raw_right, reused_rule=flexible_rule is not None):
                 approved.add((lid, rid))
-                flexible_rule_enabled = True
+                if flexible_rule is None:
+                    flexible_rule = (_raw_ahu_key(raw_left), _raw_ahu_key(raw_right))
                 unmatched_left.remove(lid)
                 unmatched_right.remove(rid)
-                info("Kullanıcı AHU eşleşmesini onayladı", project=project_name, left=lid, right=rid, loose_score=round(loose, 4))
+                info("Kullanıcı AHU eşleşmesini onayladı", project=project_name, left=raw_left, right=raw_right, loose_score=round(loose, 4), rule=flexible_rule)
             else:
-                warning("Kullanıcı AHU eşleşmesini reddetti", project=project_name, left=lid, right=rid, loose_score=round(loose, 4))
+                warning("Kullanıcı AHU eşleşmesini reddetti", project=project_name, left=raw_left, right=raw_right, loose_score=round(loose, 4))
                 unmatched_left.remove(lid)
                 unmatched_right.remove(rid)
 
