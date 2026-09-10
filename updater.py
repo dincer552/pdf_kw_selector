@@ -104,38 +104,58 @@ def _cache_busted(url: str) -> str:
 
 
 def _open_download(url: str, start: int = 0):
-    headers = {"User-Agent": "PDF-KW-Selector-Updater", "Accept": "application/octet-stream", "Cache-Control": "no-cache", "Pragma": "no-cache"}
+    headers = {
+        "User-Agent": "PDF-KW-Selector-Updater",
+        "Accept": "application/octet-stream",
+        "Cache-Control": "no-cache",
+        "Pragma": "no-cache",
+        "Accept-Encoding": "identity",
+    }
     if start:
         headers["Range"] = f"bytes={start}-"
     request = urllib.request.Request(url, headers=headers)
     return urllib.request.urlopen(request, timeout=180)
 
 
+def _expected_size_from_headers(content_length: str | None, content_range: str | None, status: int | None, offset: int) -> int | None:
+    if content_range:
+        match = re.search(r"/([0-9]+)$", content_range)
+        if match:
+            return int(match.group(1))
+    if content_length and content_length.isdigit() and status == 200:
+        return int(content_length)
+    if content_length and content_length.isdigit() and status == 206:
+        return offset + int(content_length)
+    return None
+
+
 def download_update(download_url: str, *, expected_digest: str | None = None, asset_id: int | None = None, browser_download_url: str | None = None, expected_size: int | None = None) -> Path:
-    """Download an EXE and recover from truncated GitHub release CDN responses."""
+    """Download an EXE with explicit range recovery and hash/size validation."""
     fd, raw_path = tempfile.mkstemp(prefix="pdf_kw_selector_update_", suffix=".exe")
     os.close(fd)
     target = Path(raw_path)
     expected = (expected_digest or "").replace("sha256:", "").lower()
     total_expected = int(expected_size) if expected_size is not None else None
-    info("EXE indirme başladı", url=download_url, asset_id=asset_id, expected_sha256=expected or None, expected_size=total_expected, target=str(target))
+    info("EXE indirme başladı", url=download_url, browser_download_url=browser_download_url, asset_id=asset_id, expected_sha256=expected or None, expected_size=total_expected, target=str(target))
     try:
         offset = 0
-        last_length = None
-        last_range = None
-        for attempt in range(1, 13):
+        for attempt in range(1, 16):
             request_url = _cache_busted(download_url) if offset == 0 else download_url
             with _open_download(request_url, offset) as response:
                 status = getattr(response, "status", None)
                 content_length = response.headers.get("Content-Length")
                 content_range = response.headers.get("Content-Range")
-                last_length, last_range = content_length, content_range
-                info("EXE HTTP cevabı alındı", attempt=attempt, status=status, final_url=response.geturl(), content_type=response.headers.get("Content-Type"), content_length=content_length, content_range=content_range, resume_offset=offset)
+                info("EXE HTTP cevabı alındı", attempt=attempt, status=status, final_url=response.geturl(), content_type=response.headers.get("Content-Type"), content_encoding=response.headers.get("Content-Encoding"), content_length=content_length, content_range=content_range, resume_offset=offset)
+
                 if offset and status == 200:
                     warning("GitHub Range başlığını yoksaydı; dosya baştan indirilecek", attempt=attempt, resume_offset=offset)
                     target.unlink(missing_ok=True)
                     offset = 0
                     continue
+
+                if offset and status != 206:
+                    raise RuntimeError(f"GitHub devam indirmesi için beklenmeyen HTTP durumu: {status}")
+
                 with target.open("ab" if offset else "wb") as output:
                     received = 0
                     while True:
@@ -145,32 +165,31 @@ def download_update(download_url: str, *, expected_digest: str | None = None, as
                         output.write(chunk)
                         received += len(chunk)
                         offset += len(chunk)
-                actual_size = target.stat().st_size
 
-            if total_expected is None:
-                if content_range:
-                    m = re.search(r"/([0-9]+)$", content_range)
-                    if m: total_expected = int(m.group(1))
-                elif content_length and content_length.isdigit() and status == 200:
-                    total_expected = int(content_length)
-                elif content_length and content_length.isdigit() and status == 206:
-                    # A 206 length is only the remaining range length. Do not mistake it for full size.
-                    total_expected = offset
+                actual_size = target.stat().st_size
+                header_expected = _expected_size_from_headers(content_length, content_range, status, offset - received)
+                if total_expected is None and header_expected is not None:
+                    total_expected = header_expected
+                info("EXE parça indirildi", attempt=attempt, received_this_request=received, downloaded_bytes=actual_size, expected_bytes=total_expected, status=status)
 
             if total_expected is None or actual_size >= total_expected:
                 break
-            warning("GitHub CDN yanıtı eksik geldi; kaldığı yerden devam edilecek", attempt=attempt, received_this_request=received, downloaded_bytes=actual_size, expected_bytes=total_expected, asset_id=asset_id, last_content_length=last_length, last_content_range=last_range)
+
+            warning("GitHub CDN yanıtı eksik geldi; kaldığı yerden devam edilecek", attempt=attempt, downloaded_bytes=actual_size, expected_bytes=total_expected, missing_bytes=total_expected - actual_size, asset_id=asset_id)
             time.sleep(min(attempt, 3))
         else:
             raise RuntimeError(f"GitHub EXE indirmesi tamamlanamadı: {offset}/{total_expected or '?'} byte")
 
         total = target.stat().st_size
-        if total == 0: raise RuntimeError("GitHub boş dosya döndürdü.")
+        if total == 0:
+            raise RuntimeError("GitHub boş dosya döndürdü.")
         if total_expected is not None and total != total_expected:
             raise RuntimeError(f"GitHub Content-Length ile indirilen byte sayısı uyuşmuyor: beklenen={total_expected}, gerçek={total}")
-        with target.open("rb") as handle: signature = handle.read(2)
+        with target.open("rb") as handle:
+            signature = handle.read(2)
         debug("İndirilen dosya imzası kontrol edildi", signature=signature.hex(), is_pe=signature == b"MZ", bytes=total)
-        if signature != b"MZ": raise RuntimeError("GitHub'dan indirilen dosya Windows EXE (MZ) değil.")
+        if signature != b"MZ":
+            raise RuntimeError("GitHub'dan indirilen dosya Windows EXE (MZ) değil.")
         digest = _sha256(target).lower()
         if expected and digest != expected:
             raise RuntimeError(f"İndirilen EXE'nin SHA-256 doğrulaması başarısız. Beklenen={expected}, Gerçek={digest}")
