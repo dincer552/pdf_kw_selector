@@ -13,13 +13,15 @@ import time
 import urllib.error
 import urllib.parse
 import urllib.request
+import zipfile
 
 from app_logger import calculation_error, debug, error, exception, info, warning
 
 REPO = "dincer552/pdf_kw_selector"
 RELEASE_API = f"https://api.github.com/repos/{REPO}/releases/tags/latest"
 ASSET_NAME = "PDF_KW_Selector_latest.exe"
-IMMUTABLE_ASSET_RE = re.compile(r"^PDF_KW_Selector_[0-9a-f]{40}\.exe$", re.IGNORECASE)
+IMMUTABLE_ASSET_RE = re.compile(r"^PDF_KW_Selector_[0-9a-f]{40}\\.exe$", re.IGNORECASE)
+IMMUTABLE_ZIP_RE = re.compile(r"^PDF_KW_Selector_[0-9a-f]{40}\\.zip$", re.IGNORECASE)
 
 
 def _request_json(url: str) -> dict:
@@ -58,17 +60,28 @@ def _sha256(path: Path) -> str:
 
 
 def _select_asset(assets: list[dict]) -> dict:
+    # Prefer a compressed immutable asset. The Windows EXE is currently large
+    # enough that some networks/CDNs can terminate a direct .exe transfer short.
+    # The ZIP is verified before extraction, so the updater never installs an
+    # unverified executable.
+    immutable_zips = [a for a in assets if IMMUTABLE_ZIP_RE.fullmatch(str(a.get("name", ""))) and a.get("state") == "uploaded"]
+    if immutable_zips:
+        immutable_zips.sort(key=lambda a: (a.get("created_at") or "", a.get("updated_at") or ""), reverse=True)
+        selected = immutable_zips[0]
+        info("Güncelleme için immutable ZIP asset seçildi", asset=selected.get("name"), asset_id=selected.get("id"), created_at=selected.get("created_at"), size=selected.get("size"))
+        return selected
+
     immutable = [a for a in assets if IMMUTABLE_ASSET_RE.fullmatch(str(a.get("name", ""))) and a.get("state") == "uploaded"]
     if immutable:
         immutable.sort(key=lambda a: (a.get("created_at") or "", a.get("updated_at") or ""), reverse=True)
         selected = immutable[0]
-        info("Güncelleme için immutable EXE seçildi", asset=selected.get("name"), asset_id=selected.get("id"), created_at=selected.get("created_at"), size=selected.get("size"))
+        warning("Immutable ZIP asset bulunamadı; EXE asset kullanılıyor", asset=selected.get("name"), asset_id=selected.get("id"), created_at=selected.get("created_at"), size=selected.get("size"))
         return selected
     legacy = next((a for a in assets if a.get("name") == ASSET_NAME), None)
     if legacy:
         warning("Immutable updater asset bulunamadı; legacy latest asset kullanılıyor", asset_id=legacy.get("id"), size=legacy.get("size"))
         return legacy
-    raise RuntimeError("GitHub release içinde güncelleme EXE'si bulunamadı.")
+    raise RuntimeError("GitHub release içinde güncelleme EXE/ZIP'si bulunamadı.")
 
 
 def check_for_update(current_exe: Path | None = None) -> dict:
@@ -77,7 +90,10 @@ def check_for_update(current_exe: Path | None = None) -> dict:
     remote_digest = (asset.get("digest") or "").replace("sha256:", "").lower()
     current = Path(current_exe or sys.executable).resolve()
     current_digest = _sha256(current).lower() if current.exists() else ""
-    same = bool(remote_digest) and current_digest == remote_digest
+    # A ZIP digest cannot equal the installed EXE digest. Such an asset is always
+    # considered available unless the release has no digest.
+    is_zip = str(asset.get("name", "")).lower().endswith(".zip")
+    same = bool(remote_digest) and not is_zip and current_digest == remote_digest
     download_url = asset.get("url") or asset.get("browser_download_url")
     if not download_url:
         raise RuntimeError("Güncelleme EXE indirme adresi GitHub'dan alınamadı.")
@@ -99,19 +115,54 @@ def _open_download(url: str, start: int = 0):
     return urllib.request.urlopen(urllib.request.Request(url, headers=headers), timeout=180)
 
 
-def download_update(download_url: str, *, expected_digest: str | None = None, asset_id: int | None = None, browser_download_url: str | None = None, expected_size: int | None = None) -> Path:
-    """Download an EXE; tolerate stale Content-Length, recover short CDN reads, trust SHA-256."""
-    fd, raw_path = tempfile.mkstemp(prefix="pdf_kw_selector_update_", suffix=".exe")
+def _extract_verified_zip(zip_path: Path, asset_name: str | None) -> Path:
+    extract_dir = Path(tempfile.mkdtemp(prefix="pdf_kw_selector_update_extract_"))
+    try:
+        with zipfile.ZipFile(zip_path, "r") as archive:
+            members = [name for name in archive.namelist() if not name.endswith("/")]
+            exe_members = [name for name in members if name.lower().endswith(".exe")]
+            if not exe_members:
+                raise RuntimeError("Güncelleme ZIP'i içinde EXE bulunamadı.")
+            if len(exe_members) != 1:
+                preferred = [name for name in exe_members if Path(name).name.lower().startswith("pdf_kw_selector_")]
+                if len(preferred) != 1:
+                    raise RuntimeError("Güncelleme ZIP'i içinde birden fazla belirsiz EXE bulundu.")
+                member = preferred[0]
+            else:
+                member = exe_members[0]
+            target = extract_dir / "PDF_KW_Selector_update.exe"
+            with archive.open(member, "r") as source, target.open("wb") as output:
+                while True:
+                    chunk = source.read(1024 * 1024)
+                    if not chunk:
+                        break
+                    output.write(chunk)
+        if target.stat().st_size <= 0:
+            raise RuntimeError("ZIP içindeki EXE boş.")
+        info("Doğrulanmış ZIP içinden EXE çıkarıldı", asset=asset_name, zip=str(zip_path), exe=str(target), bytes=target.stat().st_size)
+        return target
+    except Exception:
+        try:
+            for child in extract_dir.iterdir():
+                child.unlink(missing_ok=True)
+            extract_dir.rmdir()
+        except Exception:
+            pass
+        raise
+
+
+def download_update(download_url: str, *, expected_digest: str | None = None, asset_id: int | None = None, browser_download_url: str | None = None, expected_size: int | None = None, asset_name: str | None = None) -> Path:
+    """Download an EXE/ZIP release asset and verify its SHA-256 before install."""
+    suffix = ".zip" if str(asset_name or "").lower().endswith(".zip") else ".exe"
+    fd, raw_path = tempfile.mkstemp(prefix="pdf_kw_selector_update_", suffix=suffix)
     os.close(fd)
     target = Path(raw_path)
     expected = (expected_digest or "").replace("sha256:", "").lower()
     total_expected = int(expected_size) if expected_size is not None else None
-    info("EXE indirme başladı", url=download_url, browser_download_url=browser_download_url, asset_id=asset_id, expected_sha256=expected or None, expected_size=total_expected, target=str(target))
+    info("EXE indirme başladı", url=download_url, browser_download_url=browser_download_url, asset_id=asset_id, asset_name=asset_name, expected_sha256=expected or None, expected_size=total_expected, target=str(target))
     try:
         offset = 0
         for attempt in range(1, 16):
-            # Cache-bust every request, including Range retries. Some GitHub CDN
-            # paths otherwise return the same short cached response repeatedly.
             request_url = _cache_busted(download_url)
             with _open_download(request_url, offset) as response:
                 status = getattr(response, "status", None)
@@ -144,29 +195,27 @@ def download_update(download_url: str, *, expected_digest: str | None = None, as
                     total_expected = int(content_length)
                 info("EXE parça indirildi", attempt=attempt, downloaded_bytes=actual_size, expected_bytes=total_expected, status=status)
 
-            # Size is only a recovery hint. Never reject a file merely because
-            # GitHub's Content-Length is stale. SHA-256 below is authoritative.
             if expected:
                 digest = _sha256(target).lower()
                 if digest == expected:
-                    info("EXE indirme tamamlandı ve SHA-256 doğrulandı", bytes=target.stat().st_size, sha256=digest, asset_id=asset_id)
+                    info("Güncelleme asset'i indirildi ve SHA-256 doğrulandı", bytes=target.stat().st_size, sha256=digest, asset_id=asset_id, asset_name=asset_name)
+                    if suffix == ".zip":
+                        return _extract_verified_zip(target, asset_name)
                     return target
             if total_expected is not None and offset < total_expected:
                 warning("GitHub CDN yanıtı eksik geldi; kaldığı yerden devam edilecek", attempt=attempt, downloaded_bytes=offset, expected_bytes=total_expected, missing_bytes=total_expected - offset, asset_id=asset_id)
                 time.sleep(min(attempt, 3))
                 continue
-            # No digest match and size appears complete: retry from scratch rather
-            # than ever installing an unverified executable.
-            warning("EXE boyutu tamam görünmesine rağmen SHA-256 eşleşmedi; baştan denenecek", attempt=attempt, bytes=offset, expected_sha256=expected, asset_id=asset_id)
+            warning("Asset boyutu tamam görünmesine rağmen SHA-256 eşleşmedi; baştan denenecek", attempt=attempt, bytes=offset, expected_sha256=expected, asset_id=asset_id)
             target.unlink(missing_ok=True)
             offset = 0
             total_expected = int(expected_size) if expected_size is not None else None
             time.sleep(min(attempt, 3))
 
-        raise RuntimeError("GitHub EXE indirildi ancak güvenilir SHA-256 doğrulaması yapılamadı.")
+        raise RuntimeError("GitHub güncelleme asset'i indirildi ancak güvenilir SHA-256 doğrulaması yapılamadı.")
     except Exception as exc:
         target.unlink(missing_ok=True)
-        exception("EXE indirme/doğrulama hatası", exc, url=download_url, target=str(target), asset_id=asset_id)
+        exception("EXE indirme/doğrulama hatası", exc, url=download_url, target=str(target), asset_id=asset_id, asset_name=asset_name)
         raise
 
 
