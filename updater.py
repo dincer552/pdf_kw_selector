@@ -113,35 +113,79 @@ def _cache_busted(url: str) -> str:
         raise
 
 
-def download_update(download_url: str, *, expected_digest: str | None = None, asset_id: int | None = None, browser_download_url: str | None = None) -> Path:
-    """Download, inspect and optionally verify the replacement EXE."""
+def _download_request(url: str, *, start: int | None = None):
+    headers = {
+        "User-Agent": "PDF-KW-Selector-Updater",
+        "Accept": "application/octet-stream",
+        "Cache-Control": "no-cache",
+        "Pragma": "no-cache",
+    }
+    if start is not None and start > 0:
+        headers["Range"] = f"bytes={start}-"
+    return urllib.request.Request(url, headers=headers)
+
+
+def download_update(download_url: str, *, expected_digest: str | None = None, asset_id: int | None = None, browser_download_url: str | None = None, expected_size: int | None = None) -> Path:
+    """Download, inspect and verify the replacement EXE, retrying truncated GitHub CDN responses with ranges."""
     fd, raw_path = tempfile.mkstemp(prefix="pdf_kw_selector_update_", suffix=".exe")
     os.close(fd)
     target = Path(raw_path)
-    request_url = _cache_busted(download_url)
     expected = (expected_digest or "").replace("sha256:", "").lower()
-    info("EXE indirme başladı", url=request_url, endpoint_type="asset_api" if "/releases/assets/" in download_url else "browser_or_other", asset_id=asset_id, expected_sha256=expected or None, browser_download_url=browser_download_url, target=str(target))
-    request = urllib.request.Request(request_url, headers={"User-Agent": "PDF-KW-Selector-Updater", "Accept": "application/octet-stream", "Cache-Control": "no-cache", "Pragma": "no-cache"})
+    total_expected = int(expected_size) if expected_size is not None else None
+    info("EXE indirme başladı", url=download_url, endpoint_type="asset_api" if "/releases/assets/" in download_url else "browser_or_other", asset_id=asset_id, expected_sha256=expected or None, expected_size=total_expected, browser_download_url=browser_download_url, target=str(target))
     try:
-        with urllib.request.urlopen(request, timeout=180) as response, target.open("wb") as output:
-            content_type = response.headers.get("Content-Type")
-            content_length = response.headers.get("Content-Length")
-            final_url = response.geturl()
-            status = getattr(response, "status", None)
-            info("EXE HTTP cevabı alındı", status=status, final_url=final_url, content_type=content_type, content_length=content_length)
-            total = 0
-            while True:
-                chunk = response.read(1024 * 1024)
-                if not chunk:
-                    break
-                output.write(chunk)
-                total += len(chunk)
-                if total % (5 * 1024 * 1024) < len(chunk):
-                    debug("EXE indirme ilerlemesi", bytes=total, target=str(target))
+        target.unlink(missing_ok=True)
+        offset = 0
+        max_attempts = 12
+        for attempt in range(1, max_attempts + 1):
+            request_url = _cache_busted(download_url) if offset == 0 else download_url
+            request = _download_request(request_url, start=offset if offset else None)
+            mode = "wb" if offset == 0 else "ab"
+            with urllib.request.urlopen(request, timeout=180) as response:
+                content_type = response.headers.get("Content-Type")
+                content_length = response.headers.get("Content-Length")
+                content_range = response.headers.get("Content-Range")
+                final_url = response.geturl()
+                status = getattr(response, "status", None)
+                info("EXE HTTP cevabı alındı", attempt=attempt, status=status, final_url=final_url, content_type=content_type, content_length=content_length, content_range=content_range, resume_offset=offset)
+                if offset > 0 and status not in (200, 206):
+                    raise RuntimeError(f"GitHub devam indirmesi beklenmeyen HTTP durumu verdi: {status}")
+                with target.open(mode) as output:
+                    received = 0
+                    while True:
+                        chunk = response.read(1024 * 1024)
+                        if not chunk:
+                            break
+                        output.write(chunk)
+                        received += len(chunk)
+                        offset += len(chunk)
+                        if offset % (5 * 1024 * 1024) < len(chunk):
+                            debug("EXE indirme ilerlemesi", bytes=offset, target=str(target), attempt=attempt)
+
+            actual_size = target.stat().st_size
+            if total_expected is None:
+                if content_length and content_length.isdigit():
+                    total_expected = (offset if status == 206 else int(content_length))
+                elif status == 206 and content_range:
+                    match = re.search(r"/([0-9]+)$", content_range)
+                    if match:
+                        total_expected = int(match.group(1))
+
+            complete = total_expected is None or actual_size >= total_expected
+            if complete:
+                break
+
+            warning("GitHub CDN yanıtı eksik geldi; devam indirilecek", attempt=attempt, received_this_request=received, downloaded_bytes=actual_size, expected_bytes=total_expected, asset_id=asset_id)
+            offset = actual_size
+            time.sleep(min(attempt, 3))
+        else:
+            raise RuntimeError(f"GitHub EXE indirmesi tamamlanamadı: {offset}/{total_expected or '?'} byte")
+
+        total = target.stat().st_size
         if total == 0:
             raise RuntimeError("GitHub boş dosya döndürdü.")
-        if content_length and content_length.isdigit() and int(content_length) != total:
-            raise RuntimeError(f"GitHub Content-Length ile indirilen byte sayısı uyuşmuyor: header={content_length}, gerçek={total}")
+        if total_expected is not None and total != total_expected:
+            raise RuntimeError(f"GitHub Content-Length ile indirilen byte sayısı uyuşmuyor: beklenen={total_expected}, gerçek={total}")
         with target.open("rb") as handle:
             signature = handle.read(2)
         debug("İndirilen dosya imzası kontrol edildi", signature=signature.hex(), is_pe=signature == b"MZ", bytes=total)
@@ -150,7 +194,7 @@ def download_update(download_url: str, *, expected_digest: str | None = None, as
         digest = _sha256(target).lower()
         info("EXE indirme tamamlandı", bytes=total, sha256=digest, expected_sha256=expected or None, target=str(target))
         if expected and digest != expected:
-            error("EXE SHA-256 doğrulaması başarısız", expected_sha256=expected, actual_sha256=digest, bytes=total, request_url=request_url, final_url=final_url, content_type=content_type, asset_id=asset_id, browser_download_url=browser_download_url, target=str(target))
+            error("EXE SHA-256 doğrulaması başarısız", expected_sha256=expected, actual_sha256=digest, bytes=total, request_url=download_url, asset_id=asset_id, browser_download_url=browser_download_url, target=str(target))
             raise RuntimeError("İndirilen EXE'nin SHA-256 doğrulaması başarısız. " f"Beklenen={expected}, Gerçek={digest}")
         if expected:
             info("EXE SHA-256 doğrulaması başarılı", sha256=digest, asset_id=asset_id)
@@ -158,15 +202,15 @@ def download_update(download_url: str, *, expected_digest: str | None = None, as
     except urllib.error.HTTPError as exc:
         target.unlink(missing_ok=True)
         body = exc.read(1000).decode("utf-8", errors="replace") if hasattr(exc, "read") else ""
-        error("EXE indirme HTTP hatası", url=request_url, status=exc.code, reason=exc.reason, body=body, asset_id=asset_id)
+        error("EXE indirme HTTP hatası", url=download_url, status=exc.code, reason=exc.reason, body=body, asset_id=asset_id)
         raise RuntimeError(f"EXE indirilemedi: HTTP {exc.code}: {exc.reason}") from exc
     except urllib.error.URLError as exc:
         target.unlink(missing_ok=True)
-        error("EXE indirme ağ hatası", url=request_url, reason=str(exc.reason), asset_id=asset_id)
+        error("EXE indirme ağ hatası", url=download_url, reason=str(exc.reason), asset_id=asset_id)
         raise RuntimeError(f"EXE indirilemedi: {exc.reason}") from exc
     except Exception as exc:
         target.unlink(missing_ok=True)
-        exception("EXE indirme/doğrulama hatası", exc, url=request_url, target=str(target), asset_id=asset_id)
+        exception("EXE indirme/doğrulama hatası", exc, url=download_url, target=str(target), asset_id=asset_id)
         raise
 
 
