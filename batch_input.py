@@ -9,7 +9,7 @@ from __future__ import annotations
 from dataclasses import dataclass, asdict
 from pathlib import Path
 
-from app_logger import debug, exception, warning
+from app_logger import debug, exception, info, warning
 
 
 @dataclass(frozen=True)
@@ -32,16 +32,20 @@ def discover_pdfs(
 
     Directories are scanned recursively by default. Files are normalized to
     absolute paths and duplicate paths are removed while preserving order.
-    Non-PDF files and missing paths are ignored.
+    Every skipped/invalid input is logged so an empty list is diagnosable.
     """
     try:
         result: list[PdfInput] = []
         seen: set[str] = set()
+        info("PDF giriş keşfi başladı", input_count=len(paths), recursive=recursive)
 
         for raw in paths:
             path = Path(raw).expanduser()
             if not path.exists():
                 warning("PDF giriş yolu bulunamadı", path=str(path))
+                continue
+            if not path.is_file() and not path.is_dir():
+                warning("PDF giriş yolu dosya veya klasör değil", path=str(path))
                 continue
 
             candidates = [path] if path.is_file() else (
@@ -49,34 +53,41 @@ def discover_pdfs(
                 if recursive
                 else sorted(path.glob("*.pdf"), key=lambda p: str(p).lower())
             )
+            debug("PDF adayları bulundu", input_path=str(path), candidate_count=len(candidates))
+
+            if path.is_file() and path.suffix.lower() != ".pdf":
+                warning("Seçilen dosya PDF değil, atlandı", path=str(path), suffix=path.suffix)
 
             for candidate in candidates:
-                if not candidate.is_file() or candidate.suffix.lower() != ".pdf":
-                    continue
-                absolute = candidate.resolve()
-                key = str(absolute).casefold()
-                if key in seen:
-                    debug("Tekrarlanan PDF giriş yolu atlandı", path=str(absolute))
-                    continue
-                seen.add(key)
                 try:
-                    size = absolute.stat().st_size
-                except Exception as exc:
-                    exception("PDF dosya boyutu okunamadı", exc, path=str(absolute))
-                    continue
-                result.append(
-                    PdfInput(
+                    if not candidate.is_file() or candidate.suffix.lower() != ".pdf":
+                        warning("PDF olmayan aday atlandı", path=str(candidate))
+                        continue
+                    absolute = candidate.resolve()
+                    key = str(absolute).casefold()
+                    if key in seen:
+                        debug("Tekrarlanan PDF giriş yolu atlandı", path=str(absolute))
+                        continue
+                    size_bytes = absolute.stat().st_size
+                    if size_bytes <= 0:
+                        warning("Boş PDF dosyası atlandı", path=str(absolute), size_bytes=size_bytes)
+                        continue
+                    seen.add(key)
+                    item = PdfInput(
                         path=str(absolute),
                         filename=absolute.name,
                         source="file" if path.is_file() else "folder",
-                        size_bytes=size,
+                        size_bytes=size_bytes,
                     )
-                )
+                    result.append(item)
+                    debug("PDF girişine eklendi", **item.to_dict())
+                except Exception as exc:
+                    exception("PDF adayı işlenemedi", exc, path=str(candidate))
 
-        if not result and paths:
-            warning("Seçilen girişlerden hiç PDF bulunamadı", paths=[str(x) for x in paths], recursive=recursive)
-        debug("PDF input manifest oluşturuldu", input_count=len(paths), pdf_count=len(result), recursive=recursive)
+        info("PDF giriş keşfi tamamlandı", input_count=len(paths), pdf_count=len(result), paths=[x.path for x in result])
+        if not result:
+            warning("PDF giriş keşfi sıfır sonuç verdi", inputs=[str(x) for x in paths])
         return result
     except Exception as exc:
-        exception("PDF input keşfi hesaplama hatası", exc, paths=[str(x) for x in paths], recursive=recursive)
+        exception("PDF giriş keşfi hesaplama hatası", exc, input_count=len(paths), inputs=[str(x) for x in paths])
         raise
