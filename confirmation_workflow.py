@@ -273,7 +273,10 @@ def analyze_with_confirmations(pdf1_paths, pdf2_paths):
                 continue
             lo = occurrence_left[lid]
             ro = occurrence_right[rid]
-            extra.append(AHUMatch(lo.equipment_id, ro.equipment_id, lid, rid, 1.0, "USER_APPROVED", "user confirmed AHU references refer to the same equipment", lo.page, ro.page))
+            # A user-approved AHU pair is valid for downstream processing exactly
+            # like an exact/normalized match. Keep the reason so the UI still shows
+            # that the pair was explicitly confirmed by the user.
+            extra.append(AHUMatch(lo.equipment_id, ro.equipment_id, lid, rid, 1.0, "EXACT", "user confirmed AHU references refer to the same equipment", lo.page, ro.page))
             used_left.add(lid)
             used_right.add(rid)
 
