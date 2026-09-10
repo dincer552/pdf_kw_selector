@@ -34,10 +34,8 @@ def _document_identity_tokens(document) -> set[str]:
         path_text = str(document.path)
         text = "\n".join((page.extract_text() or "") for page in PdfReader(document.path).pages)
         combined = f"{path_text}\n{text}"
-        # Engineering/order identifiers such as 26END004.
         for match in re.findall(r"\b\d{2}[A-Z]{2,}\d{3,}\b", combined, flags=re.I):
             tokens.add(match.upper())
-        # Explicit identity labels, including split label/value lines.
         lines = [line.strip() for line in combined.splitlines()]
         for index, line in enumerate(lines):
             if re.search(r"\b(?:order|project)\s*(?:number|no|num)\b", line, flags=re.I):
@@ -102,9 +100,6 @@ def _project_confirmation_plan(left_groups, right_groups):
         for right_key, right_docs in right_groups.items():
             try:
                 match, shared = _project_candidate(left_docs, right_docs)
-                # Identity numbers are strong evidence, but still require explicit user approval.
-                # A moderately similar name is also a confirmation candidate when there is
-                # only one project on each side.
                 candidate = bool(shared) or match.score >= 0.45 or (len(left_groups) == 1 and len(right_groups) == 1)
                 candidates.append((candidate, bool(shared), len(shared), match.score, left_key, right_key, match, shared))
             except Exception as exc:
@@ -116,7 +111,6 @@ def _project_confirmation_plan(left_groups, right_groups):
         if not candidate or left_key in used_left or right_key in used_right:
             continue
         if match.status == "EXACT":
-            # Exact normalized project names need no confirmation.
             continue
         left_name = left_groups[left_key][0].project.project_name or left_key
         right_name = right_groups[right_key][0].project.project_name or right_key
@@ -147,8 +141,6 @@ def _build_ahu_confirmations(project_pair_docs):
         for document in right_group:
             right_occurrences.extend(batch.discover_equipment(document.path).equipment_ids)
 
-        # Keep the raw spelling. The existing matcher normalizes _ / - / spaces too early,
-        # so the confirmation layer must see the original references.
         left_unique: dict[str, object] = {}
         right_unique: dict[str, object] = {}
         for occurrence in left_occurrences:
@@ -159,8 +151,8 @@ def _build_ahu_confirmations(project_pair_docs):
         unmatched_left = set(left_unique)
         unmatched_right = set(right_unique)
 
-        # First pass: identical canonical AHUs. If raw strings differ, ask once whether this
-        # formatting difference is acceptable; after approval the same rule is reused.
+        # Cosmetic differences are deliberately shown to the user once. After approval,
+        # the same flexible rule is reused for subsequent AHUs.
         for lid in list(unmatched_left):
             for rid in list(unmatched_right):
                 lo = left_unique[lid]
@@ -289,7 +281,11 @@ def analyze_with_confirmations(pdf1_paths, pdf2_paths):
             return base
         filtered = [
             item for item in base
-            if not (item.status == "ONLY_IN_PDF1" and item.left_normalized in used_left)
+            if not (
+                item.left_normalized in used_left
+                and item.right_normalized in used_right
+            )
+            and not (item.status == "ONLY_IN_PDF1" and item.left_normalized in used_left)
             and not (item.status == "ONLY_IN_PDF2" and item.right_normalized in used_right)
         ]
         return filtered + extra
