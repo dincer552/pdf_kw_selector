@@ -1,6 +1,6 @@
 from __future__ import annotations
 
-from updater import _cache_busted
+from updater import _cache_busted, _select_asset
 
 
 def test_cache_busted_url_changes_query_without_losing_original_url():
@@ -15,3 +15,21 @@ def test_cache_busted_preserves_existing_query():
     updated = _cache_busted(original)
     assert "download=1" in updated
     assert "&_cache=" in updated
+
+
+def test_select_asset_prefers_newest_immutable_asset_over_clobbered_latest():
+    assets = [
+        {"name": "PDF_KW_Selector_latest.exe", "id": 100, "state": "uploaded", "digest": "sha256:old", "size": 10},
+        {"name": "PDF_KW_Selector_aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa.exe", "id": 101, "state": "uploaded", "digest": "sha256:a", "created_at": "2026-09-10T05:00:00Z", "size": 20},
+        {"name": "PDF_KW_Selector_bbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb.exe", "id": 102, "state": "uploaded", "digest": "sha256:b", "created_at": "2026-09-10T06:00:00Z", "size": 30},
+    ]
+    selected = _select_asset(assets)
+    assert selected["id"] == 102
+    assert selected["name"].endswith("bbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb.exe")
+
+
+def test_select_asset_falls_back_to_legacy_latest():
+    assets = [
+        {"name": "PDF_KW_Selector_latest.exe", "id": 100, "state": "uploaded", "digest": "sha256:old"},
+    ]
+    assert _select_asset(assets)["id"] == 100
