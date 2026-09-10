@@ -2,14 +2,13 @@
 from __future__ import annotations
 
 from difflib import SequenceMatcher
-from pathlib import Path
 import re
 
 from tkinter import messagebox
 
 import batch_analysis as batch
-from ahu_matching import AHUMatch, normalize_equipment_id, score_ahu_ids
-from app_logger import debug, exception, info, warning
+from ahu_matching import AHUMatch, score_ahu_ids
+from app_logger import exception, info, warning
 from project_matching import ProjectMatch, match_discoveries
 from pypdf import PdfReader
 
@@ -45,8 +44,7 @@ def _project_candidate(left_docs, right_docs):
     shared = left_tokens & right_tokens
     left = left_docs[0].project
     right = right_docs[0].project
-    name_match = match_discoveries(left, right)
-    return name_match, shared
+    return match_discoveries(left, right), shared
 
 
 def _ask_project(left_name: str, right_name: str, shared_tokens: set[str]) -> bool:
@@ -79,12 +77,12 @@ def _ask_ahu(project: str | None, left: str, right: str, *, reused_rule: bool = 
 
 
 def _project_confirmation_plan(left_groups, right_groups):
+    """Return normalized project pairs explicitly approved by the user."""
     approved: set[tuple[str, str]] = set()
-    planned: list[tuple[str, str]] = []
     used_left: set[str] = set()
     used_right: set[str] = set()
-
     candidates = []
+
     for left_key, left_docs in left_groups.items():
         for right_key, right_docs in right_groups.items():
             try:
@@ -96,41 +94,27 @@ def _project_confirmation_plan(left_groups, right_groups):
     for has_identity, identity_count, score, left_key, right_key, match, shared in sorted(
         candidates, key=lambda x: (x[0], x[1], x[2]), reverse=True
     ):
-        if left_key in used_left or right_key in used_right:
+        if left_key in used_left or right_key in used_right or match.status != "NO_MATCH":
             continue
-        if match.status != "NO_MATCH":
-            continue
-        # Strong identity match is the preferred confirmation trigger. If the batch is
-        # one-project-vs-one-project, confirmation is still required even without it.
         if not has_identity and not (len(left_groups) == 1 and len(right_groups) == 1):
             continue
         left_name = left_groups[left_key][0].project.project_name or left_key
         right_name = right_groups[right_key][0].project.project_name or right_key
         if _ask_project(left_name, right_name, shared):
-            approved.add((left_key, right_key))
-            planned.append((left_key, right_key))
+            left_norm = left_groups[left_key][0].project.project_name_normalized
+            right_norm = right_groups[right_key][0].project.project_name_normalized
+            if left_norm and right_norm:
+                approved.add((left_norm, right_norm))
             used_left.add(left_key)
             used_right.add(right_key)
             info("Kullanıcı proje eşleşmesini onayladı", left=left_name, right=right_name, shared_identity=sorted(shared))
         else:
             warning("Kullanıcı proje eşleşmesini reddetti", left=left_name, right=right_name, shared_identity=sorted(shared))
-    return approved, planned
-
-
-def _ahu_confirmation_plan(project_pairs):
-    approved: set[tuple[str, str]] = set()
-    flexible_auto: set[tuple[str, str]] = set()
-    flexible_rule_enabled = False
-
-    for left_key, right_key in project_pairs:
-        left_docs = batch._group_documents  # keep access to the same batch primitives for logging/debugging
-        del left_docs
-        # The actual documents are retrieved from the project groups passed by the caller.
-
-    return approved, flexible_auto
+    return approved
 
 
 def _build_ahu_confirmations(project_pair_docs):
+    """Ask about uncertain AHUs; after one approval reuse the same flexible rule."""
     approved: set[tuple[str, str]] = set()
     flexible_auto: set[tuple[str, str]] = set()
     flexible_rule_enabled = False
@@ -148,7 +132,7 @@ def _build_ahu_confirmations(project_pair_docs):
         unmatched_left = set(left_unique)
         unmatched_right = set(right_unique)
 
-        # Existing normalizer already handles punctuation/underscore/dash/leading zeros.
+        # Punctuation, underscores, dashes and leading zero differences are safe.
         for lid in list(unmatched_left):
             for rid in list(unmatched_right):
                 if _flexible_ahu_key(lid) == _flexible_ahu_key(rid):
@@ -160,10 +144,11 @@ def _build_ahu_confirmations(project_pair_docs):
             pairs = []
             for lid in unmatched_left:
                 for rid in unmatched_right:
-                    score, status, reason = score_ahu_ids(lid, rid)
+                    score, _, reason = score_ahu_ids(lid, rid)
                     loose = SequenceMatcher(None, _flexible_ahu_key(lid), _flexible_ahu_key(rid)).ratio()
                     pairs.append((loose, score, lid, rid, reason))
             loose, score, lid, rid, reason = max(pairs, key=lambda x: (x[0], x[1]))
+
             if flexible_rule_enabled and loose >= 0.75:
                 flexible_auto.add((lid, rid))
                 unmatched_left.remove(lid)
@@ -188,24 +173,26 @@ def _build_ahu_confirmations(project_pair_docs):
 
 
 def analyze_with_confirmations(pdf1_paths, pdf2_paths):
-    """Run batch analysis after interactive confirmation of uncertain project/AHU pairs."""
+    """Run batch analysis after interactive confirmation of uncertain Project/AHU pairs."""
     left_docs = batch._discover_documents(list(pdf1_paths), "PDF1")
     right_docs = batch._discover_documents(list(pdf2_paths), "PDF2")
     left_groups = batch._group_documents(left_docs)
     right_groups = batch._group_documents(right_docs)
 
-    approved_projects, _ = _project_confirmation_plan(left_groups, right_groups)
+    approved_projects = _project_confirmation_plan(left_groups, right_groups)
 
-    # Determine which project groups will actually be analyzed, including user-approved pairs.
     project_pair_docs = []
     for left_key, left_docs_group in left_groups.items():
         for right_key, right_docs_group in right_groups.items():
-            if (left_key, right_key) in approved_projects:
-                project_pair_docs.append((left_docs_group[0].project.project_name, left_docs_group, right_docs_group))
+            left_project = left_docs_group[0].project
+            right_project = right_docs_group[0].project
+            pair_key = (left_project.project_name_normalized, right_project.project_name_normalized)
+            if pair_key in approved_projects:
+                project_pair_docs.append((left_project.project_name, left_docs_group, right_docs_group))
                 continue
-            match = match_discoveries(left_docs_group[0].project, right_docs_group[0].project)
+            match = match_discoveries(left_project, right_project)
             if match.status != "NO_MATCH":
-                project_pair_docs.append((left_docs_group[0].project.project_name, left_docs_group, right_docs_group))
+                project_pair_docs.append((left_project.project_name, left_docs_group, right_docs_group))
 
     approved_ahus, flexible_ahus = _build_ahu_confirmations(project_pair_docs)
     all_approved_ahus = approved_ahus | flexible_ahus
@@ -232,13 +219,12 @@ def analyze_with_confirmations(pdf1_paths, pdf2_paths):
         base = original_ahu_match(left, right)
         occurrence_left = {x.normalized: x for x in left}
         occurrence_right = {x.normalized: x for x in right}
-        used_left = {x.left_normalized for x in base if x.left_normalized}
-        used_right = {x.right_normalized for x in base if x.right_normalized}
+        approved_keys = set(all_approved_ahus)
         extra = []
-        for lid, rid in all_approved_ahus:
+        used_left = set()
+        used_right = set()
+        for lid, rid in approved_keys:
             if lid not in occurrence_left or rid not in occurrence_right:
-                continue
-            if lid in used_left or rid in used_right:
                 continue
             lo = occurrence_left[lid]
             ro = occurrence_right[rid]
