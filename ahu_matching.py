@@ -13,7 +13,8 @@ from pypdf import PdfReader
 _UNIT_PATTERNS = [
     ("unit_reference", re.compile(r"\bunit\s+reference\s*[:=]?\s*([A-Z0-9][A-Z0-9_-]{1,})", re.I)),
     ("unit_number", re.compile(r"\bunit\s+number\s*[:=]?\s*([A-Z0-9][A-Z0-9_-]{1,})", re.I)),
-    ("ahu_token", re.compile(r"(?<![A-Z0-9])(?:[A-Z0-9]+[-_ ]+)?(AHU[_ -]?[A-Z0-9][A-Z0-9_-]{0,})\b", re.I)),
+    ("ahu_token", re.compile(r"(?<![A-Z0-9])(AHU(?:[_ -]?[A-Z0-9][A-Z0-9_-]{0,}))\b", re.I)),
+    ("ahu_embedded", re.compile(r"(?<![A-Z0-9])(?:[A-Z0-9]+[-_ ]+)(AHU(?:[_ -]?[A-Z0-9][A-Z0-9_-]{0,}))\b", re.I)),
 ]
 
 
@@ -63,7 +64,7 @@ def discover_equipment_from_text(pages: list[str]) -> AHUDiscovery:
         for page_no, text in enumerate(pages, start=1):
             for source, pattern in _UNIT_PATTERNS:
                 for match in pattern.finditer(text or ""):
-                    raw = (match.group(1) if source != "ahu_token" else match.group(2)).strip(" .,:;)]}")
+                    raw = match.group(1).strip(" .,:;)]}")
                     normalized = normalize_equipment_id(raw)
                     if not normalized.startswith("AHU-") or len(normalized) < 5:
                         continue
@@ -125,6 +126,32 @@ def match_ahu_ids(left: str | None, right: str | None, *, left_page: int | None 
     return AHUMatch(left, right, normalize_equipment_id(left) or None, normalize_equipment_id(right) or None, round(score, 4), status, reason, left_page, right_page)
 
 
+def _approved_family_match(left_id: str | None, right_id: str | None, approved_variants: set[tuple[str, str]]) -> tuple[bool, str]:
+    """Return whether an approved variant pair establishes a reusable structural mapping."""
+    left = normalize_equipment_id(left_id)
+    right = normalize_equipment_id(right_id)
+    if not left or not right:
+        return False, ""
+    for approved_left, approved_right in approved_variants:
+        al = normalize_equipment_id(approved_left)
+        ar = normalize_equipment_id(approved_right)
+        if not al or not ar:
+            continue
+        # Approval is reusable only when the non-numeric AHU prefix/suffix pattern is identical.
+        lnums = re.findall(r"\d+", left)
+        rnums = re.findall(r"\d+", right)
+        alnums = re.findall(r"\d+", al)
+        arnums = re.findall(r"\d+", ar)
+        lprefix = re.sub(r"\d+", "#", left)
+        rprefix = re.sub(r"\d+", "#", right)
+        alprefix = re.sub(r"\d+", "#", al)
+        arprefix = re.sub(r"\d+", "#", ar)
+        if lprefix == alprefix and rprefix == arprefix:
+            if lnums and rnums and alnums and arnums and lnums[-1] == rnums[-1]:
+                return True, "same approved AHU naming family and numeric suffix"
+    return False, ""
+
+
 def match_ahu_lists(left: list[EquipmentOccurrence], right: list[EquipmentOccurrence], *, approved_variants: set[tuple[str, str]] | None = None) -> list[AHUMatch]:
     approved_variants = approved_variants or set()
     left_unique = {}; right_unique = {}
@@ -134,7 +161,10 @@ def match_ahu_lists(left: list[EquipmentOccurrence], right: list[EquipmentOccurr
     for lid, lo in left_unique.items():
         for rid, ro in right_unique.items():
             m = match_ahu_ids(lid, rid, left_page=lo.page, right_page=ro.page)
-            if (lid, rid) in approved_variants and m.status in {"NO_MATCH", "REVIEW_REQUIRED"}:
+            approved, approved_reason = _approved_family_match(lid, rid, approved_variants)
+            if approved and m.status not in {"EXACT", "NORMALIZED_MATCH"}:
+                m = AHUMatch(m.left_id, m.right_id, m.left_normalized, m.right_normalized, max(m.score, 0.80), "APPROVED_FLEXIBLE", f"user-approved AHU variant family: {approved_reason}", m.left_page, m.right_page)
+            elif (lid, rid) in approved_variants and m.status in {"NO_MATCH", "REVIEW_REQUIRED"}:
                 m = AHUMatch(m.left_id, m.right_id, m.left_normalized, m.right_normalized, max(m.score, 0.80), "APPROVED_FLEXIBLE", "user-approved AHU variant", m.left_page, m.right_page)
             pairs.append((m.score, lid, rid, m))
     output = []; used_l = set(); used_r = set()
