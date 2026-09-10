@@ -1,4 +1,5 @@
 import hashlib
+import os
 
 import pytest
 
@@ -41,14 +42,24 @@ class _FakeResponse:
 def _reset_logger():
     logger = app_logger.get_logger()
     for handler in list(logger.handlers):
-        handler.close()
-        logger.removeHandler(handler)
+        try:
+            handler.flush()
+            handler.close()
+        finally:
+            logger.removeHandler(handler)
     app_logger._LOGGER = None
+
+
+def _fake_mkstemp(tmp_path, filename):
+    # tempfile.mkstemp() returns a live OS fd. Return a real fd so production
+    # cleanup (os.close) is exercised instead of being mocked around.
+    fd = os.open(os.devnull, os.O_RDWR)
+    return fd, str(tmp_path / filename)
 
 
 def test_calculation_error_writes_traceback(monkeypatch, tmp_path):
     monkeypatch.setenv("LOCALAPPDATA", str(tmp_path))
-    app_logger._LOGGER = None
+    _reset_logger()
     try:
         try:
             raise ValueError("test calculation failure")
@@ -76,9 +87,11 @@ def test_download_update_logs_and_verifies_expected_digest(monkeypatch, tmp_path
         return _FakeResponse(payload)
 
     monkeypatch.setattr(updater.urllib.request, "urlopen", fake_urlopen)
-    monkeypatch.setattr(updater.tempfile, "mkstemp", lambda prefix, suffix: (
-        tmp_path.joinpath("fd-placeholder").touch() or (123, str(tmp_path / "update.exe"))
-    ))
+    monkeypatch.setattr(
+        updater.tempfile,
+        "mkstemp",
+        lambda prefix, suffix: _fake_mkstemp(tmp_path, "update.exe"),
+    )
 
     target = updater.download_update(
         "https://api.github.com/repos/dincer552/pdf_kw_selector/releases/assets/123",
@@ -102,9 +115,11 @@ def test_download_update_rejects_sha_mismatch(monkeypatch, tmp_path):
         return _FakeResponse(payload)
 
     monkeypatch.setattr(updater.urllib.request, "urlopen", fake_urlopen)
-    monkeypatch.setattr(updater.tempfile, "mkstemp", lambda prefix, suffix: (
-        tmp_path.joinpath("fd-placeholder").touch() or (123, str(tmp_path / "bad.exe"))
-    ))
+    monkeypatch.setattr(
+        updater.tempfile,
+        "mkstemp",
+        lambda prefix, suffix: _fake_mkstemp(tmp_path, "bad.exe"),
+    )
 
     with pytest.raises(RuntimeError, match="SHA-256"):
         updater.download_update(
