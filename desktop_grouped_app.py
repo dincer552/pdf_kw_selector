@@ -15,8 +15,6 @@ class GroupedApp(BaseApp):
 
     def __init__(self):
         super().__init__()
-        # Keep the existing PDF EKLE / KLASÖR EKLE buttons and add drag-and-drop
-        # to the same two input boxes.
         install_pdf_drop_targets(self, self.pdf1_label.master, self.pdf2_label.master)
 
     def compare(self):
@@ -24,24 +22,15 @@ class GroupedApp(BaseApp):
         try:
             if self.analysis is None:
                 return
-
             rows = [self.tree.item(item_id, "values") for item_id in self.tree.get_children()]
             grouped = group_result_rows(rows)
-
             for item_id in self.tree.get_children():
                 self.tree.delete(item_id)
-
             for row in grouped:
                 self.tree.insert("", "end", values=row)
-
             exception_count = sum(1 for row in grouped if not any(str(value).strip() for value in row))
             from app_logger import info
-            info(
-                "GUI sonuçları Project/AHU gruplandı",
-                source_rows=len(rows),
-                displayed_rows=len(grouped),
-                group_separators=exception_count,
-            )
+            info("GUI sonuçları Project/AHU gruplandı", source_rows=len(rows), displayed_rows=len(grouped), group_separators=exception_count)
             self.refresh_logs()
         except Exception as exc:
             exception("Project/AHU sonuç gruplama hatası", exc)
