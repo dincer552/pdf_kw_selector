@@ -61,3 +61,16 @@ def test_hks_unit_is_discovered_and_matches_underscore_variant():
     result = match_ahu_ids("HKS-12", "HKS_12")
     assert result.status == "EXACT"
     assert result.score == 1.0
+
+
+def test_unit_reference_value_has_priority_over_ahukit_text():
+    result = discover_equipment_from_text([
+        "Project Ekol Sada Hastanesi Unit Reference HKS-12",
+        "AHUKit Count 3 Pcs AHUKit",
+    ])
+    assert result.unique_ids() == ("HKS-12",)
+
+
+def test_ahukit_is_not_an_equipment_id():
+    result = discover_equipment_from_text(["AHUKit Count: 3 Pcs", "AHUKit"])
+    assert result.unique_ids() == ()
