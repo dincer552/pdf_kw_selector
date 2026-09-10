@@ -9,6 +9,8 @@ from __future__ import annotations
 from dataclasses import dataclass, asdict
 from pathlib import Path
 
+from app_logger import debug, exception, warning
+
 
 @dataclass(frozen=True)
 class PdfInput:
@@ -32,35 +34,49 @@ def discover_pdfs(
     absolute paths and duplicate paths are removed while preserving order.
     Non-PDF files and missing paths are ignored.
     """
-    result: list[PdfInput] = []
-    seen: set[str] = set()
+    try:
+        result: list[PdfInput] = []
+        seen: set[str] = set()
 
-    for raw in paths:
-        path = Path(raw).expanduser()
-        if not path.exists():
-            continue
-
-        candidates = [path] if path.is_file() else (
-            sorted(path.rglob("*.pdf"), key=lambda p: str(p).lower())
-            if recursive
-            else sorted(path.glob("*.pdf"), key=lambda p: str(p).lower())
-        )
-
-        for candidate in candidates:
-            if not candidate.is_file() or candidate.suffix.lower() != ".pdf":
+        for raw in paths:
+            path = Path(raw).expanduser()
+            if not path.exists():
+                warning("PDF giriş yolu bulunamadı", path=str(path))
                 continue
-            absolute = candidate.resolve()
-            key = str(absolute).casefold()
-            if key in seen:
-                continue
-            seen.add(key)
-            result.append(
-                PdfInput(
-                    path=str(absolute),
-                    filename=absolute.name,
-                    source="file" if path.is_file() else "folder",
-                    size_bytes=absolute.stat().st_size,
-                )
+
+            candidates = [path] if path.is_file() else (
+                sorted(path.rglob("*.pdf"), key=lambda p: str(p).lower())
+                if recursive
+                else sorted(path.glob("*.pdf"), key=lambda p: str(p).lower())
             )
 
-    return result
+            for candidate in candidates:
+                if not candidate.is_file() or candidate.suffix.lower() != ".pdf":
+                    continue
+                absolute = candidate.resolve()
+                key = str(absolute).casefold()
+                if key in seen:
+                    debug("Tekrarlanan PDF giriş yolu atlandı", path=str(absolute))
+                    continue
+                seen.add(key)
+                try:
+                    size = absolute.stat().st_size
+                except Exception as exc:
+                    exception("PDF dosya boyutu okunamadı", exc, path=str(absolute))
+                    continue
+                result.append(
+                    PdfInput(
+                        path=str(absolute),
+                        filename=absolute.name,
+                        source="file" if path.is_file() else "folder",
+                        size_bytes=size,
+                    )
+                )
+
+        if not result and paths:
+            warning("Seçilen girişlerden hiç PDF bulunamadı", paths=[str(x) for x in paths], recursive=recursive)
+        debug("PDF input manifest oluşturuldu", input_count=len(paths), pdf_count=len(result), recursive=recursive)
+        return result
+    except Exception as exc:
+        exception("PDF input keşfi hesaplama hatası", exc, paths=[str(x) for x in paths], recursive=recursive)
+        raise
