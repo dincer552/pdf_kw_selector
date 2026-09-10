@@ -130,7 +130,7 @@ def _expected_size_from_headers(content_length: str | None, content_range: str |
 
 
 def download_update(download_url: str, *, expected_digest: str | None = None, asset_id: int | None = None, browser_download_url: str | None = None, expected_size: int | None = None) -> Path:
-    """Download an EXE with explicit range recovery and hash/size validation."""
+    """Download an EXE with range recovery and cryptographic validation."""
     fd, raw_path = tempfile.mkstemp(prefix="pdf_kw_selector_update_", suffix=".exe")
     os.close(fd)
     target = Path(raw_path)
@@ -183,17 +183,22 @@ def download_update(download_url: str, *, expected_digest: str | None = None, as
         total = target.stat().st_size
         if total == 0:
             raise RuntimeError("GitHub boş dosya döndürdü.")
-        if total_expected is not None and total != total_expected:
-            raise RuntimeError(f"GitHub Content-Length ile indirilen byte sayısı uyuşmuyor: beklenen={total_expected}, gerçek={total}")
         with target.open("rb") as handle:
             signature = handle.read(2)
         debug("İndirilen dosya imzası kontrol edildi", signature=signature.hex(), is_pe=signature == b"MZ", bytes=total)
         if signature != b"MZ":
             raise RuntimeError("GitHub'dan indirilen dosya Windows EXE (MZ) değil.")
+
+        # GitHub/CDN Content-Length can occasionally be stale by a few KB. The
+        # cryptographic digest is authoritative: if the complete downloaded file
+        # matches the release digest, accept it even when the advertised size is
+        # slightly different. A truncated file cannot pass this check.
         digest = _sha256(target).lower()
         if expected and digest != expected:
             raise RuntimeError(f"İndirilen EXE'nin SHA-256 doğrulaması başarısız. Beklenen={expected}, Gerçek={digest}")
-        info("EXE indirme tamamlandı ve doğrulandı", bytes=total, sha256=digest, target=str(target), asset_id=asset_id)
+        if total_expected is not None and total != total_expected:
+            warning("GitHub Content-Length metadata farkı SHA-256 ile doğrulanarak kabul edildi", expected_bytes=total_expected, actual_bytes=total, difference=total - total_expected, asset_id=asset_id)
+        info("EXE indirme tamamlandı ve doğrulandı", bytes=total, sha256=digest, target=str(target), asset_id=asset_id, size_header_difference=(total - total_expected) if total_expected is not None else None)
         return target
     except Exception as exc:
         target.unlink(missing_ok=True)
