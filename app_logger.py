@@ -2,7 +2,7 @@
 
 Logs are written to a user-writable LOCALAPPDATA directory on Windows so the
 EXE can always record failures even when it is installed outside the user's
-profile.  The GUI can also display the same log file.
+profile. The GUI can also display the same log file.
 """
 from __future__ import annotations
 
@@ -12,7 +12,6 @@ import os
 from logging.handlers import RotatingFileHandler
 from pathlib import Path
 import sys
-import traceback
 from typing import Any
 
 APP_NAME = "PDF_KW_Selector"
@@ -46,7 +45,10 @@ class ContextFormatter(logging.Formatter):
         timestamp = self.formatTime(record, "%Y-%m-%d %H:%M:%S")
         message = record.getMessage()
         context = getattr(record, "context", {})
-        return f"{timestamp} | {record.levelname:<8} | {record.name} | {message}{_safe_context(context)}"
+        base = f"{timestamp} | {record.levelname:<8} | {record.name} | {message}{_safe_context(context)}"
+        if record.exc_info:
+            base += "\n" + self.formatException(record.exc_info)
+        return base
 
 
 _LOGGER: logging.Logger | None = None
@@ -99,11 +101,10 @@ def exception(message: str, exc: BaseException | None = None, **context: Any) ->
     payload = dict(context)
     if exc is not None:
         payload.update({"exception_type": type(exc).__name__, "exception": str(exc)})
-    get_logger().error(
-        message,
-        exc_info=exc if exc is not None else sys.exc_info()[0] is not None,
-        extra={"context": payload},
-    )
+        exc_info = (type(exc), exc, exc.__traceback__)
+    else:
+        exc_info = sys.exc_info()
+    get_logger().error(message, exc_info=exc_info, extra={"context": payload})
 
 
 def read_log(max_chars: int = 200_000) -> str:
