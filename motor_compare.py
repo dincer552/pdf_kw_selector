@@ -4,6 +4,7 @@ from __future__ import annotations
 from dataclasses import asdict, dataclass
 from typing import Iterable
 
+from app_logger import debug, exception, info, warning
 from motor_database import MotorRecord, build_comparison_key
 
 
@@ -34,7 +35,10 @@ def _canonical_key(record: MotorRecord) -> tuple[str, str, int]:
 def _index(records: Iterable[MotorRecord]) -> dict[tuple[str, str, int], MotorRecord]:
     result: dict[tuple[str, str, int], MotorRecord] = {}
     for record in records:
-        result.setdefault(_canonical_key(record), record)
+        key = _canonical_key(record)
+        if key in result:
+            warning("Aynı fiziksel motor anahtarı tekrar geldi; ilk kayıt korunuyor", key=key, existing=str(result[key]), duplicate=str(record))
+        result.setdefault(key, record)
     return result
 
 
@@ -44,30 +48,35 @@ def compare_motor_records(
     tolerance_kw: float = 0.01,
 ) -> list[MotorComparison]:
     """Compare one physical motor at a time using equipment/type/index as key."""
-    left = _index(pdf1_records)
-    right = _index(pdf2_records)
-    keys = sorted(set(left) | set(right), key=lambda key: (key[0], key[1], key[2]))
-    output: list[MotorComparison] = []
+    try:
+        if tolerance_kw < 0:
+            raise ValueError("tolerance_kw must be >= 0")
+        left = _index(pdf1_records)
+        right = _index(pdf2_records)
+        keys = sorted(set(left) | set(right), key=lambda key: (key[0], key[1], key[2]))
+        output: list[MotorComparison] = []
+        info("Motor kW hesaplaması başladı", pdf1_motor_count=len(left), pdf2_motor_count=len(right), tolerance_kw=tolerance_kw)
 
-    for key in keys:
-        a = left.get(key)
-        b = right.get(key)
-        template = a or b
-        a_kw = a.power_kw if a else None
-        b_kw = b.power_kw if b else None
+        for key in keys:
+            a = left.get(key)
+            b = right.get(key)
+            template = a or b
+            a_kw = a.power_kw if a else None
+            b_kw = b.power_kw if b else None
 
-        if a is None:
-            status = "ONLY_IN_PDF2"
-            difference = None
-        elif b is None:
-            status = "ONLY_IN_PDF1"
-            difference = None
-        else:
-            difference = abs((a_kw or 0.0) - (b_kw or 0.0))
-            status = "MATCH" if difference <= tolerance_kw else "MISMATCH"
+            if a is None:
+                status = "ONLY_IN_PDF2"
+                difference = None
+            elif b is None:
+                status = "ONLY_IN_PDF1"
+                difference = None
+            else:
+                if a_kw is None or b_kw is None:
+                    warning("Motor karşılaştırması için kW eksik", key=key, pdf1_kw=a_kw, pdf2_kw=b_kw)
+                difference = abs((a_kw or 0.0) - (b_kw or 0.0))
+                status = "MATCH" if difference <= tolerance_kw else "MISMATCH"
 
-        output.append(
-            MotorComparison(
+            comparison = MotorComparison(
                 equipment_id=template.equipment_id,
                 component_type=template.component_type,
                 component_label=template.component_label,
@@ -81,6 +90,11 @@ def compare_motor_records(
                 pdf1_group=a.source_group if a else None,
                 pdf2_group=b.source_group if b else None,
             )
-        )
+            output.append(comparison)
+            debug("Motor karşılaştırması", key=key, pdf1_kw=a_kw, pdf2_kw=b_kw, difference_kw=difference, status=status)
 
-    return output
+        info("Motor kW hesaplaması bitti", comparison_count=len(output), match=sum(x.status == "MATCH" for x in output), mismatch=sum(x.status == "MISMATCH" for x in output), only_pdf1=sum(x.status == "ONLY_IN_PDF1" for x in output), only_pdf2=sum(x.status == "ONLY_IN_PDF2" for x in output))
+        return output
+    except Exception as exc:
+        exception("Motor kW karşılaştırma hesaplama hatası", exc, tolerance_kw=tolerance_kw)
+        raise
