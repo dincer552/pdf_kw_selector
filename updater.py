@@ -48,19 +48,13 @@ def _request_json(url: str) -> dict:
 
 
 def _sha256(path: Path) -> str:
-    try:
-        digest = hashlib.sha256()
-        total = 0
-        with path.open("rb") as handle:
-            for chunk in iter(lambda: handle.read(1024 * 1024), b""):
-                digest.update(chunk)
-                total += len(chunk)
-        result = digest.hexdigest()
-        debug("SHA-256 hesaplandı", path=str(path), bytes=total, sha256=result)
-        return result
-    except Exception as exc:
-        calculation_error("sha256", exc, path=str(path))
-        raise
+    digest = hashlib.sha256()
+    with path.open("rb") as handle:
+        for chunk in iter(lambda: handle.read(1024 * 1024), b""):
+            digest.update(chunk)
+    result = digest.hexdigest()
+    debug("SHA-256 hesaplandı", path=str(path), bytes=path.stat().st_size, sha256=result)
+    return result
 
 
 def _select_asset(assets: list[dict]) -> dict:
@@ -74,26 +68,21 @@ def _select_asset(assets: list[dict]) -> dict:
     if legacy:
         warning("Immutable updater asset bulunamadı; legacy latest asset kullanılıyor", asset_id=legacy.get("id"), size=legacy.get("size"))
         return legacy
-    raise RuntimeError(f"GitHub release içinde güncelleme EXE'si bulunamadı. Mevcut assetler={[a.get('name') for a in assets]}")
+    raise RuntimeError("GitHub release içinde güncelleme EXE'si bulunamadı.")
 
 
 def check_for_update(current_exe: Path | None = None) -> dict:
-    try:
-        release = _request_json(RELEASE_API)
-        asset = _select_asset(release.get("assets") or [])
-        remote_digest = (asset.get("digest") or "").replace("sha256:", "").lower()
-        current = Path(current_exe or sys.executable).resolve()
-        current_exists = current.exists()
-        current_digest = _sha256(current).lower() if current_exists else ""
-        same = bool(remote_digest) and bool(current_digest) and current_digest == remote_digest
-        download_url = asset.get("url") or asset.get("browser_download_url")
-        if not download_url:
-            raise RuntimeError("Güncelleme EXE indirme adresi GitHub'dan alınamadı.")
-        info("Güncelleme kontrolü tamamlandı", release=release.get("tag_name"), release_name=release.get("name"), published_at=release.get("published_at"), asset=asset.get("name"), asset_id=asset.get("id"), asset_size=asset.get("size"), asset_content_type=asset.get("content_type"), current_exe=str(current), current_exists=current_exists, current_sha256=current_digest, remote_sha256=remote_digest, available=not same, download_endpoint=download_url, browser_download_url=asset.get("browser_download_url"))
-        return {"version": release.get("name") or release.get("tag_name") or "latest", "published_at": release.get("published_at"), "download_url": download_url, "browser_download_url": asset.get("browser_download_url"), "asset_api_url": asset.get("url"), "asset_id": asset.get("id"), "asset_name": asset.get("name"), "asset_size": asset.get("size"), "digest": remote_digest, "current_digest": current_digest, "available": not same}
-    except Exception as exc:
-        exception("Güncelleme kontrolü başarısız", exc)
-        raise
+    release = _request_json(RELEASE_API)
+    asset = _select_asset(release.get("assets") or [])
+    remote_digest = (asset.get("digest") or "").replace("sha256:", "").lower()
+    current = Path(current_exe or sys.executable).resolve()
+    current_digest = _sha256(current).lower() if current.exists() else ""
+    same = bool(remote_digest) and current_digest == remote_digest
+    download_url = asset.get("url") or asset.get("browser_download_url")
+    if not download_url:
+        raise RuntimeError("Güncelleme EXE indirme adresi GitHub'dan alınamadı.")
+    info("Güncelleme kontrolü tamamlandı", release=release.get("tag_name"), asset=asset.get("name"), asset_id=asset.get("id"), asset_size=asset.get("size"), current_exe=str(current), current_sha256=current_digest, remote_sha256=remote_digest, available=not same, download_endpoint=download_url, browser_download_url=asset.get("browser_download_url"))
+    return {"version": release.get("name") or release.get("tag_name") or "latest", "published_at": release.get("published_at"), "download_url": download_url, "browser_download_url": asset.get("browser_download_url"), "asset_api_url": asset.get("url"), "asset_id": asset.get("id"), "asset_name": asset.get("name"), "asset_size": asset.get("size"), "digest": remote_digest, "current_digest": current_digest, "available": not same}
 
 
 def _cache_busted(url: str) -> str:
@@ -104,33 +93,14 @@ def _cache_busted(url: str) -> str:
 
 
 def _open_download(url: str, start: int = 0):
-    headers = {
-        "User-Agent": "PDF-KW-Selector-Updater",
-        "Accept": "application/octet-stream",
-        "Cache-Control": "no-cache",
-        "Pragma": "no-cache",
-        "Accept-Encoding": "identity",
-    }
+    headers = {"User-Agent": "PDF-KW-Selector-Updater", "Accept": "application/octet-stream", "Cache-Control": "no-cache", "Pragma": "no-cache", "Accept-Encoding": "identity"}
     if start:
         headers["Range"] = f"bytes={start}-"
-    request = urllib.request.Request(url, headers=headers)
-    return urllib.request.urlopen(request, timeout=180)
-
-
-def _expected_size_from_headers(content_length: str | None, content_range: str | None, status: int | None, offset: int) -> int | None:
-    if content_range:
-        match = re.search(r"/([0-9]+)$", content_range)
-        if match:
-            return int(match.group(1))
-    if content_length and content_length.isdigit() and status == 200:
-        return int(content_length)
-    if content_length and content_length.isdigit() and status == 206:
-        return offset + int(content_length)
-    return None
+    return urllib.request.urlopen(urllib.request.Request(url, headers=headers), timeout=180)
 
 
 def download_update(download_url: str, *, expected_digest: str | None = None, asset_id: int | None = None, browser_download_url: str | None = None, expected_size: int | None = None) -> Path:
-    """Download an EXE with range recovery and cryptographic validation."""
+    """Download an EXE; tolerate stale Content-Length, recover short CDN reads, trust SHA-256."""
     fd, raw_path = tempfile.mkstemp(prefix="pdf_kw_selector_update_", suffix=".exe")
     os.close(fd)
     target = Path(raw_path)
@@ -140,7 +110,9 @@ def download_update(download_url: str, *, expected_digest: str | None = None, as
     try:
         offset = 0
         for attempt in range(1, 16):
-            request_url = _cache_busted(download_url) if offset == 0 else download_url
+            # Cache-bust every request, including Range retries. Some GitHub CDN
+            # paths otherwise return the same short cached response repeatedly.
+            request_url = _cache_busted(download_url)
             with _open_download(request_url, offset) as response:
                 status = getattr(response, "status", None)
                 content_length = response.headers.get("Content-Length")
@@ -152,54 +124,46 @@ def download_update(download_url: str, *, expected_digest: str | None = None, as
                     target.unlink(missing_ok=True)
                     offset = 0
                     continue
-
                 if offset and status != 206:
                     raise RuntimeError(f"GitHub devam indirmesi için beklenmeyen HTTP durumu: {status}")
 
                 with target.open("ab" if offset else "wb") as output:
-                    received = 0
                     while True:
                         chunk = response.read(1024 * 1024)
                         if not chunk:
                             break
                         output.write(chunk)
-                        received += len(chunk)
                         offset += len(chunk)
 
                 actual_size = target.stat().st_size
-                header_expected = _expected_size_from_headers(content_length, content_range, status, offset - received)
-                if total_expected is None and header_expected is not None:
-                    total_expected = header_expected
-                info("EXE parça indirildi", attempt=attempt, received_this_request=received, downloaded_bytes=actual_size, expected_bytes=total_expected, status=status)
+                if content_range:
+                    match = re.search(r"/([0-9]+)$", content_range)
+                    if match:
+                        total_expected = int(match.group(1))
+                elif total_expected is None and content_length and content_length.isdigit() and status == 200:
+                    total_expected = int(content_length)
+                info("EXE parça indirildi", attempt=attempt, downloaded_bytes=actual_size, expected_bytes=total_expected, status=status)
 
-            if total_expected is None or actual_size >= total_expected:
-                break
-
-            warning("GitHub CDN yanıtı eksik geldi; kaldığı yerden devam edilecek", attempt=attempt, downloaded_bytes=actual_size, expected_bytes=total_expected, missing_bytes=total_expected - actual_size, asset_id=asset_id)
+            # Size is only a recovery hint. Never reject a file merely because
+            # GitHub's Content-Length is stale. SHA-256 below is authoritative.
+            if expected:
+                digest = _sha256(target).lower()
+                if digest == expected:
+                    info("EXE indirme tamamlandı ve SHA-256 doğrulandı", bytes=target.stat().st_size, sha256=digest, asset_id=asset_id)
+                    return target
+            if total_expected is not None and offset < total_expected:
+                warning("GitHub CDN yanıtı eksik geldi; kaldığı yerden devam edilecek", attempt=attempt, downloaded_bytes=offset, expected_bytes=total_expected, missing_bytes=total_expected - offset, asset_id=asset_id)
+                time.sleep(min(attempt, 3))
+                continue
+            # No digest match and size appears complete: retry from scratch rather
+            # than ever installing an unverified executable.
+            warning("EXE boyutu tamam görünmesine rağmen SHA-256 eşleşmedi; baştan denenecek", attempt=attempt, bytes=offset, expected_sha256=expected, asset_id=asset_id)
+            target.unlink(missing_ok=True)
+            offset = 0
+            total_expected = int(expected_size) if expected_size is not None else None
             time.sleep(min(attempt, 3))
-        else:
-            raise RuntimeError(f"GitHub EXE indirmesi tamamlanamadı: {offset}/{total_expected or '?'} byte")
 
-        total = target.stat().st_size
-        if total == 0:
-            raise RuntimeError("GitHub boş dosya döndürdü.")
-        with target.open("rb") as handle:
-            signature = handle.read(2)
-        debug("İndirilen dosya imzası kontrol edildi", signature=signature.hex(), is_pe=signature == b"MZ", bytes=total)
-        if signature != b"MZ":
-            raise RuntimeError("GitHub'dan indirilen dosya Windows EXE (MZ) değil.")
-
-        # GitHub/CDN Content-Length can occasionally be stale by a few KB. The
-        # cryptographic digest is authoritative: if the complete downloaded file
-        # matches the release digest, accept it even when the advertised size is
-        # slightly different. A truncated file cannot pass this check.
-        digest = _sha256(target).lower()
-        if expected and digest != expected:
-            raise RuntimeError(f"İndirilen EXE'nin SHA-256 doğrulaması başarısız. Beklenen={expected}, Gerçek={digest}")
-        if total_expected is not None and total != total_expected:
-            warning("GitHub Content-Length metadata farkı SHA-256 ile doğrulanarak kabul edildi", expected_bytes=total_expected, actual_bytes=total, difference=total - total_expected, asset_id=asset_id)
-        info("EXE indirme tamamlandı ve doğrulandı", bytes=total, sha256=digest, target=str(target), asset_id=asset_id, size_header_difference=(total - total_expected) if total_expected is not None else None)
-        return target
+        raise RuntimeError("GitHub EXE indirildi ancak güvenilir SHA-256 doğrulaması yapılamadı.")
     except Exception as exc:
         target.unlink(missing_ok=True)
         exception("EXE indirme/doğrulama hatası", exc, url=download_url, target=str(target), asset_id=asset_id)
@@ -209,17 +173,14 @@ def download_update(download_url: str, *, expected_digest: str | None = None, as
 def apply_update(temp_exe: str, target_exe: str, parent_pid: int) -> None:
     temp_path = Path(temp_exe); target_path = Path(target_exe)
     info("Güncelleme uygulama yardımcısı başladı", temp=str(temp_path), target=str(target_path), parent_pid=parent_pid)
-    for attempt in range(120):
+    for _ in range(120):
         if not _pid_running(parent_pid): break
         time.sleep(0.25)
     else: raise RuntimeError("Eski program kapatılamadı.")
-    try:
-        if not temp_path.exists() or temp_path.stat().st_size <= 0: raise RuntimeError("Güncelleme geçici EXE'si geçersiz.")
-        target_path.parent.mkdir(parents=True, exist_ok=True)
-        os.replace(temp_path, target_path)
-        subprocess.Popen([str(target_path)], close_fds=True)
-    except Exception as exc:
-        exception("Güncelleme EXE değiştirme/yeniden başlatma hatası", exc, temp=str(temp_path), target=str(target_path)); raise
+    if not temp_path.exists() or temp_path.stat().st_size <= 0: raise RuntimeError("Güncelleme geçici EXE'si geçersiz.")
+    target_path.parent.mkdir(parents=True, exist_ok=True)
+    os.replace(temp_path, target_path)
+    subprocess.Popen([str(target_path)], close_fds=True)
 
 
 def _pid_running(pid: int) -> bool:
