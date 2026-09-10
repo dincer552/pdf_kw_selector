@@ -39,8 +39,10 @@ SUMMARY_PAIR_RE = re.compile(
     r"(?P<return_value>\d+(?:[.,]\d+)?)\s*\[?\s*kW\s*\]?\s*"
     r"\(\s*(?P<return_quantity>\d+\s*[x×]\s*\d+)\s*\)", re.I
 )
+# Electrical drawings in this project family use HKS-xx as the unit number.
+# Keep the existing AHU/VE.A.D. forms while also accepting HKS-xx.
 EQUIPMENT_RE = re.compile(
-    r"\bVE\.A\.D\.\d+\b|\bAHU[_-][A-Z0-9]+(?:[_-][A-Z0-9]+)+\b|\bAHU[-_ ]?\d+\b", re.I
+    r"\bVE\.A\.D\.\d+\b|\bAHU[_-][A-Z0-9]+(?:[_-][A-Z0-9]+)+\b|\bAHU[-_ ]?\d+\b|\bHKS[-_ ]?\d+\b", re.I
 )
 
 
@@ -67,8 +69,8 @@ def _equipment_id(text: str) -> str | None:
     match = EQUIPMENT_RE.search(text)
     if not match:
         return None
-    raw = match.group(0).replace("_", "-").upper()
-    if re.fullmatch(r"AHU-\d+", raw):
+    raw = re.sub(r"[-_\s]+", "-", match.group(0)).upper()
+    if re.fullmatch(r"AHU-\d+", raw) or re.fullmatch(r"HKS-\d+", raw):
         return normalize_equipment_id(raw)
     return raw
 
