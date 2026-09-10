@@ -13,7 +13,6 @@ from tkinter import filedialog, messagebox, ttk
 from app_logger import exception, info, read_log, clear_log, log_file, log_directory, startup
 from batch_analysis import analyze_batch
 from desktop_inputs import PdfInput, discover_pdfs
-from motor_database import compare_to_database
 from updater import check_for_update, download_update, restart_with_update
 from ahu_matching import normalize_equipment_id
 
