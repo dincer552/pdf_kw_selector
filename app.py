@@ -6,10 +6,12 @@ import argparse
 import json
 from pathlib import Path
 
+from app_logger import exception, info, startup
 from kw_compare import compare_pdfs
 
 
 def main() -> None:
+    startup()
     parser = argparse.ArgumentParser(description="Compare kW values between two engineering PDFs")
     parser.add_argument("pdf_a", type=Path, help="First/reference PDF")
     parser.add_argument("pdf_b", type=Path, help="Second/verification PDF")
@@ -17,21 +19,27 @@ def main() -> None:
     parser.add_argument("--json", action="store_true", help="Print machine-readable JSON")
     args = parser.parse_args()
 
-    results = compare_pdfs(args.pdf_a, args.pdf_b, tolerance_kw=args.tolerance)
+    try:
+        info("CLI karşılaştırması başladı", pdf_a=str(args.pdf_a), pdf_b=str(args.pdf_b), tolerance_kw=args.tolerance)
+        results = compare_pdfs(args.pdf_a, args.pdf_b, tolerance_kw=args.tolerance)
 
-    if args.json:
-        print(json.dumps([r.to_dict() for r in results], ensure_ascii=False, indent=2))
-        return
+        if args.json:
+            print(json.dumps([r.to_dict() for r in results], ensure_ascii=False, indent=2))
+            return
 
-    print("PDF kW DOĞRULAMA")
-    print("=" * 72)
-    for item in results:
-        left = "-" if item.pdf_a_kw is None else f"{item.pdf_a_kw:g} kW"
-        right = "-" if item.pdf_b_kw is None else f"{item.pdf_b_kw:g} kW"
-        symbol = {"MATCH": "✓", "MISMATCH": "✗", "ONLY_IN_PDF_A": "⚠", "ONLY_IN_PDF_B": "⚠"}[item.status]
-        print(f"{symbol} {item.equipment:12} {item.field:20} {left:>10}  ↔  {right:<10} {item.status}")
-        if item.status == "MISMATCH":
-            print(f"    Fark: {item.difference_kw:g} kW")
+        print("PDF kW DOĞRULAMA")
+        print("=" * 72)
+        for item in results:
+            left = "-" if item.pdf_a_kw is None else f"{item.pdf_a_kw:g} kW"
+            right = "-" if item.pdf_b_kw is None else f"{item.pdf_b_kw:g} kW"
+            symbol = {"MATCH": "✓", "MISMATCH": "✗", "ONLY_IN_PDF_A": "⚠", "ONLY_IN_PDF_B": "⚠"}[item.status]
+            print(f"{symbol} {item.equipment:12} {item.field:20} {left:>10}  ↔  {right:<10} {item.status}")
+            if item.status == "MISMATCH":
+                print(f"    Fark: {item.difference_kw:g} kW")
+        info("CLI karşılaştırması tamamlandı", comparison_count=len(results))
+    except Exception as exc:
+        exception("CLI karşılaştırması başarısız", exc, pdf_a=str(args.pdf_a), pdf_b=str(args.pdf_b))
+        raise
 
 
 if __name__ == "__main__":
