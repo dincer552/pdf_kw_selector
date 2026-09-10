@@ -15,7 +15,7 @@ from pypdf import PdfReader
 
 from app_logger import debug, exception, info, warning
 from motor_database import MotorRecord, expand_motor_group
-from pdf_kw_selector import normalize_equipment_id
+from ahu_matching import normalize_equipment_id
 
 MOTOR_CONNECTION_RE = re.compile(
     r"\b(?P<direction>supply|return|exhaust|activation)\s+motor\s+connections?\b", re.I
