@@ -152,7 +152,7 @@ def _build_ahu_confirmations(project_pair_docs):
         unmatched_right = set(right_unique)
 
         # Cosmetic differences are deliberately shown to the user once. After approval,
-        # the same flexible rule is reused for subsequent AHUs.
+        # the same separator/zero-normalization rule is reused for subsequent AHUs.
         for lid in list(unmatched_left):
             for rid in list(unmatched_right):
                 lo = left_unique[lid]
@@ -165,7 +165,7 @@ def _build_ahu_confirmations(project_pair_docs):
                     unmatched_left.discard(lid)
                     unmatched_right.discard(rid)
                     continue
-                if flexible_rule is not None:
+                if flexible_rule is not None and _flexible_ahu_key(lid) == _flexible_ahu_key(rid):
                     flexible_auto.add((lid, rid))
                     unmatched_left.discard(lid)
                     unmatched_right.discard(rid)
@@ -191,7 +191,7 @@ def _build_ahu_confirmations(project_pair_docs):
                     pairs.append((loose, score, lid, rid, reason))
             loose, score, lid, rid, reason = max(pairs, key=lambda x: (x[0], x[1]))
 
-            if flexible_rule is not None and loose >= 0.75:
+            if flexible_rule is not None and _flexible_ahu_key(lid) == _flexible_ahu_key(rid):
                 flexible_auto.add((lid, rid))
                 unmatched_left.remove(lid)
                 unmatched_right.remove(rid)
@@ -281,10 +281,7 @@ def analyze_with_confirmations(pdf1_paths, pdf2_paths):
             return base
         filtered = [
             item for item in base
-            if not (
-                item.left_normalized in used_left
-                and item.right_normalized in used_right
-            )
+            if not (item.left_normalized in used_left and item.right_normalized in used_right)
             and not (item.status == "ONLY_IN_PDF1" and item.left_normalized in used_left)
             and not (item.status == "ONLY_IN_PDF2" and item.right_normalized in used_right)
         ]
