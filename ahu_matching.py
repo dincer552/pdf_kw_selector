@@ -14,9 +14,12 @@ from pypdf import PdfReader
 _UNIT_PATTERNS = [
     ("unit_reference", re.compile(r"\bunit\s+reference\s*[:=]?\s*([A-Z0-9][A-Z0-9_-]{1,})", re.I)),
     ("unit_number", re.compile(r"\bunit\s+number\s*[:=]?\s*([A-Z0-9][A-Z0-9_-]{1,})", re.I)),
-    # Systemair PDFs can print the unit as AD_AHU_01 / AD-AHU-01 / AHU_A_1.
     ("ahu_token", re.compile(r"\b((?:[A-Z0-9]+[-_ ])?AHU[_ -]?[A-Z0-9][A-Z0-9_-]{0,})\b", re.I)),
 ]
+
+
+def _normalize_numeric_zeros(value: str) -> str:
+    return re.sub(r"(?<!\d)0+(?=\d)", "", value)
 
 
 def normalize_equipment_id(value: str | None) -> str:
@@ -26,18 +29,16 @@ def normalize_equipment_id(value: str | None) -> str:
     value = value.replace("_", "-")
     value = re.sub(r"-+", "-", value)
 
-    # A prefixed reference such as AD-AHU-01 or AD-AHU-01A is the same
-    # equipment family as AHU-01 / AHU-01A for matching purposes.
     ahu_match = re.search(r"(?:^|-)AHU(?:-|$)", value)
     if ahu_match:
         tail = value[ahu_match.end():].lstrip("-")
-        tail = re.sub(r"(?<=-)(0+)(\d+)", r"\2", tail)
+        tail = _normalize_numeric_zeros(tail)
         return "AHU-" + tail if tail else "AHU"
     if value.startswith("AHU"):
         tail = value[3:].lstrip("-")
-        tail = re.sub(r"(?<=-)(0+)(\d+)", r"\2", tail)
+        tail = _normalize_numeric_zeros(tail)
         return "AHU-" + tail if tail else "AHU"
-    return re.sub(r"(?<=-)(0+)(\d+)", r"\2", value)
+    return _normalize_numeric_zeros(value)
 
 
 @dataclass(frozen=True)
