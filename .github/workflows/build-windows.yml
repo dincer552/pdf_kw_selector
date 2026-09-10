@@ -31,7 +31,7 @@ jobs:
       - name: Run tests
         run: pytest -q
       - name: Build EXE
-        run: pyinstaller --noconfirm --clean --onefile --windowed --name PDF_KW_Selector_v0.5.3 desktop_app.py
+        run: pyinstaller --noconfirm --clean --onefile --windowed --name PDF_KW_Selector_v0.5.3 desktop_grouped_app.py
       - name: Prepare latest updater asset
         shell: pwsh
         run: Copy-Item dist/PDF_KW_Selector_v0.5.3.exe dist/PDF_KW_Selector_latest.exe
