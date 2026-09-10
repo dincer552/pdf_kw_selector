@@ -20,8 +20,8 @@ from app_logger import calculation_error, debug, error, exception, info, warning
 REPO = "dincer552/pdf_kw_selector"
 RELEASE_API = f"https://api.github.com/repos/{REPO}/releases/tags/latest"
 ASSET_NAME = "PDF_KW_Selector_latest.exe"
-IMMUTABLE_ASSET_RE = re.compile(r"^PDF_KW_Selector_[0-9a-f]{40}\\.exe$", re.IGNORECASE)
-IMMUTABLE_ZIP_RE = re.compile(r"^PDF_KW_Selector_[0-9a-f]{40}\\.zip$", re.IGNORECASE)
+IMMUTABLE_ASSET_RE = re.compile(r"^PDF_KW_Selector_[0-9a-f]{40}\.exe$", re.IGNORECASE)
+IMMUTABLE_ZIP_RE = re.compile(r"^PDF_KW_Selector_[0-9a-f]{40}\.zip$", re.IGNORECASE)
 
 
 def _request_json(url: str) -> dict:
@@ -60,10 +60,6 @@ def _sha256(path: Path) -> str:
 
 
 def _select_asset(assets: list[dict]) -> dict:
-    # Prefer a compressed immutable asset. The Windows EXE is currently large
-    # enough that some networks/CDNs can terminate a direct .exe transfer short.
-    # The ZIP is verified before extraction, so the updater never installs an
-    # unverified executable.
     immutable_zips = [a for a in assets if IMMUTABLE_ZIP_RE.fullmatch(str(a.get("name", ""))) and a.get("state") == "uploaded"]
     if immutable_zips:
         immutable_zips.sort(key=lambda a: (a.get("created_at") or "", a.get("updated_at") or ""), reverse=True)
@@ -90,8 +86,6 @@ def check_for_update(current_exe: Path | None = None) -> dict:
     remote_digest = (asset.get("digest") or "").replace("sha256:", "").lower()
     current = Path(current_exe or sys.executable).resolve()
     current_digest = _sha256(current).lower() if current.exists() else ""
-    # A ZIP digest cannot equal the installed EXE digest. Such an asset is always
-    # considered available unless the release has no digest.
     is_zip = str(asset.get("name", "")).lower().endswith(".zip")
     same = bool(remote_digest) and not is_zip and current_digest == remote_digest
     download_url = asset.get("url") or asset.get("browser_download_url")
@@ -169,7 +163,6 @@ def download_update(download_url: str, *, expected_digest: str | None = None, as
                 content_length = response.headers.get("Content-Length")
                 content_range = response.headers.get("Content-Range")
                 info("EXE HTTP cevabı alındı", attempt=attempt, status=status, final_url=response.geturl(), content_type=response.headers.get("Content-Type"), content_encoding=response.headers.get("Content-Encoding"), content_length=content_length, content_range=content_range, resume_offset=offset)
-
                 if offset and status == 200:
                     warning("GitHub Range başlığını yoksaydı; dosya baştan indirilecek", attempt=attempt, resume_offset=offset)
                     target.unlink(missing_ok=True)
@@ -177,7 +170,6 @@ def download_update(download_url: str, *, expected_digest: str | None = None, as
                     continue
                 if offset and status != 206:
                     raise RuntimeError(f"GitHub devam indirmesi için beklenmeyen HTTP durumu: {status}")
-
                 with target.open("ab" if offset else "wb") as output:
                     while True:
                         chunk = response.read(1024 * 1024)
@@ -185,7 +177,6 @@ def download_update(download_url: str, *, expected_digest: str | None = None, as
                             break
                         output.write(chunk)
                         offset += len(chunk)
-
                 actual_size = target.stat().st_size
                 if content_range:
                     match = re.search(r"/([0-9]+)$", content_range)
@@ -194,7 +185,6 @@ def download_update(download_url: str, *, expected_digest: str | None = None, as
                 elif total_expected is None and content_length and content_length.isdigit() and status == 200:
                     total_expected = int(content_length)
                 info("EXE parça indirildi", attempt=attempt, downloaded_bytes=actual_size, expected_bytes=total_expected, status=status)
-
             if expected:
                 digest = _sha256(target).lower()
                 if digest == expected:
@@ -211,7 +201,6 @@ def download_update(download_url: str, *, expected_digest: str | None = None, as
             offset = 0
             total_expected = int(expected_size) if expected_size is not None else None
             time.sleep(min(attempt, 3))
-
         raise RuntimeError("GitHub güncelleme asset'i indirildi ancak güvenilir SHA-256 doğrulaması yapılamadı.")
     except Exception as exc:
         target.unlink(missing_ok=True)
