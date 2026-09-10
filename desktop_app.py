@@ -97,6 +97,8 @@ class App(tk.Tk):
         for col in cols:
             self.tree.heading(col, text=headings[col])
             self.tree.column(col, width=widths[col], anchor="center")
+        self.tree.tag_configure("group_a", background="#f7f7f7")
+        self.tree.tag_configure("group_b", background="#ffffff")
         self.tree.grid(row=0, column=0, sticky="nsew")
         scroll = ttk.Scrollbar(result, orient="vertical", command=self.tree.yview)
         scroll.grid(row=0, column=1, sticky="ns")
@@ -260,17 +262,32 @@ class App(tk.Tk):
                 if right:
                     ahu_context[right] = batch_ahu.project_name or "-"
 
-            for comparison in self.analysis.motor_comparisons:
+            comparisons = list(self.analysis.motor_comparisons)
+            comparisons.sort(key=lambda item: (
+                ahu_context.get(normalize_equipment_id(item.equipment_id), "-").casefold(),
+                normalize_equipment_id(item.equipment_id).casefold(),
+                item.component_type.casefold(),
+                item.component_index,
+            ))
+
+            previous_group = None
+            group_number = 0
+            for comparison in comparisons:
                 counts[comparison.status] = counts.get(comparison.status, 0) + 1
                 ahu = normalize_equipment_id(comparison.equipment_id)
                 project = ahu_context.get(ahu, "-")
+                group_key = (project.casefold(), ahu.casefold())
+                if group_key != previous_group:
+                    group_number += 1
+                    previous_group = group_key
+                tag = "group_a" if group_number % 2 else "group_b"
                 self.tree.insert(
-                    "", "end", values=(project, ahu, comparison.component_label, comparison.component_type,
+                    "", "end", tags=(tag,), values=(project, ahu, comparison.component_label, comparison.component_type,
                         self._fmt(comparison.pdf1_kw), self._fmt(comparison.pdf2_kw), self._fmt(comparison.difference_kw),
                         comparison.status, comparison.pdf1_page or "-", comparison.pdf2_page or "-")
                 )
 
-            info("GUI sonuç tablosu oluşturuldu", comparisons=len(self.analysis.motor_comparisons), counts=counts)
+            info("GUI sonuç tablosu oluşturuldu", comparisons=len(comparisons), counts=counts, grouped_ahu_count=group_number)
             self.status.configure(text=(
                 f"✓ Proje {len(self.analysis.project_matches)} | AHU {len(self.analysis.ahu_matches)} | "
                 f"Motor {len(self.analysis.motor_comparisons)} | MATCH {counts['MATCH']} | MISMATCH {counts['MISMATCH']} | "
