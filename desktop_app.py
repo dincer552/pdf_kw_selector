@@ -1,6 +1,7 @@
 """Desktop GUI for PDF kW Selector - Project -> AHU -> Motor batch analysis."""
 from __future__ import annotations
 
+import hashlib
 import json
 import os
 import subprocess
@@ -27,9 +28,41 @@ class App(tk.Tk):
         self.pdf1_inputs = []
         self.pdf2_inputs = []
         self.analysis = None
+        self._log_refresh_job = None
+        self.report_callback_exception = self._report_callback_exception
         self._build()
         self.refresh_logs()
+        self._schedule_log_refresh()
         info("GUI hazır", pdf1_count=0, pdf2_count=0)
+
+    def _report_callback_exception(self, exc, value, tb):
+        """Tkinter callback errors do not reliably reach sys.excepthook."""
+        try:
+            import traceback
+            exception(
+                "YAKALANMAMIŞ GUI CALLBACK HATASI",
+                value,
+                callback_exception_type=getattr(exc, "__name__", str(exc)),
+                traceback_text="".join(traceback.format_exception(exc, value, tb)),
+            )
+            self.refresh_logs()
+        except Exception as log_exc:
+            exception("GUI callback hatası loglanırken ikinci hata oluştu", log_exc)
+
+    def _schedule_log_refresh(self):
+        try:
+            if self.winfo_exists():
+                self._log_refresh_job = self.after(1000, self._scheduled_log_refresh)
+        except Exception as exc:
+            exception("Otomatik log yenileme zamanlayıcısı başlatılamadı", exc)
+
+    def _scheduled_log_refresh(self):
+        try:
+            self.refresh_logs()
+        except Exception as exc:
+            exception("Otomatik log yenileme hatası", exc)
+        finally:
+            self._schedule_log_refresh()
 
     def _build(self):
         outer = ttk.Frame(self, padding=12)
@@ -117,29 +150,33 @@ class App(tk.Tk):
 
     def _add_inputs(self, target: str):
         try:
+            info("Dosya seçici açılıyor", target=target)
             paths = filedialog.askopenfilenames(title=f"{target} PDF dosyalarını seç", filetypes=[("PDF files", "*.pdf"), ("All files", "*.*")])
+            info("Dosya seçici kapandı", target=target, selected_count=len(paths))
             if paths:
                 info("PDF dosyaları seçildi", target=target, count=len(paths), paths=list(paths))
                 self._merge_inputs(target, list(paths))
         except Exception as exc:
             exception("PDF dosya seçme hatası", exc, target=target)
-            messagebox.showerror("Dosya seçme hatası", str(exc))
+            messagebox.showerror("Dosya seçme hatası", f"{type(exc).__name__}: {exc}")
             self.refresh_logs()
 
     def _add_folder(self, target: str):
         try:
+            info("Klasör seçici açılıyor", target=target)
             path = filedialog.askdirectory(title=f"{target} PDF klasörünü seç")
+            info("Klasör seçici kapandı", target=target, selected=path or None)
             if path:
-                info("PDF klasörü seçildi", target=target, path=path)
                 self._merge_inputs(target, [path])
         except Exception as exc:
             exception("PDF klasör seçme hatası", exc, target=target)
-            messagebox.showerror("Klasör seçme hatası", str(exc))
+            messagebox.showerror("Klasör seçme hatası", f"{type(exc).__name__}: {exc}")
             self.refresh_logs()
 
     def _merge_inputs(self, target: str, paths):
         try:
             current = self.pdf1_inputs if target == "PDF1" else self.pdf2_inputs
+            info("PDF girişleri birleştiriliyor", target=target, existing_count=len(current), new_paths=list(paths))
             merged = discover_pdfs([item.path for item in current] + list(paths), recursive=True)
             if target == "PDF1":
                 self.pdf1_inputs = merged
@@ -152,16 +189,20 @@ class App(tk.Tk):
             self.refresh_logs()
         except Exception as exc:
             exception("PDF girişleri hazırlanamadı", exc, target=target, paths=list(paths))
-            messagebox.showerror("PDF hazırlama hatası", str(exc))
+            messagebox.showerror("PDF hazırlama hatası", f"{type(exc).__name__}: {exc}")
             self.refresh_logs()
 
     def _update_label(self, label, items):
-        if not items:
-            label.configure(text="0 PDF seçildi")
-            return
-        names = [Path(item.path).name for item in items[:3]]
-        suffix = " ..." if len(items) > 3 else ""
-        label.configure(text=f"{len(items)} PDF: " + ", ".join(names) + suffix)
+        try:
+            if not items:
+                label.configure(text="0 PDF seçildi")
+                return
+            names = [Path(item.path).name for item in items[:3]]
+            suffix = " ..." if len(items) > 3 else ""
+            label.configure(text=f"{len(items)} PDF: " + ", ".join(names) + suffix)
+        except Exception as exc:
+            exception("PDF liste etiketi güncellenemedi", exc, item_count=len(items))
+            raise
 
     def add_pdf1_files(self): self._add_inputs("PDF1")
     def add_pdf1_folder(self): self._add_folder("PDF1")
@@ -191,7 +232,7 @@ class App(tk.Tk):
             self.refresh_logs()
             return
         try:
-            info("GUI toplu analiz isteği", pdf1_count=len(self.pdf1_inputs), pdf2_count=len(self.pdf2_inputs))
+            info("GUI toplu analiz isteği", pdf1_count=len(self.pdf1_inputs), pdf2_count=len(self.pdf2_inputs), pdf1_paths=[x.path for x in self.pdf1_inputs], pdf2_paths=[x.path for x in self.pdf2_inputs])
             self.status.configure(text="Project → AHU → Motor toplu analizi yapılıyor...")
             self.update_idletasks()
             self.analysis = analyze_batch(
@@ -244,6 +285,7 @@ class App(tk.Tk):
 
     def check_updates(self):
         try:
+            info("Güncelleme butonuna basıldı", current_exe=str(Path(sys.executable).resolve()), version=VERSION)
             info_data = check_for_update(Path(sys.executable))
         except Exception as exc:
             exception("GUI güncelleme kontrolü hatası", exc)
@@ -251,11 +293,11 @@ class App(tk.Tk):
             self.refresh_logs()
             return
         if not info_data["available"]:
-            info("Program güncel", version=VERSION)
+            info("Program güncel", version=VERSION, current_sha256=info_data.get("current_digest"))
             messagebox.showinfo("Güncelleme", f"Programınız güncel.\nSürüm: {VERSION}")
             self.refresh_logs()
             return
-        info("Yeni sürüm bulundu", version=info_data["version"], remote_sha256=info_data.get("digest"), current_sha256=info_data.get("current_digest"))
+        info("Yeni sürüm bulundu", version=info_data["version"], remote_sha256=info_data.get("digest"), current_sha256=info_data.get("current_digest"), asset_id=info_data.get("asset_id"), asset_size=info_data.get("asset_size"), download_url=info_data.get("download_url"), browser_download_url=info_data.get("browser_download_url"))
         answer = messagebox.askyesno("Yeni sürüm bulundu", f"Yeni sürüm mevcut: {info_data['version']}\nMevcut sürüm: {VERSION}\n\nŞimdi güncellensin mi?")
         if not answer:
             info("Kullanıcı güncellemeyi iptal etti")
@@ -264,41 +306,59 @@ class App(tk.Tk):
         try:
             self.status.configure(text="Yeni sürüm indiriliyor...")
             self.update_idletasks()
-            temp_exe = download_update(info_data["download_url"])
-            downloaded_digest = __import__("hashlib").sha256(temp_exe.read_bytes()).hexdigest().lower()
-            info("İndirilen EXE SHA-256 hesaplandı", sha256=downloaded_digest, expected=info_data.get("digest"), temp=str(temp_exe))
+            temp_exe = download_update(
+                info_data["download_url"],
+                expected_digest=info_data.get("digest"),
+                asset_id=info_data.get("asset_id"),
+                browser_download_url=info_data.get("browser_download_url"),
+            )
+            downloaded_digest = hashlib.sha256(temp_exe.read_bytes()).hexdigest().lower()
+            info("İndirilen EXE son SHA-256 hesaplandı", sha256=downloaded_digest, expected=info_data.get("digest"), temp=str(temp_exe))
             if info_data.get("digest") and downloaded_digest != info_data["digest"].lower():
                 temp_exe.unlink(missing_ok=True)
-                error_message = "İndirilen EXE'nin SHA-256 doğrulaması başarısız."
-                warning(error_message, expected=info_data.get("digest"), actual=downloaded_digest, url=info_data.get("download_url"))
-                raise RuntimeError(error_message)
+                raise RuntimeError(
+                    "İndirilen EXE'nin SHA-256 doğrulaması başarısız. "
+                    f"Beklenen={info_data['digest']}, Gerçek={downloaded_digest}"
+                )
             info("İndirilen EXE SHA-256 doğrulaması başarılı", sha256=downloaded_digest)
             restart_with_update(temp_exe, Path(sys.executable))
         except SystemExit:
             raise
         except Exception as exc:
-            exception("GUI güncelleme uygulama hatası", exc, version=info_data.get("version"))
+            exception("GUI güncelleme uygulama hatası", exc, version=info_data.get("version"), asset_id=info_data.get("asset_id"), expected_sha256=info_data.get("digest"))
             messagebox.showerror("Güncelleme", f"Güncelleme başarısız:\n{type(exc).__name__}: {exc}\n\nDetay HATA / İŞLEM LOGLARI sekmesinde.")
             self.status.configure(text="Güncelleme başarısız")
             self.refresh_logs()
 
     @staticmethod
-    def _fmt(value): return "-" if value is None else f"{value:g}"
+    def _fmt(value):
+        try:
+            return "-" if value is None else f"{value:g}"
+        except Exception as exc:
+            exception("Sonuç değeri biçimlendirme hatası", exc, value=repr(value))
+            raise
 
     def _set_detail(self, text):
-        self.detail.configure(state="normal")
-        self.detail.delete("1.0", "end")
-        if text:
-            self.detail.insert("1.0", text)
-        self.detail.configure(state="disabled")
+        try:
+            self.detail.configure(state="normal")
+            self.detail.delete("1.0", "end")
+            if text:
+                self.detail.insert("1.0", text)
+            self.detail.configure(state="disabled")
+        except Exception as exc:
+            exception("Teknik detay alanı güncellenemedi", exc, text_length=len(text or ""))
+            raise
 
     def refresh_logs(self):
-        if not hasattr(self, "log_text"):
-            return
-        text = read_log()
-        self.log_text.delete("1.0", "end")
-        self.log_text.insert("1.0", text)
-        self.log_text.see("end")
+        try:
+            if not hasattr(self, "log_text"):
+                return
+            text = read_log()
+            self.log_text.delete("1.0", "end")
+            self.log_text.insert("1.0", text)
+            self.log_text.see("end")
+        except Exception as exc:
+            exception("GUI log ekranı yenilenemedi", exc)
 
     def open_log_file(self):
         try:
@@ -306,11 +366,11 @@ class App(tk.Tk):
             path.parent.mkdir(parents=True, exist_ok=True)
             if not path.exists():
                 path.write_text("", encoding="utf-8")
+            info("Log dosyası açılıyor", path=str(path))
             if os.name == "nt":
                 os.startfile(str(path))
             else:
                 subprocess.Popen(["xdg-open", str(path)])
-            info("Log dosyası açıldı", path=str(path))
             self.refresh_logs()
         except Exception as exc:
             exception("Log dosyası açılamadı", exc, path=str(log_file()))
@@ -321,11 +381,11 @@ class App(tk.Tk):
         try:
             directory = log_directory()
             directory.mkdir(parents=True, exist_ok=True)
+            info("Log klasörü açılıyor", path=str(directory))
             if os.name == "nt":
                 os.startfile(str(directory))
             else:
                 subprocess.Popen(["xdg-open", str(directory)])
-            info("Log klasörü açıldı", path=str(directory))
         except Exception as exc:
             exception("Log klasörü açılamadı", exc, path=str(log_directory()))
             messagebox.showerror("Log", f"Log klasörü açılamadı:\n{type(exc).__name__}: {exc}")
@@ -333,6 +393,7 @@ class App(tk.Tk):
     def clear_logs(self):
         try:
             if not messagebox.askyesno("Logları temizle", "Tüm mevcut uygulama logları temizlensin mi?"):
+                info("Log temizleme kullanıcı tarafından iptal edildi")
                 return
             clear_log()
             info("Log dosyası temizlendi")
@@ -347,22 +408,24 @@ class App(tk.Tk):
             messagebox.showwarning("Sonuç yok", "Önce TOPLU ANALİZ çalıştırın.")
             self.refresh_logs()
             return
-        path = filedialog.asksaveasfilename(title="Toplu analizi kaydet", defaultextension=".json", filetypes=[("JSON", "*.json")])
-        if not path:
-            info("JSON kaydetme kullanıcı tarafından iptal edildi")
-            return
         try:
-            Path(path).write_text(json.dumps(self.analysis.to_dict(), ensure_ascii=False, indent=2), encoding="utf-8")
-            info("JSON sonuç dosyası kaydedildi", path=path)
+            info("JSON kaydetme diyaloğu açılıyor")
+            path = filedialog.asksaveasfilename(title="Toplu analizi kaydet", defaultextension=".json", filetypes=[("JSON", "*.json")])
+            if not path:
+                info("JSON kaydetme kullanıcı tarafından iptal edildi")
+                return
+            payload = json.dumps(self.analysis.to_dict(), ensure_ascii=False, indent=2)
+            Path(path).write_text(payload, encoding="utf-8")
+            info("JSON sonuç dosyası kaydedildi", path=path, bytes=Path(path).stat().st_size)
             messagebox.showinfo("Kaydedildi", f"Sonuç kaydedildi:\n{path}")
         except Exception as exc:
-            exception("JSON sonuç dosyası kaydedilemedi", exc, path=path)
+            exception("JSON sonuç dosyası kaydedilemedi", exc, path=locals().get("path"))
             messagebox.showerror("JSON kaydetme hatası", f"{type(exc).__name__}: {exc}")
             self.refresh_logs()
 
 
 if __name__ == "__main__":
-    startup()
+    startup(VERSION)
     if len(sys.argv) >= 2 and sys.argv[1] == "--apply-update":
         try:
             apply_update(sys.argv[2], sys.argv[3], int(sys.argv[4]))
