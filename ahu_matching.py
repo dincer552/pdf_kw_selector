@@ -14,8 +14,11 @@ _UNIT_PATTERNS = [
     ("unit_reference", re.compile(r"\bunit\s+reference\s*[:=]?\s*([A-Z0-9][A-Z0-9_-]{1,})", re.I)),
     ("unit_number", re.compile(r"\bunit\s+number\s*[:=]?\s*([A-Z0-9][A-Z0-9_-]{1,})", re.I)),
     ("hks_token", re.compile(r"(?<![A-Z0-9])(HKS(?:[_ -]?\d+))\b", re.I)),
-    ("ahu_token", re.compile(r"(?<![A-Z0-9])(AHU(?:[_ -]?[A-Z0-9][A-Z0-9_-]{0,}))\b", re.I)),
-    ("ahu_embedded", re.compile(r"(?<![A-Z0-9])(?:[A-Z0-9]+[-_ ]+)(AHU(?:[_ -]?[A-Z0-9][A-Z0-9_-]{0,}))\b", re.I)),
+    # Generic AHU fallback: require a separator (AHU-A-1) or a digit immediately
+    # after AHU (AHU1). This prevents words such as AHUKit/AHUnit from becoming
+    # equipment IDs just because they contain the letters "AHU".
+    ("ahu_token", re.compile(r"(?<![A-Z0-9])(AHU(?:[_ -]+[A-Z0-9][A-Z0-9_-]*|\d[A-Z0-9_-]*))\b", re.I)),
+    ("ahu_embedded", re.compile(r"(?<![A-Z0-9])(?:[A-Z0-9]+[-_ ]+)(AHU(?:[_ -]+[A-Z0-9][A-Z0-9_-]*|\d[A-Z0-9_-]*))\b", re.I)),
 ]
 
 
