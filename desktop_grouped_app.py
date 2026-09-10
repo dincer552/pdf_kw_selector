@@ -17,10 +17,27 @@ from updater import apply_update
 from confirmation_workflow import analyze_with_confirmations
 
 
+def _path_strings(items):
+    """Accept both GUI PdfInput objects and plain filesystem paths."""
+    result = []
+    for item in items or []:
+        value = getattr(item, "path", item)
+        result.append(str(value))
+    return result
+
+
+def _confirmed_analyze(pdf1_inputs, pdf2_inputs):
+    """Normalize GUI inputs before entering the confirmation workflow."""
+    pdf1_paths = _path_strings(pdf1_inputs)
+    pdf2_paths = _path_strings(pdf2_inputs)
+    info("Onaylı analiz girişleri normalize edildi", pdf1_count=len(pdf1_paths), pdf2_count=len(pdf2_paths))
+    return analyze_with_confirmations(pdf1_paths, pdf2_paths)
+
+
 # desktop_app.compare resolves analyze_batch from its module namespace. Replace that
 # binding for the grouped production entry point so confirmations happen before
 # the actual Project -> AHU -> Motor calculation starts.
-desktop_module.analyze_batch = analyze_with_confirmations
+desktop_module.analyze_batch = _confirmed_analyze
 
 
 EBM_BRAND_RE = re.compile(r"\bmodel\s+brand\b\s*[:=\-]?\s*(EBM\s*[- ]?\s*Papst)\b", re.I)
@@ -44,12 +61,7 @@ def _page_is_ebm(path: str, page_number: int) -> bool:
 
 
 def _apply_ebm_rules(analysis):
-    """Mark EBM-Papst motors as intentionally excluded from kW comparison.
-
-    The physical motor is still paired with the corresponding PDF2 motor so the
-    user can see the PDF2 side, but no kW difference/MISMATCH is used for EBM-Papst.
-    Standard motors remain on the normal comparison path.
-    """
+    """Mark EBM-Papst motors as intentionally excluded from kW comparison."""
     if analysis is None:
         return None
 
@@ -100,7 +112,6 @@ def _rerender_modified_rows(app, original_analysis):
     """Update the already-rendered Treeview rows without running the analysis again."""
     comparisons = list(original_analysis.motor_comparisons)
     comparisons.sort(key=lambda item: (
-        # Same ordering as desktop_app.compare().
         next((
             normalize_equipment_id(ahu.match.left_normalized)
             for ahu in original_analysis.ahu_matches
