@@ -60,24 +60,28 @@ class ContextFormatter(logging.Formatter):
 _LOGGER: logging.Logger | None = None
 
 
+def _build_handler() -> RotatingFileHandler:
+    directory = log_directory()
+    directory.mkdir(parents=True, exist_ok=True)
+    handler = RotatingFileHandler(
+        log_file(), maxBytes=MAX_BYTES, backupCount=BACKUP_COUNT, encoding="utf-8"
+    )
+    handler.setLevel(logging.DEBUG)
+    handler.setFormatter(ContextFormatter())
+    return handler
+
+
 def get_logger() -> logging.Logger:
     global _LOGGER
     if _LOGGER is not None:
         return _LOGGER
 
-    directory = log_directory()
-    directory.mkdir(parents=True, exist_ok=True)
     logger = logging.getLogger("pdf_kw_selector")
     logger.setLevel(logging.DEBUG)
     logger.propagate = False
 
     if not logger.handlers:
-        handler = RotatingFileHandler(
-            log_file(), maxBytes=MAX_BYTES, backupCount=BACKUP_COUNT, encoding="utf-8"
-        )
-        handler.setLevel(logging.DEBUG)
-        handler.setFormatter(ContextFormatter())
-        logger.addHandler(handler)
+        logger.addHandler(_build_handler())
 
     _LOGGER = logger
     return logger
@@ -147,14 +151,26 @@ def read_log(max_chars: int = 300_000) -> str:
 
 
 def clear_log() -> None:
+    """Clear the active log and reopen the handler so Windows file locking cannot corrupt future entries."""
+    logger = get_logger()
     path = log_file()
     try:
-        logger = get_logger()
-        for handler in logger.handlers:
-            handler.flush()
-        path.write_text("", encoding="utf-8")
+        for handler in list(logger.handlers):
+            try:
+                handler.flush()
+                handler.close()
+            finally:
+                logger.removeHandler(handler)
+        path.unlink(missing_ok=True)
+        logger.addHandler(_build_handler())
     except Exception as exc:
+        try:
+            if not logger.handlers:
+                logger.addHandler(_build_handler())
+        except Exception:
+            pass
         exception("Log temizlenemedi", exc, path=str(path))
+        raise
 
 
 def install_exception_hook() -> None:
