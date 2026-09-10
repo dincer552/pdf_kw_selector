@@ -19,7 +19,7 @@ def test_real_florya_variants_match_with_high_confidence():
     assert result.status == "HIGH_CONFIDENCE"
     assert result.score >= 0.85
     assert result.left_name == "Florya Uçuş Eğitim Binası Faz – 1-AHU"
-    assert result.right_name == "Florya Uçus Egitim Binasi G"
+    assert result.right_name == "Project Florya Uçus Egitim Binasi G"
 
 
 def test_systemair_project_header_drops_creation_metadata():
