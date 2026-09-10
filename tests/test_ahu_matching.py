@@ -51,3 +51,13 @@ def test_ahu_lists_expose_unmatched_equipment():
     statuses = {m.status for m in matches}
     assert "ONLY_IN_PDF1" in statuses
     assert "ONLY_IN_PDF2" in statuses
+
+
+def test_hks_unit_is_discovered_and_matches_underscore_variant():
+    left = discover_equipment_from_text(["Unit Number HKS-12"])
+    right = discover_equipment_from_text(["Unit Number HKS_12"])
+    assert left.unique_ids() == ("HKS-12",)
+    assert right.unique_ids() == ("HKS-12",)
+    result = match_ahu_ids("HKS-12", "HKS_12")
+    assert result.status == "EXACT"
+    assert result.score == 1.0
