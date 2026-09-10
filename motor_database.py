@@ -15,10 +15,7 @@ from dataclasses import asdict, dataclass
 from app_logger import debug, exception, warning
 
 
-GROUP_RE = re.compile(
-    r"(?P<count>\d+)\s*[x×]\s*(?P<groups>\d+)",
-    re.IGNORECASE,
-)
+GROUP_RE = re.compile(r"(?P<count>\d+)\s*[x×]\s*(?P<groups>\d+)", re.IGNORECASE)
 
 
 @dataclass(frozen=True)
@@ -33,6 +30,7 @@ class MotorRecord:
     motor_count: int
     source_page: int | None = None
     confidence: str = "high"
+    model_brand: str | None = None
 
     def to_dict(self) -> dict:
         return asdict(self)
@@ -65,18 +63,9 @@ def expand_motor_group(
     power_kw: float | None,
     source_page: int | None = None,
     start_index: int = 1,
+    model_brand: str | None = None,
 ) -> list[MotorRecord]:
-    """Expand a motor group into one record per physical motor.
-
-    ``start_index`` is used when several dedicated electrical pages each
-    represent one physical motor of the same fan family. For example,
-    Return Motor Connections-1 and -2 become Asp 1 and Asp 2.
-
-    Examples:
-      1x1 -> one motor
-      2x1 -> two motors
-      3x1 -> three motors
-    """
+    """Expand a motor group into one record per physical motor."""
     try:
         parsed = parse_motor_group(group)
         if parsed is None:
@@ -104,24 +93,20 @@ def expand_motor_group(
                     source_group=group,
                     motor_count=motor_count,
                     source_page=source_page,
+                    model_brand=model_brand,
                 )
             )
-        debug("Fiziksel motor kayıtları üretildi", equipment_id=equipment_id, component_type=component_type, group=group, power_kw=power_kw, start_index=start_index, count=len(records), source_page=source_page)
+        debug("Fiziksel motor kayıtları üretildi", equipment_id=equipment_id, component_type=component_type, group=group, power_kw=power_kw, start_index=start_index, count=len(records), source_page=source_page, model_brand=model_brand)
         return records
     except Exception as exc:
-        exception("Fiziksel motor kayıtları oluşturulamadı", exc, equipment_id=equipment_id, component_type=component_type, group=group, power_kw=power_kw, source_page=source_page, start_index=start_index)
+        exception("Fiziksel motor kayıtları oluşturulamadı", exc, equipment_id=equipment_id, component_type=component_type, group=group, power_kw=power_kw, source_page=source_page, start_index=start_index, model_brand=model_brand)
         raise
 
 
 def build_comparison_key(record: MotorRecord) -> tuple[str, str, int]:
     """Stable key used later by the PDF-1/PDF-2 comparison stage."""
     try:
-        key = (
-            record.equipment_id.upper(),
-            record.component_type.strip().lower(),
-            record.component_index,
-        )
-        return key
+        return (record.equipment_id.upper(), record.component_type.strip().lower(), record.component_index)
     except Exception as exc:
         exception("Motor karşılaştırma anahtarı oluşturulamadı", exc, record=str(record))
         raise
