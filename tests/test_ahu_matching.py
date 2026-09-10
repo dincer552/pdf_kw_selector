@@ -14,6 +14,13 @@ def test_normalize_common_ahu_forms():
     assert normalize_equipment_id("AHU_A_2") == "AHU-A-2"
 
 
+def test_prefixed_ahu_forms_normalize_to_same_equipment():
+    assert normalize_equipment_id("AD_AHU_01") == "AHU-1"
+    assert normalize_equipment_id("AD-AHU-01") == "AHU-1"
+    result = discover_equipment_from_text(["Unit Number AD_AHU_01\nAD_AHU_01"])
+    assert "AHU-1" in result.unique_ids()
+
+
 def test_discover_distinct_ahus_from_pages():
     pages = [
         "AHU_A_1\nUnit Reference AHU-A-1",
