@@ -2,16 +2,22 @@
 from __future__ import annotations
 
 import sys
-from pathlib import Path
 
 from app_logger import exception, startup
 from desktop_app import App as BaseApp, VERSION
+from drag_drop import install_pdf_drop_targets
 from result_grouping import group_result_rows
 from updater import apply_update
 
 
 class GroupedApp(BaseApp):
     """Base GUI with Project -> AHU visual grouping in the results table."""
+
+    def __init__(self):
+        super().__init__()
+        # Keep the existing PDF EKLE / KLASÖR EKLE buttons and add drag-and-drop
+        # to the same two input boxes.
+        install_pdf_drop_targets(self, self.pdf1_label.master, self.pdf2_label.master)
 
     def compare(self):
         super().compare()
