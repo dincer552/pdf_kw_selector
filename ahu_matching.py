@@ -41,18 +41,6 @@ def normalize_equipment_id(value: str | None) -> str:
     return _normalize_numeric_zeros(value)
 
 
-def ahu_pattern_signature(value: str | None) -> str:
-    """Format signature used after one user-approved fuzzy AHU match.
-
-    Separators are ignored and numeric portions are replaced by '#'. This
-    allows an approved naming convention (for example AHU-01 vs AD_AHU_01)
-    to be reused for AHU-02 vs AD_AHU_02 without asking again.
-    """
-    normalized = normalize_equipment_id(value)
-    compact = re.sub(r"[^A-Z0-9]", "", normalized.upper())
-    return re.sub(r"\d+", "#", compact)
-
-
 @dataclass(frozen=True)
 class EquipmentOccurrence:
     equipment_id: str
@@ -158,8 +146,6 @@ def score_ahu_ids(left: str | None, right: str | None) -> tuple[float, str, str]
         seq = SequenceMatcher(None, l, r).ratio()
         if seq >= 0.90:
             return seq, "REVIEW_REQUIRED", "very similar but not identical equipment reference"
-        if seq >= 0.55:
-            return seq, "REVIEW_REQUIRED", "similar equipment reference requires confirmation"
         return seq, "NO_MATCH", "insufficient equipment-reference agreement"
     except Exception as exc:
         exception("AHU eşleşme skoru hesaplanamadı", exc, left=left, right=right)
