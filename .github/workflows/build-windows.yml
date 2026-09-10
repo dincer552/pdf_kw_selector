@@ -37,6 +37,7 @@ jobs:
         run: |
           Copy-Item dist/PDF_KW_Selector_v0.5.3.exe dist/PDF_KW_Selector_latest.exe
           Copy-Item dist/PDF_KW_Selector_v0.5.3.exe "dist/PDF_KW_Selector_$env:GITHUB_SHA.exe"
+          Compress-Archive -Path dist/PDF_KW_Selector_v0.5.3.exe -DestinationPath "dist/PDF_KW_Selector_$env:GITHUB_SHA.zip" -CompressionLevel Optimal
       - name: Publish latest release
         env:
           GH_TOKEN: ${{ github.token }}
@@ -45,9 +46,10 @@ jobs:
           if gh release view latest >/dev/null 2>&1; then
             gh release upload latest dist/PDF_KW_Selector_latest.exe --clobber
             gh release upload latest "dist/PDF_KW_Selector_${GITHUB_SHA}.exe"
+            gh release upload latest "dist/PDF_KW_Selector_${GITHUB_SHA}.zip"
             gh release edit latest --title "PDF kW Selector - Latest" --notes "Latest CI-tested Windows build from main. Commit: $GITHUB_SHA"
           else
-            gh release create latest dist/PDF_KW_Selector_latest.exe "dist/PDF_KW_Selector_${GITHUB_SHA}.exe" --target "$GITHUB_SHA" --title "PDF kW Selector - Latest" --notes "Latest CI-tested Windows build from main. Commit: $GITHUB_SHA"
+            gh release create latest dist/PDF_KW_Selector_latest.exe "dist/PDF_KW_Selector_${GITHUB_SHA}.exe" "dist/PDF_KW_Selector_${GITHUB_SHA}.zip" --target "$GITHUB_SHA" --title "PDF kW Selector - Latest" --notes "Latest CI-tested Windows build from main. Commit: $GITHUB_SHA"
           fi
       - uses: actions/upload-artifact@v4
         with:
