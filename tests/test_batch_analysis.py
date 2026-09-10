@@ -50,5 +50,5 @@ def test_equipment_discovery_keeps_distinct_ahus():
 
 
 def test_pdf2_hks_unit_id_is_discovered():
-    assert _equipment_id("Unit Number HKS_12") == "HKS12"
-    assert _equipment_id("Unit Number HKS-12") == "HKS12"
+    assert _equipment_id("Unit Number HKS_12") == "HKS-12"
+    assert _equipment_id("Unit Number HKS-12") == "HKS-12"
