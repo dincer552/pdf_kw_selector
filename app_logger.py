@@ -1,8 +1,9 @@
 """Central application logging for PDF kW Selector.
 
-Logs are written to a user-writable LOCALAPPDATA directory on Windows so the
-EXE can always record failures even when it is installed outside the user's
-profile. The GUI can also display the same log file.
+All application modules use this logger so failures are persisted outside the
+EXE directory and can be inspected from the GUI. The logger records the
+operation, exception type/message, traceback and structured context whenever
+possible.
 """
 from __future__ import annotations
 
@@ -12,6 +13,8 @@ import os
 from logging.handlers import RotatingFileHandler
 from pathlib import Path
 import sys
+import threading
+import traceback
 from typing import Any
 
 APP_NAME = "PDF_KW_Selector"
@@ -47,7 +50,10 @@ class ContextFormatter(logging.Formatter):
         context = getattr(record, "context", {})
         base = f"{timestamp} | {record.levelname:<8} | {record.name} | {message}{_safe_context(context)}"
         if record.exc_info:
-            base += "\n" + self.formatException(record.exc_info)
+            try:
+                base += "\n" + self.formatException(record.exc_info)
+            except Exception:
+                base += "\n[traceback could not be formatted]"
         return base
 
 
@@ -78,7 +84,14 @@ def get_logger() -> logging.Logger:
 
 
 def _log(level: int, message: str, **context: Any) -> None:
-    get_logger().log(level, message, extra={"context": context})
+    try:
+        get_logger().log(level, message, extra={"context": context})
+    except Exception:
+        # Logging itself must never crash the application.
+        try:
+            print(f"LOGGER FAILURE | {message} | {_safe_context(context)}", file=sys.stderr)
+        except Exception:
+            pass
 
 
 def debug(message: str, **context: Any) -> None:
@@ -104,10 +117,23 @@ def exception(message: str, exc: BaseException | None = None, **context: Any) ->
         exc_info = (type(exc), exc, exc.__traceback__)
     else:
         exc_info = sys.exc_info()
-    get_logger().error(message, exc_info=exc_info, extra={"context": payload})
+    try:
+        get_logger().error(message, exc_info=exc_info, extra={"context": payload})
+    except Exception:
+        try:
+            print(f"LOGGER FAILURE | {message} | {_safe_context(payload)}", file=sys.stderr)
+            if exc_info:
+                traceback.print_exception(*exc_info)
+        except Exception:
+            pass
 
 
-def read_log(max_chars: int = 200_000) -> str:
+def calculation_error(operation: str, exc: BaseException, **context: Any) -> None:
+    """Record a parsing/calculation failure explicitly as an ERROR event."""
+    exception("HESAPLAMA HATASI", exc, operation=operation, **context)
+
+
+def read_log(max_chars: int = 300_000) -> str:
     path = log_file()
     if not path.exists():
         return "Log dosyası henüz oluşturulmadı."
@@ -123,33 +149,59 @@ def read_log(max_chars: int = 200_000) -> str:
 def clear_log() -> None:
     path = log_file()
     try:
-        get_logger()
-        for handler in get_logger().handlers:
+        logger = get_logger()
+        for handler in logger.handlers:
             handler.flush()
         path.write_text("", encoding="utf-8")
     except Exception as exc:
-        error("Log temizlenemedi", exception_type=type(exc).__name__, exception=str(exc))
+        exception("Log temizlenemedi", exc, path=str(path))
 
 
 def install_exception_hook() -> None:
-    """Persist otherwise-unhandled GUI exceptions with a full traceback."""
+    """Persist otherwise-unhandled GUI, main-thread and worker-thread errors."""
     def handle_exception(exc_type, exc_value, exc_traceback):
         if exc_type is KeyboardInterrupt:
             sys.__excepthook__(exc_type, exc_value, exc_traceback)
             return
         try:
             get_logger().critical(
-                "Yakalanmamış uygulama hatası",
+                "YAKALANMAMIŞ UYGULAMA HATASI",
                 exc_info=(exc_type, exc_value, exc_traceback),
                 extra={"context": {"exception_type": exc_type.__name__, "exception": str(exc_value)}},
             )
         finally:
             sys.__excepthook__(exc_type, exc_value, exc_traceback)
 
+    def handle_thread_exception(args):
+        try:
+            get_logger().critical(
+                "YAKALANMAMIŞ THREAD HATASI",
+                exc_info=(args.exc_type, args.exc_value, args.exc_traceback),
+                extra={
+                    "context": {
+                        "thread": getattr(args.thread, "name", "unknown"),
+                        "exception_type": args.exc_type.__name__,
+                        "exception": str(args.exc_value),
+                    }
+                },
+            )
+        except Exception:
+            pass
+
     sys.excepthook = handle_exception
+    if hasattr(threading, "excepthook"):
+        threading.excepthook = handle_thread_exception
 
 
-def startup() -> None:
+def startup(version: str = "v0.5.3") -> None:
     get_logger()
     install_exception_hook()
-    info("Uygulama başlatıldı", pid=os.getpid(), executable=sys.executable, version="v0.5.3")
+    info(
+        "Uygulama başlatıldı",
+        pid=os.getpid(),
+        executable=sys.executable,
+        version=version,
+        cwd=os.getcwd(),
+        platform=os.name,
+        log_file=str(log_file()),
+    )
