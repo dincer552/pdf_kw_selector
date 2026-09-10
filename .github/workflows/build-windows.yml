@@ -8,6 +8,10 @@ on:
 permissions:
   contents: write
 
+concurrency:
+  group: pdf-kw-selector-windows-build
+  cancel-in-progress: true
+
 jobs:
   build-windows:
     runs-on: windows-latest
