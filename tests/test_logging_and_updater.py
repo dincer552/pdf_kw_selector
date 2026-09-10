@@ -14,11 +14,11 @@ class _FakeHeaders(dict):
 
 class _FakeResponse:
     status = 200
-    headers = _FakeHeaders({"Content-Type": "application/octet-stream", "Content-Length": "102"})
 
     def __init__(self, payload: bytes):
         self.payload = payload
         self.offset = 0
+        self.headers = _FakeHeaders({"Content-Type": "application/octet-stream", "Content-Length": str(len(payload))})
 
     def __enter__(self):
         return self
@@ -51,8 +51,6 @@ def _reset_logger():
 
 
 def _fake_mkstemp(tmp_path, filename):
-    # tempfile.mkstemp() returns a live OS fd. Return a real fd so production
-    # cleanup (os.close) is exercised instead of being mocked around.
     fd = os.open(os.devnull, os.O_RDWR)
     return fd, str(tmp_path / filename)
 
@@ -87,11 +85,7 @@ def test_download_update_logs_and_verifies_expected_digest(monkeypatch, tmp_path
         return _FakeResponse(payload)
 
     monkeypatch.setattr(updater.urllib.request, "urlopen", fake_urlopen)
-    monkeypatch.setattr(
-        updater.tempfile,
-        "mkstemp",
-        lambda prefix, suffix: _fake_mkstemp(tmp_path, "update.exe"),
-    )
+    monkeypatch.setattr(updater.tempfile, "mkstemp", lambda prefix, suffix: _fake_mkstemp(tmp_path, "update.exe"))
 
     target = updater.download_update(
         "https://api.github.com/repos/dincer552/pdf_kw_selector/releases/assets/123",
@@ -115,11 +109,7 @@ def test_download_update_rejects_sha_mismatch(monkeypatch, tmp_path):
         return _FakeResponse(payload)
 
     monkeypatch.setattr(updater.urllib.request, "urlopen", fake_urlopen)
-    monkeypatch.setattr(
-        updater.tempfile,
-        "mkstemp",
-        lambda prefix, suffix: _fake_mkstemp(tmp_path, "bad.exe"),
-    )
+    monkeypatch.setattr(updater.tempfile, "mkstemp", lambda prefix, suffix: _fake_mkstemp(tmp_path, "bad.exe"))
 
     with pytest.raises(RuntimeError, match="SHA-256"):
         updater.download_update(
