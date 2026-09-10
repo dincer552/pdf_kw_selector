@@ -1,5 +1,4 @@
 import hashlib
-from pathlib import Path
 
 import pytest
 
@@ -39,6 +38,14 @@ class _FakeResponse:
         return chunk
 
 
+def _reset_logger():
+    logger = app_logger.get_logger()
+    for handler in list(logger.handlers):
+        handler.close()
+        logger.removeHandler(handler)
+    app_logger._LOGGER = None
+
+
 def test_calculation_error_writes_traceback(monkeypatch, tmp_path):
     monkeypatch.setenv("LOCALAPPDATA", str(tmp_path))
     app_logger._LOGGER = None
@@ -54,9 +61,7 @@ def test_calculation_error_writes_traceback(monkeypatch, tmp_path):
         assert "test calculation failure" in text
         assert "Traceback" in text
     finally:
-        for handler in app_logger.get_logger().handlers:
-            handler.close()
-        app_logger._LOGGER = None
+        _reset_logger()
 
 
 def test_download_update_logs_and_verifies_expected_digest(monkeypatch, tmp_path):
