@@ -14,7 +14,8 @@ from pypdf import PdfReader
 _UNIT_PATTERNS = [
     ("unit_reference", re.compile(r"\bunit\s+reference\s*[:=]?\s*([A-Z0-9][A-Z0-9_-]{1,})", re.I)),
     ("unit_number", re.compile(r"\bunit\s+number\s*[:=]?\s*([A-Z0-9][A-Z0-9_-]{1,})", re.I)),
-    ("ahu_token", re.compile(r"\b(AHU[_ -]?[A-Z0-9][A-Z0-9_-]{0,})\b", re.I)),
+    # Systemair PDFs can print the unit as AD_AHU_01 / AD-AHU-01 / AHU_A_1.
+    ("ahu_token", re.compile(r"\b((?:[A-Z0-9]+[-_ ])?AHU[_ -]?[A-Z0-9][A-Z0-9_-]{0,})\b", re.I)),
 ]
 
 
@@ -24,14 +25,18 @@ def normalize_equipment_id(value: str | None) -> str:
     value = re.sub(r"\s+", "", value)
     value = value.replace("_", "-")
     value = re.sub(r"-+", "-", value)
-    if value.startswith("AHU-"):
-        tail = value[4:]
+
+    # A prefixed reference such as AD-AHU-01 or AD-AHU-01A is the same
+    # equipment family as AHU-01 / AHU-01A for matching purposes.
+    ahu_match = re.search(r"(?:^|-)AHU(?:-|$)", value)
+    if ahu_match:
+        tail = value[ahu_match.end():].lstrip("-")
         tail = re.sub(r"(?<=-)(0+)(\d+)", r"\2", tail)
-        return "AHU-" + tail
-    if value.startswith("AHU") and not value.startswith("AHU-"):
+        return "AHU-" + tail if tail else "AHU"
+    if value.startswith("AHU"):
         tail = value[3:].lstrip("-")
         tail = re.sub(r"(?<=-)(0+)(\d+)", r"\2", tail)
-        return "AHU-" + tail
+        return "AHU-" + tail if tail else "AHU"
     return re.sub(r"(?<=-)(0+)(\d+)", r"\2", value)
 
 
