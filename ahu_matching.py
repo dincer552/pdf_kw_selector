@@ -11,8 +11,11 @@ from app_logger import debug, exception, info, warning
 from pypdf import PdfReader
 
 _UNIT_PATTERNS = [
+    # These are authoritative: on AirWare/Project PDFs we should take the
+    # value written next to the explicit Unit Reference / Unit Number label.
     ("unit_reference", re.compile(r"\bunit\s+reference\s*[:=]?\s*([A-Z0-9][A-Z0-9_-]{1,})", re.I)),
     ("unit_number", re.compile(r"\bunit\s+number\s*[:=]?\s*([A-Z0-9][A-Z0-9_-]{1,})", re.I)),
+    # Fallbacks for documents where the explicit label is absent.
     ("hks_token", re.compile(r"(?<![A-Z0-9])(HKS(?:[_ -]?\d+))\b", re.I)),
     # Generic AHU fallback: require a separator (AHU-A-1) or a digit immediately
     # after AHU (AHU1). This prevents words such as AHUKit/AHUnit from becoming
@@ -20,6 +23,9 @@ _UNIT_PATTERNS = [
     ("ahu_token", re.compile(r"(?<![A-Z0-9])(AHU(?:[_ -]+[A-Z0-9][A-Z0-9_-]*|\d[A-Z0-9_-]*))\b", re.I)),
     ("ahu_embedded", re.compile(r"(?<![A-Z0-9])(?:[A-Z0-9]+[-_ ]+)(AHU(?:[_ -]+[A-Z0-9][A-Z0-9_-]*|\d[A-Z0-9_-]*))\b", re.I)),
 ]
+
+
+_LABELLED_SOURCES = {"unit_reference", "unit_number"}
 
 
 def _normalize_numeric_zeros(value: str) -> str:
@@ -72,6 +78,7 @@ class AHUDiscovery:
 def discover_equipment_from_text(pages: list[str]) -> AHUDiscovery:
     try:
         occurrences = []
+        labelled_occurrences = []
         seen_page = set()
         for page_no, text in enumerate(pages, start=1):
             for source, pattern in _UNIT_PATTERNS:
@@ -84,10 +91,19 @@ def discover_equipment_from_text(pages: list[str]) -> AHUDiscovery:
                     if key in seen_page:
                         continue
                     seen_page.add(key)
-                    occurrences.append(EquipmentOccurrence(raw, normalized, page_no, source))
+                    item = EquipmentOccurrence(raw, normalized, page_no, source)
+                    occurrences.append(item)
+                    if source in _LABELLED_SOURCES:
+                        labelled_occurrences.append(item)
+
+        # When an explicit Unit Reference/Unit Number exists, trust that field
+        # over incidental text elsewhere (e.g. "AHUKit Count").
+        if labelled_occurrences:
+            occurrences = labelled_occurrences
+
         occurrences.sort(key=lambda x: (x.page, x.normalized, x.source))
         result = AHUDiscovery(tuple(occurrences))
-        info("AHU/equipment keşfi tamamlandı", page_count=len(pages), occurrence_count=len(occurrences), unique_ids=list(result.unique_ids()))
+        info("AHU/equipment keşfi tamamlandı", page_count=len(pages), occurrence_count=len(occurrences), unique_ids=list(result.unique_ids()), labelled=bool(labelled_occurrences))
         if not result.unique_ids():
             warning("PDF'de geçerli AHU/equipment bulunamadı", page_count=len(pages))
         return result
