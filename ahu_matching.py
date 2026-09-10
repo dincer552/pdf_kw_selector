@@ -82,7 +82,7 @@ def discover_equipment_from_text(pages: list[str]) -> AHUDiscovery:
                     if not raw:
                         continue
                     normalized = normalize_equipment_id(raw)
-                    if not normalized.startswith("AHU-") or len(normalized) < 6:
+                    if not normalized.startswith("AHU-") or len(normalized) < 5:
                         continue
                     key = (normalized, page_no)
                     if key in seen_page:
