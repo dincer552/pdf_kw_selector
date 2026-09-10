@@ -5,6 +5,7 @@ import re
 import unicodedata
 from dataclasses import asdict, dataclass
 
+from app_logger import debug, exception, info, warning
 from motor_database import expand_motor_group
 from pdf_kw_selector import normalize_power
 
@@ -218,23 +219,29 @@ def _summary_results(text, page_number):
 
 
 def extract_rated_motor_powers_from_page(text, page_number):
-    cleaned = _clean(text)
-    summary = _summary_results(cleaned, page_number)
-    if summary:
-        return summary
-    matches = []
-    for p in (RATED_POWER_RE, FAN_MOTOR_POWER_RE):
-        matches.extend((m.start(), m) for m in p.finditer(cleaned))
-    results = []
-    seen = set()
-    for _, m in sorted(matches, key=lambda x: x[0]):
-        r = _result_from_match(cleaned, page_number, m)
-        key = (m.start(), r.raw_value, r.quantity, r.component_role)
-        if r.component_role is None or key in seen:
-            continue
-        seen.add(key)
-        results.append(r)
-    return results
+    try:
+        cleaned = _clean(text)
+        summary = _summary_results(cleaned, page_number)
+        if summary:
+            return summary
+        matches = []
+        for p in (RATED_POWER_RE, FAN_MOTOR_POWER_RE):
+            matches.extend((m.start(), m) for m in p.finditer(cleaned))
+        results = []
+        seen = set()
+        for _, m in sorted(matches, key=lambda x: x[0]):
+            r = _result_from_match(cleaned, page_number, m)
+            key = (m.start(), r.raw_value, r.quantity, r.component_role)
+            if r.component_role is None or key in seen:
+                continue
+            seen.add(key)
+            results.append(r)
+        if not results and _has_rated_power(cleaned):
+            warning("PDF1 sayfasında kW alanı bulundu fakat fan yönü/equipment belirlenemedi", page=page_number, source_text=cleaned[:500])
+        return results
+    except Exception as exc:
+        exception("PDF1 sayfa motor gücü hesaplama hatası", exc, page=page_number, source_text=_clean(text)[:1000])
+        raise
 
 
 def extract_rated_motor_power_from_page(text, page_number):
@@ -262,6 +269,7 @@ def _dedupe_motor_results(results):
         family = "Vantilatör" if result.component_type == "Vantilatör" else "Aspiratör" if result.component_type == "Aspiratör" else result.component_role
         key = (_canonical_equipment_id(result.equipment_id), family, result.value_kw, result.quantity)
         if key in seen:
+            debug("PDF1 motor sonucu tekrarlandı ve atlandı", key=key, page=result.page_number)
             continue
         seen.add(key)
         unique.append(result)
@@ -270,10 +278,18 @@ def _dedupe_motor_results(results):
 
 def find_rated_motor_powers_in_pdf(path):
     from pypdf import PdfReader
-    results = []
-    for page_number, page in enumerate(PdfReader(str(path)).pages, 1):
-        results.extend(extract_rated_motor_powers_from_page(page.extract_text() or "", page_number))
-    return _dedupe_motor_results(results)
+    try:
+        info("PDF1 motor taraması başladı", path=str(path))
+        reader = PdfReader(str(path))
+        results = []
+        for page_number, page in enumerate(reader.pages, 1):
+            results.extend(extract_rated_motor_powers_from_page(page.extract_text() or "", page_number))
+        results = _dedupe_motor_results(results)
+        info("PDF1 motor taraması tamamlandı", path=str(path), pages=len(reader.pages), result_count=len(results), results=[x.to_dict() for x in results])
+        return results
+    except Exception as exc:
+        exception("PDF1 motor taraması başarısız", exc, path=str(path))
+        raise
 
 
 def find_rated_motor_power_in_pdf(path):
@@ -282,16 +298,22 @@ def find_rated_motor_power_in_pdf(path):
 
 
 def build_stage1_motor_records(result):
-    if not result.component_type or not result.quantity or not result.equipment_id:
-        return []
-    return expand_motor_group(
-        equipment_id=result.equipment_id,
-        equipment_type="AHU",
-        component_type=result.component_type,
-        group=result.quantity,
-        power_kw=result.value_kw,
-        source_page=result.page_number,
-    )
+    try:
+        if not result.component_type or not result.quantity or not result.equipment_id:
+            warning("PDF1 motor sonucu fiziksel kayda dönüştürülemedi: alan eksik", result=result.to_dict())
+            return []
+        records = expand_motor_group(
+            equipment_id=result.equipment_id,
+            equipment_type="AHU",
+            component_type=result.component_type,
+            group=result.quantity,
+            power_kw=result.value_kw,
+            source_page=result.page_number,
+        )
+        return records
+    except Exception as exc:
+        exception("PDF1 fiziksel motor kaydı oluşturma hatası", exc, result=result.to_dict())
+        raise
 
 
 if __name__ == "__main__":
