@@ -73,16 +73,21 @@ def _scan_single_pdf(path: str | Path, side: str) -> MasterPDFScan:
     info("Master PDF scan başladı", path=str(resolved), side=side)
     pages = _read_pages_once(resolved)
     project = discover_project_from_text(list(pages))
+    if side == "PDF1":
+        # PDF1 equipment identity comes only from the value paired with the
+        # fixed "Unit Reference" label. Do not infer it from AHU/HKS text or
+        # the filename; AHU-KIT and similar incidental text is irrelevant.
+        equipment = discover_equipment_from_text(list(pages), unit_reference_only=True)
+        motors = _scan_pdf1_motors(pages)
+        motor_pages = {result.page_number for result in motors}
+        ebm_pages = tuple(page for page in sorted(motor_pages) if extract_model_brand(pages[page - 1]) == "EBM-Papst")
+        return MasterPDFScan(str(resolved), side, pages, project, equipment, pdf1_motors=motors, pdf1_ebm_pages=ebm_pages)
+
     equipment = discover_equipment_from_text(list(pages))
     if not equipment.unique_ids():
         filename_occurrence = _equipment_from_filename(resolved)
         if filename_occurrence is not None:
             equipment = AHUDiscovery((filename_occurrence,))
-    if side == "PDF1":
-        motors = _scan_pdf1_motors(pages)
-        motor_pages = {result.page_number for result in motors}
-        ebm_pages = tuple(page for page in sorted(motor_pages) if extract_model_brand(pages[page - 1]) == "EBM-Papst")
-        return MasterPDFScan(str(resolved), side, pages, project, equipment, pdf1_motors=motors, pdf1_ebm_pages=ebm_pages)
     motors = _scan_pdf2_motors(pages)
     return MasterPDFScan(str(resolved), side, pages, project, equipment, pdf2_motors=motors)
 
