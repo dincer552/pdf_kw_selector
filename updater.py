@@ -318,11 +318,17 @@ def download_update(download_url: str, *, expected_digest: str | None = None, as
                 raise RuntimeError(
                     f"GitHub güncelleme asset'i beklenenden büyük indirildi: {offset} > {total_expected} bayt."
                 )
-            warning(
-                "Güncelleme asset'i SHA-256 doğrulaması yapılmadan kullanılıyor",
+            actual_digest = _sha256(target).lower()
+            if expected and actual_digest != expected:
+                raise RuntimeError(
+                    "Güncelleme asset'inin SHA-256 doğrulaması başarısız oldu: "
+                    f"beklenen {expected}, alınan {actual_digest}."
+                )
+            info(
+                "Güncelleme asset'i doğrulandı",
                 bytes=offset,
                 expected_bytes=total_expected,
-                missing_bytes=max(total_expected - offset, 0) if total_expected else 0,
+                sha256=actual_digest,
                 asset_id=asset_id,
                 asset_name=asset_name,
             )
