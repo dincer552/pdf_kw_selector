@@ -138,6 +138,38 @@ def test_release_version_is_read_from_release_notes(monkeypatch, tmp_path):
     assert result["available"] is False
 
 
+def test_release_build_sha_controls_same_version_updates(monkeypatch, tmp_path):
+    build_sha = "d305a00"
+    monkeypatch.setattr(
+        updater,
+        "_request_json",
+        lambda url: {
+            "name": "PDF kW Selector - Latest",
+            "body": f"Version: v0.5.4; Build: {build_sha}",
+            "tag_name": "latest",
+            "assets": [
+                {
+                    "name": "PDF_KW_Selector_latest.exe",
+                    "id": 123,
+                    "state": "uploaded",
+                    "digest": "sha256:" + "a" * 64,
+                    "size": 10,
+                    "browser_download_url": "https://github.com/example/latest.exe",
+                }
+            ],
+        },
+    )
+    current = tmp_path / "current.exe"
+    current.write_bytes(b"current")
+
+    same = updater.check_for_update(current, "v0.5.4", build_sha)
+    newer = updater.check_for_update(current, "v0.5.4", "abc1234")
+
+    assert same["available"] is False
+    assert same["build_sha"] == build_sha
+    assert newer["available"] is True
+
+
 def test_unknown_release_version_does_not_offer_hash_only_update(monkeypatch, tmp_path):
     monkeypatch.setattr(
         updater,
