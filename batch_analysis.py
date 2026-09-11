@@ -75,13 +75,11 @@ def _pair_project_groups(left_groups,right_groups):
     for right_key,right_docs in right_groups.items():
         for ahu in _ahu_set(right_docs): right_ahu_index.setdefault(ahu,[]).append(right_key)
     info("PROJECT MATCH DEBUG: PDF2 AHU index",ahu_index=right_ahu_index)
-    # Exact normalized project names.
     for left_key,left_docs in left_groups.items():
         if not left_key or left_key.startswith("__UNRESOLVED__:"): continue
         right=right_groups.get(left_key)
         if right is None: continue
-        match=match_discoveries(left_docs[0].project,right[0].project); info("PROJECT MATCH DEBUG: exact aday",left=left_key,right=left_key,score=match.score,status=match.status,reason=match.reason); candidates.append((match.score,left_key,left_key,match));
-    # Unique exact AHU overlap catches renamed project headers without fuzzy N*M.
+        match=match_discoveries(left_docs[0].project,right[0].project); info("PROJECT MATCH DEBUG: exact aday",left=left_key,right=left_key,score=match.score,status=match.status,reason=match.reason); candidates.append((match.score,left_key,left_key,match))
     for left_key,left_docs in left_groups.items():
         if left_key.startswith("__UNRESOLVED__:"): continue
         matches=set()
@@ -90,7 +88,6 @@ def _pair_project_groups(left_groups,right_groups):
         info("PROJECT MATCH DEBUG: AHU overlap adayı",left=left_key,left_ahus=sorted(_ahu_set(left_docs)),candidate_right_groups=sorted(matches),overlap={k:sorted(_ahu_set(left_docs)&_ahu_set(right_groups[k])) for k in matches})
         if len(matches)!=1: continue
         right_key=next(iter(matches)); match=match_discoveries(left_docs[0].project,right_groups[right_key][0].project); info("PROJECT MATCH DEBUG: AHU ile proje çifti",left=left_key,right=right_key,score=match.score,status=match.status,reason=match.reason); candidates.append((match.score,left_key,right_key,match))
-    # Fuzzy fallback only for genuinely unresolved named groups.
     for left_key,left_docs in left_groups.items():
         if left_key.startswith("__UNRESOLVED__:") or not left_key: continue
         for right_key,right_docs in right_groups.items():
@@ -143,7 +140,7 @@ def analyze_batch(pdf1_paths,pdf2_paths):
         project_matches.append(pm);left_equipment=[];right_equipment=[]
         for d in lg:left_equipment.extend(scan_pdf(d.path,d.side).equipment.equipment_ids)
         for d in rg:right_equipment.extend(scan_pdf(d.path,d.side).equipment.equipment_ids)
-        info("AHU MATCH DEBUG: proje grubu",project=pm.left_name,pdf1_files=[d.path for d in lg],pdf2_files=[d.path for d in rg],pdf1_ahus=sorted(set(left_equipment)),pdf2_ahus=sorted(set(right_equipment)))
+        info("AHU MATCH DEBUG: proje grubu",project=pm.left_name,pdf1_files=[d.path for d in lg],pdf2_files=[d.path for d in rg],pdf1_ahus=sorted({item.normalized for item in left_equipment}),pdf2_ahus=sorted({item.normalized for item in right_equipment}))
         for am in match_ahu_lists(left_equipment,right_equipment):
             lf=_files_for_ahu(lg,am.left_normalized);rf=_files_for_ahu(rg,am.right_normalized); info("AHU MATCH DEBUG: aday",project=pm.left_name,left=am.left_normalized,right=am.right_normalized,score=am.score,status=am.status,reason=getattr(am,"reason",None),pdf1_files=list(lf),pdf2_files=list(rf)); ahu_batches.append(BatchAHU(pm.left_name,am,lf,rf))
             if am.status not in {"EXACT","NORMALIZED_MATCH","USER_APPROVED"}:continue
