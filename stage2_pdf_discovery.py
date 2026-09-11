@@ -20,7 +20,6 @@ KW_SLASH_RE = re.compile(r"(?P<value>\d+(?:[.,]\d+)?)\s*kW\s*/", re.I)
 SUMMARY_GROUPED_KW_RE = re.compile(r"(?P<value>\d+(?:[.,]\d+)?)\s*\[?\s*kW\s*\]?\s*\(\s*(?P<quantity>\d+\s*[x×]\s*\d+)\s*\)", re.I)
 SUMMARY_FAN_MOTOR_RE = re.compile(r"fan\s+motor\s+power\s*/?\s*nominal\s+rpm\s*(?P<value>\d+(?:[.,]\d+)?)\s*\[?\s*kW\s*\]?\s*\(\s*(?P<quantity>\d+\s*[x×]\s*\d+)\s*\)", re.I)
 SUMMARY_PAIR_RE = re.compile(r"fan\s+motor\s+power\s*/?\s*nominal\s+rpm\s*(?P<supply_value>\d+(?:[.,]\d+)?)\s*\[?\s*kW\s*\]?\s*\(\s*(?P<supply_quantity>\d+\s*[x×]\s*\d+)\s*\).*?(?P<return_value>\d+(?:[.,]\d+)?)\s*\[?\s*kW\s*\]?\s*\(\s*(?P<return_quantity>\d+\s*[x×]\s*\d+)\s*\)", re.I)
-# Electrical drawings can use KS-B1.02 / KS_B1.02 as well as HKS-12 / AHU-01.
 EQUIPMENT_RE = re.compile(r"\bVE\.A\.D\.\d+\b|\bAHU[_-][A-Z0-9]+(?:[_-][A-Z0-9]+)+\b|\bAHU[-_ ]?[A-Z0-9][A-Z0-9_.-]*\b|\bHKS[-_ ]?\d+\b|\bKS[-_ ]?[A-Z]?\d+(?:\.\d+)?\b|\bSS[-_ ]?[A-Z]?\d+(?:\.\d+)?\b", re.I)
 UNIT_NUMBER_RE = re.compile(r"\bunit\s+number\s*[:=]?\s*(?P<value>[A-Z0-9][A-Z0-9_.-]*)", re.I)
 UNIT_NUMBER_LABEL_RE = re.compile(r"^unit\s+number\s*[:=]?\s*$", re.I)
@@ -40,19 +39,17 @@ class PDF2MotorResult:
 def _clean(text: str) -> str: return re.sub(r"\s+", " ", text).strip()
 
 def _unit_number_from_lines(text: str) -> str | None:
-    """Extract Unit Number even when PDF text order is visually scrambled.
+    """Extract Unit Number from scrambled title-page text without taking labels.
 
-    AIRWARE electrical title pages may extract the values first and the field
-    labels afterwards.  In the supplied PW_01/PW_02 drawings the sequence is
-    ``Teleferik Ahu, order no, PW_01, -, -`` followed by the labels.  When the
-    Unit Number label has no inline value, use the nearest preceding plausible
-    unit token rather than a following motor-power value.
+    Some exported drawings place the visible values before their field labels.
+    Prefer a preceding compact identifier containing a digit; this prevents
+    words such as ``SUPPLY`` from being mistaken for the Unit Number.
     """
     lines = [line.strip() for line in (text or "").splitlines() if line.strip()]
     for index, line in enumerate(lines):
         if not UNIT_NUMBER_LABEL_RE.fullmatch(line):
             continue
-        for look in range(index - 1, max(-1, index - 8), -1):
+        for look in range(index - 1, max(-1, index - 10), -1):
             value = lines[look].strip(" :=\t")
             if not value or value in {"-", "–", "—"}:
                 continue
@@ -60,19 +57,19 @@ def _unit_number_from_lines(text: str) -> str | None:
                 continue
             if re.fullmatch(r"(?:unit|number|order|project|proje|name)\b.*", value, re.I):
                 continue
-            # Unit numbers are compact identifiers such as PW_01, HKS-12,
-            # KS-B1.02, SS-01.01, AHU-01.  Do not accept long prose here.
-            if len(value) <= 40 and re.fullmatch(r"[A-Z0-9][A-Z0-9_.-]*", value, re.I):
-                return normalize_equipment_id(value)
+            if len(value) <= 40 and re.fullmatch(r"[A-Z0-9][A-Z0-9_.-]*", value, re.I) and re.search(r"\d", value):
+                result = normalize_equipment_id(value)
+                info("PDF2 Unit Number alanından ekipman bulundu", raw=value, equipment_id=result)
+                return result
     return None
 
 def _equipment_id(text: str) -> str | None:
     cleaned = _clean(text)
-    # The Unit Number field is authoritative for PDF2. Support the normal
-    # inline form first, then the visually scrambled/multiline form.
     unit_match = UNIT_NUMBER_RE.search(cleaned)
     if unit_match:
-        return normalize_equipment_id(unit_match.group("value"))
+        value = unit_match.group("value")
+        if re.search(r"\d", value):
+            return normalize_equipment_id(value)
     unit_from_lines = _unit_number_from_lines(text)
     if unit_from_lines:
         return unit_from_lines
@@ -81,7 +78,7 @@ def _equipment_id(text: str) -> str | None:
         if re.fullmatch(r"unit\s+number\s*[:=]?\s*", line, re.I):
             for look in range(index + 1, min(len(lines), index + 5)):
                 value = lines[look].strip(" :=\t")
-                if value:
+                if value and re.search(r"\d", value):
                     return normalize_equipment_id(value.split()[0].strip(".,;:()[]{}"))
     match = EQUIPMENT_RE.search(text or "")
     if not match: return None
