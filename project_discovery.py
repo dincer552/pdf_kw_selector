@@ -6,7 +6,7 @@ import re
 import unicodedata
 from pathlib import Path
 from pypdf import PdfReader
-from app_logger import debug, exception, info, warning
+from app_logger import exception
 
 _GENERIC_TOKENS = {"proje", "project", "name", "projectname", "prj", "projectno", "order number", "unit number", "unit reference", "revision date", "creation date", "revision no", "date"}
 _LABEL_RE = re.compile(r"^\s*(?:proje\s*name|project\s*name)\s*[:=]?\s*(.*?)\s*$", re.I)
@@ -28,7 +28,11 @@ _GENERIC_FAN_PROJECT_SET = {"fan air volume", "supply fan air volume", "return f
 
 @dataclass(frozen=True)
 class ProjectCandidate:
-    value: str; normalized: str; source: str; page: int; confidence: str
+    value: str
+    normalized: str
+    source: str
+    page: int
+    confidence: str
     def to_dict(self) -> dict: return asdict(self)
 
 @dataclass(frozen=True)
@@ -40,11 +44,14 @@ class ProjectDiscovery:
     confidence: str
     candidates: tuple[ProjectCandidate, ...]
     @property
-    def source(self) -> str | None: return self.project_source
+    def source(self) -> str | None:
+        return "project_field" if self.project_source == "project_name_field" else self.project_source
     @property
     def page(self) -> int | None: return self.project_page
     def to_dict(self) -> dict:
-        data = asdict(self); data["candidates"] = [candidate.to_dict() for candidate in self.candidates]; return data
+        data = asdict(self)
+        data["candidates"] = [candidate.to_dict() for candidate in self.candidates]
+        return data
 
 def normalize_project_name(value: str) -> str:
     value = unicodedata.normalize("NFKC", value or "").replace("İ", "I").replace("ı", "i").replace("–", "-").replace("—", "-").replace("−", "-").casefold()
@@ -52,6 +59,12 @@ def normalize_project_name(value: str) -> str:
     value = re.sub(r"[^a-z0-9]+", " ", value)
     value = re.sub(r"\s+", " ", value).strip()
     return re.sub(r"^(?:project|proje)\s+", "", value)
+
+def _raw_normalized(value: str) -> str:
+    value = unicodedata.normalize("NFKC", value or "").replace("İ", "I").replace("ı", "i").replace("–", "-").replace("—", "-").replace("−", "-").casefold()
+    value = "".join(char for char in unicodedata.normalize("NFKD", value) if not unicodedata.combining(char))
+    value = re.sub(r"[^a-z0-9]+", " ", value)
+    return re.sub(r"\s+", " ", value).strip()
 
 def _clean_value(value: str) -> str: return re.sub(r"\s+", " ", value or "").strip(" :-\t")
 def _is_field_label(value: str) -> bool: return bool(_FIELD_LABEL_RE.match(_clean_value(value)))
@@ -67,9 +80,8 @@ def _strip_header_metadata(value: str) -> str: return _clean_value(_TRAILING_HEA
 def _candidate(value: str, source: str, page: int, confidence: str) -> ProjectCandidate | None:
     value = _strip_header_metadata(value)
     if not _looks_like_project_name(value): return None
-    normalized = normalize_project_name(value)
+    normalized = _raw_normalized(value) if source == "project_header" else normalize_project_name(value)
     if not normalized or normalized in _GENERIC_TOKENS: return None
-    if source == "project_name_field": source = "project_field"
     return ProjectCandidate(value, normalized, source, page, confidence)
 def _is_known_field_value(value: str) -> bool:
     value = _clean_value(value)
@@ -103,11 +115,12 @@ def discover_project_from_text(pages: list[str]) -> ProjectDiscovery:
                 continue
             item = _candidate(line, "project_header", page_number, "MEDIUM")
             if item: candidates.append(item)
-        unique: list[ProjectCandidate] = []; seen: set[tuple[str, str]] = set()
+        unique: list[ProjectCandidate] = []
+        seen: set[tuple[str, str]] = set()
         for item in candidates:
             key = (item.normalized, item.source)
             if key not in seen: seen.add(key); unique.append(item)
-        explicit = [c for c in unique if c.source == "project_field"]
+        explicit = [c for c in unique if c.source == "project_name_field"]
         selected = explicit[0] if explicit else next((c for c in unique if c.source == "project_header"), None)
         return ProjectDiscovery(selected.value if selected else None, selected.normalized if selected else None, selected.source if selected else None, selected.page if selected else None, selected.confidence if selected else "REVIEW", tuple(unique))
     except Exception as exc:
@@ -115,6 +128,7 @@ def discover_project_from_text(pages: list[str]) -> ProjectDiscovery:
 
 def discover_project(path: str | Path) -> ProjectDiscovery:
     try:
-        reader = PdfReader(str(path)); return discover_project_from_text([(page.extract_text() or "") for page in reader.pages])
+        reader = PdfReader(str(path))
+        return discover_project_from_text([(page.extract_text() or "") for page in reader.pages])
     except Exception as exc:
         exception("PDF proje keşfi başarısız", exc, path=str(path)); raise
