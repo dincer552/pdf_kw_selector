@@ -63,6 +63,21 @@ def test_hks_unit_is_discovered_and_matches_underscore_variant():
     assert result.score == 1.0
 
 
+def test_ks_unit_is_discovered_and_matches_underscore_variant():
+    left = discover_equipment_from_text(["KS-00.02"])
+    right = discover_equipment_from_text(["KS_00.02"])
+    assert left.unique_ids() == ("KS-00.02",)
+    assert right.unique_ids() == ("KS-00.02",)
+    result = match_ahu_ids("KS-00.02", "KS_00.02")
+    assert result.status == "EXACT"
+    assert result.score == 1.0
+
+
+def test_ks_unit_reference_is_supported():
+    result = discover_equipment_from_text(["Unit Number KS_01.03"])
+    assert result.unique_ids() == ("KS-01.03",)
+
+
 def test_unit_reference_value_has_priority_over_ahukit_text():
     result = discover_equipment_from_text([
         "Project Ekol Sada Hastanesi Unit Reference HKS-12",
