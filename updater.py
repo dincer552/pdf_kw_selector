@@ -254,6 +254,21 @@ def download_update(download_url: str, *, expected_digest: str | None = None, as
                 info("EXE parça indirildi", attempt=attempt, downloaded_bytes=actual_size, expected_bytes=total_expected, status=status)
             if progress_callback:
                 progress_callback("download", offset, total_expected, offset / max(time.monotonic() - started_at, 0.001))
+            if total_expected is not None and offset < total_expected:
+                warning(
+                    "GitHub güncelleme asset'i eksik indirildi; devam edilecek",
+                    attempt=attempt,
+                    bytes=offset,
+                    expected_bytes=total_expected,
+                    missing_bytes=total_expected - offset,
+                    asset_id=asset_id,
+                    asset_name=asset_name,
+                )
+                continue
+            if total_expected is not None and offset > total_expected:
+                raise RuntimeError(
+                    f"GitHub güncelleme asset'i beklenenden büyük indirildi: {offset} > {total_expected} bayt."
+                )
             warning(
                 "Güncelleme asset'i SHA-256 doğrulaması yapılmadan kullanılıyor",
                 bytes=offset,
@@ -265,9 +280,10 @@ def download_update(download_url: str, *, expected_digest: str | None = None, as
             if suffix == ".zip":
                 return _extract_verified_zip(target, asset_name)
             return target
-        if target.exists() and target.stat().st_size > 0:
-            warning("Güncelleme asset'i mevcut boyuttan kısa olsa da kuruluma gönderiliyor", bytes=target.stat().st_size, expected_bytes=total_expected, asset_id=asset_id, asset_name=asset_name)
-            return _extract_verified_zip(target, asset_name) if suffix == ".zip" else target
+        if total_expected is not None and offset < total_expected:
+            raise RuntimeError(
+                f"GitHub güncelleme asset'i tamamlanamadı: {offset}/{total_expected} bayt indirildi."
+            )
         raise RuntimeError("GitHub güncelleme asset'i indirilemedi.")
     except Exception as exc:
         target.unlink(missing_ok=True)

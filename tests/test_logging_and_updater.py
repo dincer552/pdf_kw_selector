@@ -37,6 +37,12 @@ class _FakeResponse:
         return chunk
 
 
+class _TruncatedResponse(_FakeResponse):
+    def __init__(self, payload: bytes, advertised_size: int):
+        super().__init__(payload)
+        self.headers["Content-Length"] = str(advertised_size)
+
+
 def _reset_logger():
     logger = app_logger.get_logger()
     for handler in list(logger.handlers):
@@ -115,6 +121,32 @@ def test_download_update_accepts_asset_without_sha_validation(monkeypatch, tmp_p
         asset_id=123,
     )
     try:
+        assert target.read_bytes() == payload
+    finally:
+        target.unlink(missing_ok=True)
+
+
+def test_download_update_retries_until_expected_size(monkeypatch, tmp_path):
+    payload = b"MZ" + b"complete-exe-payload"
+    calls = {"count": 0}
+
+    def fake_urlopen(request, timeout=0):
+        calls["count"] += 1
+        if calls["count"] == 1:
+            return _TruncatedResponse(payload[:-4], len(payload))
+        return _FakeResponse(payload)
+
+    monkeypatch.setattr(updater.urllib.request, "urlopen", fake_urlopen)
+    monkeypatch.setattr(updater.tempfile, "mkstemp", lambda prefix, suffix: _fake_mkstemp(tmp_path, "retry.exe"))
+
+    target = updater.download_update(
+        "https://github.com/example/releases/download/latest/update.exe",
+        expected_size=len(payload),
+        asset_id=123,
+        asset_name="PDF_KW_Selector_latest.exe",
+    )
+    try:
+        assert calls["count"] == 2
         assert target.read_bytes() == payload
     finally:
         target.unlink(missing_ok=True)
