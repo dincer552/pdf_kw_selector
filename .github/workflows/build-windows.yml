@@ -31,7 +31,7 @@ jobs:
           pip install -r requirements.txt
           pip install pyinstaller
       - name: Build EXE
-        run: pyinstaller --noconfirm --clean --onefile --windowed --additional-hooks-dir=. --name PDF_KW_Selector_v0.5.4 desktop_grouped_app.py
+        run: pyinstaller --noconfirm --clean --onefile --windowed --additional-hooks-dir=. --collect-all pypdf --name PDF_KW_Selector_v0.5.4 desktop_grouped_app.py
       - name: Prepare release assets
         if: github.ref == 'refs/heads/main'
         shell: pwsh

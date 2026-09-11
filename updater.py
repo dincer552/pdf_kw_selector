@@ -21,6 +21,7 @@ from app_logger import calculation_error, debug, error, exception, info, warning
 REPO = "dincer552/pdf_kw_selector"
 RELEASE_API = f"https://api.github.com/repos/{REPO}/releases/tags/latest"
 ASSET_NAME = "PDF_KW_Selector_latest.exe"
+CURRENT_VERSION_RE = re.compile(r"^v?(\d+(?:\.\d+)+)$", re.IGNORECASE)
 IMMUTABLE_ASSET_RE = re.compile(r"^PDF_KW_Selector_[0-9a-f]{40}\.exe$", re.IGNORECASE)
 IMMUTABLE_ZIP_RE = re.compile(r"^PDF_KW_Selector_[0-9a-f]{40}\.zip$", re.IGNORECASE)
 ProgressCallback = Callable[[str, int, int | None, float], None]
@@ -99,14 +100,24 @@ def _select_asset(assets: list[dict]) -> dict:
     raise RuntimeError("GitHub release içinde güncelleme EXE/ZIP'si bulunamadı.")
 
 
-def check_for_update(current_exe: Path | None = None) -> dict:
+def _version_tuple(version: str | None) -> tuple[int, ...]:
+    match = CURRENT_VERSION_RE.fullmatch(str(version or "").strip())
+    return tuple(int(part) for part in match.group(1).split(".")) if match else ()
+
+
+def check_for_update(current_exe: Path | None = None, current_version: str | None = None) -> dict:
     release = _request_json(RELEASE_API)
     asset = _select_asset(release.get("assets") or [])
     remote_digest = (asset.get("digest") or "").replace("sha256:", "").lower()
     current = Path(current_exe or sys.executable).resolve()
     current_digest = _sha256(current).lower() if current.exists() else ""
     is_zip = str(asset.get("name", "")).lower().endswith(".zip")
-    same = bool(remote_digest) and not is_zip and current_digest == remote_digest
+    release_version = release.get("name") or release.get("tag_name") or "latest"
+    version_known = bool(_version_tuple(current_version)) and bool(_version_tuple(release_version))
+    same = (
+        (version_known and _version_tuple(current_version) >= _version_tuple(release_version))
+        or (bool(remote_digest) and not is_zip and current_digest == remote_digest)
+    )
     # The API asset endpoint redirects to a signed CDN URL.  In some network
     # setups that redirect is served as a truncated response, especially when
     # a Range request is used to resume the download.  The browser download
@@ -115,7 +126,7 @@ def check_for_update(current_exe: Path | None = None) -> dict:
     if not download_url:
         raise RuntimeError("Güncelleme EXE indirme adresi GitHub'dan alınamadı.")
     info("Güncelleme kontrolü tamamlandı", release=release.get("tag_name"), asset=asset.get("name"), asset_id=asset.get("id"), asset_size=asset.get("size"), current_exe=str(current), current_sha256=current_digest, remote_sha256=remote_digest, available=not same, download_endpoint=download_url, browser_download_url=asset.get("browser_download_url"))
-    return {"version": release.get("name") or release.get("tag_name") or "latest", "published_at": release.get("published_at"), "download_url": download_url, "browser_download_url": asset.get("browser_download_url"), "asset_api_url": asset.get("url"), "asset_id": asset.get("id"), "asset_name": asset.get("name"), "asset_size": asset.get("size"), "digest": remote_digest, "current_digest": current_digest, "available": not same}
+    return {"version": release_version, "published_at": release.get("published_at"), "download_url": download_url, "browser_download_url": asset.get("browser_download_url"), "asset_api_url": asset.get("url"), "asset_id": asset.get("id"), "asset_name": asset.get("name"), "asset_size": asset.get("size"), "digest": remote_digest, "current_digest": current_digest, "available": not same}
 
 
 def _cache_busted(url: str) -> str:

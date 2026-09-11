@@ -105,7 +105,7 @@ class App(tk.Tk):
         self._analysis_running=False; exception("GUI sonuç tablosu oluşturma hatası",exc); messagebox.showerror("Sonuç gösterme hatası",f"{type(exc).__name__}: {exc}"); self.status.configure(text="Analiz başarısız"); self.refresh_logs()
 
     def check_updates(self):
-        try: info("Güncelleme butonuna basıldı",current_exe=str(Path(sys.executable).resolve()),version=VERSION); info_data=check_for_update(Path(sys.executable))
+        try: info("Güncelleme butonuna basıldı",current_exe=str(Path(sys.executable).resolve()),version=VERSION); info_data=check_for_update(Path(sys.executable), VERSION)
         except Exception as exc: exception("GUI güncelleme kontrolü hatası",exc); messagebox.showerror("Güncelleme kontrolü",f"Güncelleme kontrol edilemedi:\n{type(exc).__name__}: {exc}\n\nDetay HATA / İŞLEM LOGLARI sekmesinde."); self.refresh_logs(); return
         if not info_data["available"]: info("Program güncel",version=VERSION,current_sha256=info_data.get("current_digest")); messagebox.showinfo("Güncelleme",f"Programınız güncel.\nSürüm: {VERSION}"); self.refresh_logs(); return
         info("Yeni sürüm bulundu",version=info_data["version"],remote_sha256=info_data.get("digest"),current_sha256=info_data.get("current_digest"),asset_id=info_data.get("asset_id"),asset_size=info_data.get("asset_size"),asset_name=info_data.get("asset_name"),download_url=info_data.get("download_url"),browser_download_url=info_data.get("browser_download_url")); answer=messagebox.askyesno("Yeni sürüm bulundu",f"Yeni sürüm mevcut: {info_data['version']}\nMevcut sürüm: {VERSION}\n\nŞimdi güncellensin mi?")

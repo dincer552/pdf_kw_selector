@@ -79,3 +79,31 @@ def test_check_for_update_prefers_direct_browser_download_url(monkeypatch, tmp_p
 
     assert result["download_url"] == browser_url
     assert result["asset_api_url"] == api_url
+
+
+def test_check_for_update_does_not_downgrade_newer_local_version(monkeypatch, tmp_path):
+    monkeypatch.setattr(
+        updater,
+        "_request_json",
+        lambda url: {
+            "name": "v0.5.3",
+            "tag_name": "latest",
+            "assets": [
+                {
+                    "name": "PDF_KW_Selector_latest.exe",
+                    "id": 123,
+                    "state": "uploaded",
+                    "digest": "sha256:" + "a" * 64,
+                    "size": 10,
+                    "url": "https://api.github.com/assets/123",
+                    "browser_download_url": "https://github.com/example/latest.exe",
+                }
+            ],
+        },
+    )
+    current = tmp_path / "current.exe"
+    current.write_bytes(b"current")
+
+    result = updater.check_for_update(current, "v0.5.4")
+
+    assert result["available"] is False
