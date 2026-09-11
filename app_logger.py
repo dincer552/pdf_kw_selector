@@ -223,7 +223,7 @@ def install_exception_hook() -> None:
         threading.excepthook = handle_thread_exception
 
 
-def startup(version: str = "v0.5.3") -> None:
+def startup(version: str = "v0.5.4") -> None:
     get_logger()
     install_exception_hook()
     info(

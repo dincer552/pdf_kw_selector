@@ -31,14 +31,14 @@ jobs:
           pip install -r requirements.txt
           pip install pyinstaller
       - name: Build EXE
-        run: pyinstaller --noconfirm --clean --onefile --windowed --additional-hooks-dir=. --name PDF_KW_Selector_v0.5.3 desktop_grouped_app.py
+        run: pyinstaller --noconfirm --clean --onefile --windowed --additional-hooks-dir=. --name PDF_KW_Selector_v0.5.4 desktop_grouped_app.py
       - name: Prepare release assets
         if: github.ref == 'refs/heads/main'
         shell: pwsh
         run: |
-          Copy-Item dist/PDF_KW_Selector_v0.5.3.exe dist/PDF_KW_Selector_latest.exe
-          Copy-Item dist/PDF_KW_Selector_v0.5.3.exe "dist/PDF_KW_Selector_$env:GITHUB_SHA.exe"
-          Compress-Archive -Path dist/PDF_KW_Selector_v0.5.3.exe -DestinationPath "dist/PDF_KW_Selector_$env:GITHUB_SHA.zip" -CompressionLevel Optimal
+          Copy-Item dist/PDF_KW_Selector_v0.5.4.exe dist/PDF_KW_Selector_latest.exe
+          Copy-Item dist/PDF_KW_Selector_v0.5.4.exe "dist/PDF_KW_Selector_$env:GITHUB_SHA.exe"
+          Compress-Archive -Path dist/PDF_KW_Selector_v0.5.4.exe -DestinationPath "dist/PDF_KW_Selector_$env:GITHUB_SHA.zip" -CompressionLevel Optimal
       - name: Publish latest release
         if: github.ref == 'refs/heads/main'
         env:
@@ -55,5 +55,5 @@ jobs:
           fi
       - uses: actions/upload-artifact@v4
         with:
-          name: PDF_KW_Selector_v0.5.3_Windows
-          path: dist/PDF_KW_Selector_v0.5.3.exe
+          name: PDF_KW_Selector_v0.5.4_Windows
+          path: dist/PDF_KW_Selector_v0.5.4.exe

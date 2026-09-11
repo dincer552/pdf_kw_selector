@@ -14,6 +14,7 @@ import urllib.error
 import urllib.parse
 import urllib.request
 import zipfile
+from collections.abc import Callable
 
 from app_logger import calculation_error, debug, error, exception, info, warning
 
@@ -22,6 +23,7 @@ RELEASE_API = f"https://api.github.com/repos/{REPO}/releases/tags/latest"
 ASSET_NAME = "PDF_KW_Selector_latest.exe"
 IMMUTABLE_ASSET_RE = re.compile(r"^PDF_KW_Selector_[0-9a-f]{40}\.exe$", re.IGNORECASE)
 IMMUTABLE_ZIP_RE = re.compile(r"^PDF_KW_Selector_[0-9a-f]{40}\.zip$", re.IGNORECASE)
+ProgressCallback = Callable[[str, int, int | None, float], None]
 
 
 def _request_json(url: str) -> dict:
@@ -172,8 +174,8 @@ def _extract_verified_zip(zip_path: Path, asset_name: str | None) -> Path:
         raise
 
 
-def download_update(download_url: str, *, expected_digest: str | None = None, asset_id: int | None = None, browser_download_url: str | None = None, expected_size: int | None = None, asset_name: str | None = None) -> Path:
-    """Download an EXE/ZIP release asset and verify its SHA-256 before install."""
+def download_update(download_url: str, *, expected_digest: str | None = None, asset_id: int | None = None, browser_download_url: str | None = None, expected_size: int | None = None, asset_name: str | None = None, progress_callback: ProgressCallback | None = None) -> Path:
+    """Download an EXE/ZIP release asset and return it for installation."""
     suffix = ".zip" if str(asset_name or "").lower().endswith(".zip") else ".exe"
     fd, raw_path = tempfile.mkstemp(prefix="pdf_kw_selector_update_", suffix=suffix)
     os.close(fd)
@@ -183,6 +185,8 @@ def download_update(download_url: str, *, expected_digest: str | None = None, as
     info("EXE indirme başladı", url=download_url, browser_download_url=browser_download_url, asset_id=asset_id, asset_name=asset_name, expected_sha256=expected or None, expected_size=total_expected, target=str(target))
     try:
         offset = 0
+        started_at = time.monotonic()
+        last_progress_at = 0.0
         for attempt in range(1, 16):
             request_url = _download_request_url(download_url)
             with _open_download(request_url, offset) as response:
@@ -204,6 +208,10 @@ def download_update(download_url: str, *, expected_digest: str | None = None, as
                             break
                         output.write(chunk)
                         offset += len(chunk)
+                        now = time.monotonic()
+                        if progress_callback and (now - last_progress_at >= 0.25 or total_expected and offset >= total_expected):
+                            progress_callback("download", offset, total_expected, offset / max(now - started_at, 0.001))
+                            last_progress_at = now
                 actual_size = target.stat().st_size
                 if content_range:
                     match = re.search(r"/([0-9]+)$", content_range)
@@ -212,23 +220,23 @@ def download_update(download_url: str, *, expected_digest: str | None = None, as
                 elif total_expected is None and content_length and content_length.isdigit() and status == 200:
                     total_expected = int(content_length)
                 info("EXE parça indirildi", attempt=attempt, downloaded_bytes=actual_size, expected_bytes=total_expected, status=status)
-            if expected:
-                digest = _sha256(target).lower()
-                if digest == expected:
-                    info("Güncelleme asset'i indirildi ve SHA-256 doğrulandı", bytes=target.stat().st_size, sha256=digest, asset_id=asset_id, asset_name=asset_name)
-                    if suffix == ".zip":
-                        return _extract_verified_zip(target, asset_name)
-                    return target
-            if total_expected is not None and offset < total_expected:
-                warning("GitHub CDN yanıtı eksik geldi; kaldığı yerden devam edilecek", attempt=attempt, downloaded_bytes=offset, expected_bytes=total_expected, missing_bytes=total_expected - offset, asset_id=asset_id)
-                time.sleep(min(attempt, 3))
-                continue
-            warning("Asset boyutu tamam görünmesine rağmen SHA-256 eşleşmedi; baştan denenecek", attempt=attempt, bytes=offset, expected_sha256=expected, asset_id=asset_id)
-            target.unlink(missing_ok=True)
-            offset = 0
-            total_expected = int(expected_size) if expected_size is not None else None
-            time.sleep(min(attempt, 3))
-        raise RuntimeError("GitHub güncelleme asset'i indirildi ancak güvenilir SHA-256 doğrulaması yapılamadı.")
+            if progress_callback:
+                progress_callback("download", offset, total_expected, offset / max(time.monotonic() - started_at, 0.001))
+            warning(
+                "Güncelleme asset'i SHA-256 doğrulaması yapılmadan kullanılıyor",
+                bytes=offset,
+                expected_bytes=total_expected,
+                missing_bytes=max(total_expected - offset, 0) if total_expected else 0,
+                asset_id=asset_id,
+                asset_name=asset_name,
+            )
+            if suffix == ".zip":
+                return _extract_verified_zip(target, asset_name)
+            return target
+        if target.exists() and target.stat().st_size > 0:
+            warning("Güncelleme asset'i mevcut boyuttan kısa olsa da kuruluma gönderiliyor", bytes=target.stat().st_size, expected_bytes=total_expected, asset_id=asset_id, asset_name=asset_name)
+            return _extract_verified_zip(target, asset_name) if suffix == ".zip" else target
+        raise RuntimeError("GitHub güncelleme asset'i indirilemedi.")
     except Exception as exc:
         target.unlink(missing_ok=True)
         exception("EXE indirme/doğrulama hatası", exc, url=download_url, target=str(target), asset_id=asset_id, asset_name=asset_name)

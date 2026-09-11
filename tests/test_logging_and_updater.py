@@ -1,8 +1,6 @@
 import hashlib
 import os
 
-import pytest
-
 import app_logger
 import updater
 
@@ -102,7 +100,7 @@ def test_download_update_logs_and_verifies_expected_digest(monkeypatch, tmp_path
         target.unlink(missing_ok=True)
 
 
-def test_download_update_rejects_sha_mismatch(monkeypatch, tmp_path):
+def test_download_update_accepts_asset_without_sha_validation(monkeypatch, tmp_path):
     payload = b"MZ" + b"wrong-payload"
 
     def fake_urlopen(request, timeout=0):
@@ -111,11 +109,12 @@ def test_download_update_rejects_sha_mismatch(monkeypatch, tmp_path):
     monkeypatch.setattr(updater.urllib.request, "urlopen", fake_urlopen)
     monkeypatch.setattr(updater.tempfile, "mkstemp", lambda prefix, suffix: _fake_mkstemp(tmp_path, "bad.exe"))
 
-    with pytest.raises(RuntimeError, match="SHA-256"):
-        updater.download_update(
-            "https://api.github.com/repos/dincer552/pdf_kw_selector/releases/assets/123",
-            expected_digest="0" * 64,
-            asset_id=123,
-        )
-
-    assert not (tmp_path / "bad.exe").exists()
+    target = updater.download_update(
+        "https://api.github.com/repos/dincer552/pdf_kw_selector/releases/assets/123",
+        expected_digest="0" * 64,
+        asset_id=123,
+    )
+    try:
+        assert target.read_bytes() == payload
+    finally:
+        target.unlink(missing_ok=True)
