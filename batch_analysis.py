@@ -4,14 +4,13 @@ from __future__ import annotations
 from dataclasses import asdict, dataclass
 from pathlib import Path
 
-from ahu_matching import AHUMatch, discover_equipment, match_ahu_lists, normalize_equipment_id
+from ahu_matching import AHUMatch, match_ahu_lists, normalize_equipment_id
 from app_logger import debug, exception, info, warning
 from motor_compare import MotorComparison, compare_motor_records
 from motor_database import build_comparison_key
-from project_discovery import ProjectDiscovery, discover_project, normalize_project_name
+from pdf_master_scan import build_physical_motor_records, scan_pdf
+from project_discovery import ProjectDiscovery, normalize_project_name
 from project_matching import ProjectMatch, match_discoveries
-from stage1_page_discovery import build_stage1_motor_records, find_rated_motor_powers_in_pdf
-from stage2_pdf_discovery import build_pdf2_motor_records, find_pdf2_motor_powers
 
 
 @dataclass(frozen=True)
@@ -76,18 +75,22 @@ def _discover_documents(paths: list[str | Path], side: str) -> list[BatchDocumen
             warning("PDF dosyası bulunamadı veya dosya değil", side=side, path=str(path))
             continue
         try:
-            project = discover_project(path)
-            equipment = discover_equipment(path)
+            scan = scan_pdf(str(path), side)
+            project = scan.project
+            equipment = scan.equipment
             document = BatchDocument(str(path), side, project, equipment.unique_ids())
             documents.append(document)
             info(
-                "PDF keşfi tamamlandı",
+                "PDF master keşfi tamamlandı",
                 side=side,
                 path=str(path),
+                pages=scan.page_count,
                 project=project.project_name,
                 project_source=project.project_source,
                 project_confidence=project.confidence,
                 equipment=list(document.equipment),
+                motor_count=len(scan.pdf1_motors if side == "PDF1" else scan.pdf2_motors),
+                ebm_pages=list(scan.pdf1_ebm_pages),
             )
             if not project.project_name:
                 warning("PDF'de proje adı bulunamadı", side=side, path=str(path), candidates=[x.to_dict() for x in project.candidates])
@@ -136,32 +139,24 @@ def _dedupe_motor_records(records):
 
 def _extract_side_motors(paths: tuple[str, ...], side: str, target_ahu: str | None):
     records = []
-    counters: dict[tuple[str, str], int] = {}
     target = normalize_equipment_id(target_ahu) if target_ahu else None
     info("Motor keşfi başladı", side=side, target_ahu=target, file_count=len(paths))
 
     for path in paths:
         try:
-            if side == "PDF1":
-                found = find_rated_motor_powers_in_pdf(path)
-                built = [record for result in found for record in build_stage1_motor_records(result)]
-                records.extend(built)
-                info("PDF1 motor keşfi tamamlandı", path=path, result_count=len(found), physical_motor_count=len(built), results=[x.to_dict() for x in found])
-                if not found:
-                    warning("PDF1'de motor anma gücü bulunamadı", path=path, ahu=target)
-            else:
-                found = find_pdf2_motor_powers(path)
-                built_count = 0
-                for result in found:
-                    key = (normalize_equipment_id(result.equipment_id), result.component_type.strip().lower())
-                    start = counters.get(key, 1)
-                    expanded = build_pdf2_motor_records(result, start_index=start)
-                    records.extend(expanded)
-                    counters[key] = start + len(expanded)
-                    built_count += len(expanded)
-                info("PDF2 motor keşfi tamamlandı", path=path, result_count=len(found), physical_motor_count=built_count, results=[x.to_dict() for x in found])
-                if not found:
-                    warning("PDF2'de motor gücü bulunamadı", path=path, ahu=target)
+            scan = scan_pdf(path, side)
+            found = scan.pdf1_motors if side == "PDF1" else scan.pdf2_motors
+            built = build_physical_motor_records(scan)
+            records.extend(built)
+            info(
+                f"{side} motor keşfi tamamlandı",
+                path=path,
+                result_count=len(found),
+                physical_motor_count=len(built),
+                results=[x.to_dict() for x in found],
+            )
+            if not found:
+                warning(f"{side} motor gücü bulunamadı", path=path, ahu=target)
         except Exception as exc:
             exception("Motor keşfi başarısız", exc, side=side, path=path, ahu=target)
 
@@ -324,9 +319,9 @@ def analyze_batch(pdf1_paths: list[str | Path], pdf2_paths: list[str | Path]) ->
             left_equipment = []
             right_equipment = []
             for document in left_group:
-                left_equipment.extend(discover_equipment(document.path).equipment_ids)
+                left_equipment.extend(scan_pdf(document.path, document.side).equipment.equipment_ids)
             for document in right_group:
-                right_equipment.extend(discover_equipment(document.path).equipment_ids)
+                right_equipment.extend(scan_pdf(document.path, document.side).equipment.equipment_ids)
 
             matches = match_ahu_lists(left_equipment, right_equipment)
             info("AHU eşleştirme tamamlandı", project=project_match.left_name, match_count=len(matches))
@@ -335,7 +330,7 @@ def analyze_batch(pdf1_paths: list[str | Path], pdf2_paths: list[str | Path]) ->
                 right_files = _files_for_ahu(right_group, ahu_match.right_normalized)
                 ahu_batches.append(BatchAHU(project_match.left_name, ahu_match, left_files, right_files))
                 info("AHU sonucu", project=project_match.left_name, left=ahu_match.left_normalized, right=ahu_match.right_normalized, score=ahu_match.score, status=ahu_match.status, reason=ahu_match.reason)
-                if ahu_match.status not in {"EXACT", "NORMALIZED_MATCH"}:
+                if ahu_match.status not in {"EXACT", "NORMALIZED_MATCH", "USER_APPROVED"}:
                     continue
                 try:
                     left_motors = _extract_side_motors(left_files, "PDF1", ahu_match.left_normalized)
