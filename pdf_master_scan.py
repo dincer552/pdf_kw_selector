@@ -73,12 +73,19 @@ def clear_master_scan_cache(): scan_pdf.cache_clear()
 
 def build_physical_motor_records(scan):
     records=[]
+    next_index_by_component={}
     if scan.side=="PDF1":
-        for result in scan.pdf1_motors: records.extend(build_stage1_motor_records(result))
+        for result in scan.pdf1_motors:
+            component=result.component_type or result.component_role or "motor"
+            start_index=next_index_by_component.get(component,1)
+            created=build_stage1_motor_records(result,start_index=start_index)
+            records.extend(created); next_index_by_component[component]=start_index+len(created)
     else:
-        index=1
         for result in scan.pdf2_motors:
-            created=build_pdf2_motor_records(result,start_index=index); records.extend(created); index+=len(created)
+            component=result.component_type or result.component_role or "motor"
+            start_index=next_index_by_component.get(component,1)
+            created=build_pdf2_motor_records(result,start_index=start_index)
+            records.extend(created); next_index_by_component[component]=start_index+len(created)
     return records
 
 __all__=["MasterPDFScan","scan_pdf","scan_pdfs","clear_master_scan_cache","build_physical_motor_records"]
