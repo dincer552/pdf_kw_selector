@@ -11,19 +11,12 @@ from app_logger import debug, exception, info, warning
 from pypdf import PdfReader
 
 _UNIT_PATTERNS = [
-    # These are authoritative: on AirWare/Project PDFs we should take the
-    # value written next to the explicit Unit Reference / Unit Number label.
     ("unit_reference", re.compile(r"\bunit\s+reference\s*[:=]?\s*([A-Z0-9][A-Z0-9_-]{1,})", re.I)),
     ("unit_number", re.compile(r"\bunit\s+number\s*[:=]?\s*([A-Z0-9][A-Z0-9_-]{1,})", re.I)),
-    # Fallbacks for documents where the explicit label is absent.
     ("hks_token", re.compile(r"(?<![A-Z0-9])(HKS(?:[_ -]?\d+))\b", re.I)),
-    # Generic AHU fallback: require a separator (AHU-A-1) or a digit immediately
-    # after AHU (AHU1). This prevents words such as AHUKit/AHUnit from becoming
-    # equipment IDs just because they contain the letters "AHU".
     ("ahu_token", re.compile(r"(?<![A-Z0-9])(AHU(?:[_ -]+[A-Z0-9][A-Z0-9_-]*|\d[A-Z0-9_-]*))\b", re.I)),
     ("ahu_embedded", re.compile(r"(?<![A-Z0-9])(?:[A-Z0-9]+[-_ ]+)(AHU(?:[_ -]+[A-Z0-9][A-Z0-9_-]*|\d[A-Z0-9_-]*))\b", re.I)),
 ]
-
 
 _LABELLED_SOURCES = {"unit_reference", "unit_number"}
 
@@ -47,11 +40,7 @@ def normalize_equipment_id(value: str | None) -> str:
 
 
 def _is_supported_equipment_id(normalized: str) -> bool:
-    """Accept AHU IDs plus Systemair HKS unit numbers used on electrical PDFs."""
-    return (
-        normalized.startswith("AHU-")
-        or bool(re.fullmatch(r"HKS-\d+", normalized))
-    )
+    return normalized.startswith("AHU-") or bool(re.fullmatch(r"HKS-\d+", normalized))
 
 @dataclass(frozen=True)
 class EquipmentOccurrence:
@@ -95,12 +84,8 @@ def discover_equipment_from_text(pages: list[str]) -> AHUDiscovery:
                     occurrences.append(item)
                     if source in _LABELLED_SOURCES:
                         labelled_occurrences.append(item)
-
-        # When an explicit Unit Reference/Unit Number exists, trust that field
-        # over incidental text elsewhere (e.g. "AHUKit Count").
         if labelled_occurrences:
             occurrences = labelled_occurrences
-
         occurrences.sort(key=lambda x: (x.page, x.normalized, x.source))
         result = AHUDiscovery(tuple(occurrences))
         info("AHU/equipment keşfi tamamlandı", page_count=len(pages), occurrence_count=len(occurrences), unique_ids=list(result.unique_ids()), labelled=bool(labelled_occurrences))
@@ -130,12 +115,7 @@ def discover_equipment(path: str | Path) -> AHUDiscovery:
             filename_occurrence = _equipment_from_filename(path)
             if filename_occurrence is not None:
                 discovery = AHUDiscovery((filename_occurrence,))
-                info(
-                    "Ekipman ID dosya adından keşfedildi",
-                    path=str(path),
-                    equipment_id=filename_occurrence.equipment_id,
-                    normalized=filename_occurrence.normalized,
-                )
+                info("Ekipman ID dosya adından keşfedildi", path=str(path), equipment_id=filename_occurrence.equipment_id, normalized=filename_occurrence.normalized)
         return discovery
     except Exception as exc:
         exception("PDF AHU keşfi başarısız", exc, path=str(path)); raise
@@ -177,24 +157,15 @@ def match_ahu_ids(left: str | None, right: str | None, *, left_page: int | None 
 
 
 def _approved_family_match(left_id: str | None, right_id: str | None, approved_variants: set[tuple[str, str]]) -> tuple[bool, str]:
-    """Return whether an approved variant pair establishes a reusable structural mapping."""
-    left = normalize_equipment_id(left_id)
-    right = normalize_equipment_id(right_id)
-    if not left or not right:
-        return False, ""
+    left = normalize_equipment_id(left_id); right = normalize_equipment_id(right_id)
+    if not left or not right: return False, ""
     for approved_left, approved_right in approved_variants:
-        al = normalize_equipment_id(approved_left)
-        ar = normalize_equipment_id(approved_right)
-        if not al or not ar:
-            continue
-        lnums = re.findall(r"\d+", left)
-        rnums = re.findall(r"\d+", right)
-        alnums = re.findall(r"\d+", al)
-        arnums = re.findall(r"\d+", ar)
-        lprefix = re.sub(r"\d+", "#", left)
-        rprefix = re.sub(r"\d+", "#", right)
-        alprefix = re.sub(r"\d+", "#", al)
-        arprefix = re.sub(r"\d+", "#", ar)
+        al = normalize_equipment_id(approved_left); ar = normalize_equipment_id(approved_right)
+        if not al or not ar: continue
+        lnums = re.findall(r"\d+", left); rnums = re.findall(r"\d+", right)
+        alnums = re.findall(r"\d+", al); arnums = re.findall(r"\d+", ar)
+        lprefix = re.sub(r"\d+", "#", left); rprefix = re.sub(r"\d+", "#", right)
+        alprefix = re.sub(r"\d+", "#", al); arprefix = re.sub(r"\d+", "#", ar)
         if lprefix == alprefix and rprefix == arprefix:
             if lnums and rnums and alnums and arnums and lnums[-1] == rnums[-1]:
                 return True, "same approved AHU naming family and numeric suffix"
@@ -202,13 +173,29 @@ def _approved_family_match(left_id: str | None, right_id: str | None, approved_v
 
 
 def match_ahu_lists(left: list[EquipmentOccurrence], right: list[EquipmentOccurrence], *, approved_variants: set[tuple[str, str]] | None = None) -> list[AHUMatch]:
+    """Match exact normalized IDs first, then run fuzzy scoring only on leftovers."""
     approved_variants = approved_variants or set()
     left_unique = {}; right_unique = {}
     for item in left: left_unique.setdefault(item.normalized, item)
     for item in right: right_unique.setdefault(item.normalized, item)
+
+    output = []
+    used_l = set()
+    used_r = set()
+
+    # Fast path: normalized IDs that occur on both sides are unambiguous exact
+    # matches. This avoids the O(N*M) scoring work for the common case.
+    for normalized in left_unique.keys() & right_unique.keys():
+        lo = left_unique[normalized]; ro = right_unique[normalized]
+        output.append(match_ahu_ids(normalized, normalized, left_page=lo.page, right_page=ro.page))
+        used_l.add(normalized); used_r.add(normalized)
+
+    # Only unmatched IDs need fuzzy / approved-family comparison.
     pairs = []
-    for lid, lo in left_unique.items():
-        for rid, ro in right_unique.items():
+    remaining_left = [(lid, lo) for lid, lo in left_unique.items() if lid not in used_l]
+    remaining_right = [(rid, ro) for rid, ro in right_unique.items() if rid not in used_r]
+    for lid, lo in remaining_left:
+        for rid, ro in remaining_right:
             m = match_ahu_ids(lid, rid, left_page=lo.page, right_page=ro.page)
             approved, approved_reason = _approved_family_match(lid, rid, approved_variants)
             if approved and m.status not in {"EXACT", "NORMALIZED_MATCH"}:
@@ -216,14 +203,18 @@ def match_ahu_lists(left: list[EquipmentOccurrence], right: list[EquipmentOccurr
             elif (lid, rid) in approved_variants and m.status in {"NO_MATCH", "REVIEW_REQUIRED"}:
                 m = AHUMatch(m.left_id, m.right_id, m.left_normalized, m.right_normalized, max(m.score, 0.80), "APPROVED_FLEXIBLE", "user-approved AHU variant", m.left_page, m.right_page)
             pairs.append((m.score, lid, rid, m))
-    output = []; used_l = set(); used_r = set()
+
     for _, lid, rid, m in sorted(pairs, key=lambda x: x[0], reverse=True):
-        if lid in used_l or rid in used_r or m.status == "NO_MATCH": continue
+        if lid in used_l or rid in used_r or m.status == "NO_MATCH":
+            continue
         output.append(m); used_l.add(lid); used_r.add(rid)
+
     for lid, item in left_unique.items():
-        if lid not in used_l: output.append(AHUMatch(item.equipment_id, None, lid, None, 0.0, "ONLY_IN_PDF1", "equipment exists only on left side", item.page, None))
+        if lid not in used_l:
+            output.append(AHUMatch(item.equipment_id, None, lid, None, 0.0, "ONLY_IN_PDF1", "equipment exists only on left side", item.page, None))
     for rid, item in right_unique.items():
-        if rid not in used_r: output.append(AHUMatch(None, item.equipment_id, None, rid, 0.0, "ONLY_IN_PDF2", "equipment exists only on right side", None, item.page))
+        if rid not in used_r:
+            output.append(AHUMatch(None, item.equipment_id, None, rid, 0.0, "ONLY_IN_PDF2", "equipment exists only on right side", None, item.page))
     info("AHU eşleştirme hesaplandı", pdf1_unique=len(left_unique), pdf2_unique=len(right_unique), output_count=len(output), approved_variants=len(approved_variants), matches=[x.to_dict() for x in output])
     return output
 
