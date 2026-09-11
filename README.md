@@ -1,3 +1,12 @@
+# 2026-09-11 — Project/AHU eşleşme rezervasyon hatası düzeltildi
+
+### Bugün eklenen düzeltme
+
+- [x] **Project → AHU eşleşmesinin kaybolmasına neden olan rezervasyon bug'ı düzeltildi:** Aday eşleşmeler final seçiminden önce `used` olarak işaretleniyordu; bu nedenle gerçek eşleşmeler son aşamada elenip `project_matches=[]` ve `ahu_matches=[]` oluşabiliyordu. Rezervasyon artık yalnızca final eşleşme seçildiğinde yapılıyor.
+- [x] **EŞLEŞMEYEN PDF'LER sekmesi gerçek eşleşme sonucunu kullanacak şekilde doğrulandı:** Eşleşen AHU PDF'leri sahipsiz listesine düşmeyecek; gerçekten eşleşmeyen PDF'ler listede kalacak.
+
+---
+
 # 2026-09-11 — Canlı eşleşme teşhisi ve sahipsiz PDF görünümü
 
 ### Bugün eklenen işler
@@ -32,29 +41,3 @@ Analiz süreci **tek geçişli Master PDF Scan + cache** mimarisine geçirilmiş
 - [x] **GUI ana thread'inin PDF taraması nedeniyle donması kaldırıldı.** Master PDF taraması background worker üzerinde çalışıyor; Tk işlemleri ana thread'e geri dönüyor.
 
 ### Performans hedefi — tamamlandı
-
-Amaç yalnızca analizi hızlandırmak değil, **aynı PDF üzerinde aynı işi birden fazla kez yapmayı mimari olarak engellemekti**. Plan tamamlandı:
-
-**Master Scan + Cache → paralel PDF taraması → eşleştirme optimizasyonu → hedefli motor/EBM taraması → GUI worker thread.**
-
-Mevcut gerçek PDF davranışı korunuyor. Özellikle `HKS-12` / `HKS_12` normalize eşleşmesi, `Unit Reference` önceliği ve `AHUKit` gibi yanlış ekipman tespitlerinin engellenmesi regression testleriyle korunuyor.
-
-### Tanılama / hata logları
-
-Masaüstü uygulamasında **HATA / İŞLEM LOGLARI** sekmesi bulunur. Dosya seçme, PDF okuma, proje/AHU keşfi, motor kW çıkarımı, fiziksel motor üretimi, eşleştirme, kW fark hesapları, JSON kaydetme ve güncelleme/EXE indirme adımları ayrıntılı olarak loglanır. Yakalanmamış hatalarda traceback de kaydedilir.
-
-Windows'ta log dosyası varsayılan olarak:
-
-`%LOCALAPPDATA%\\PDF_KW_Selector\\logs\\pdf_kw_selector.log`
-
-Log dosyası GUI içinden doğrudan açılabilir; log klasörü açılabilir, yenilenebilir ve temizlenebilir. Loglar dönen dosyalar halinde tutulur (2 MB + 5 yedek), böylece programın hata geçmişi sınırsız büyümez.
-
-### Güncelleme
-
-**GÜNCELLEME KONTROL ET** butonu GitHub Releases üzerinden güncel EXE'yi kontrol eder. İndirme Releases asset API endpoint'i üzerinden yapılır, cache-busting uygulanır ve indirilen EXE SHA-256 ile doğrulanır. Güncelleme kontrolü/indirme/değiştirme aşamalarındaki HTTP, ağ, dosya, SHA-256 ve yeniden başlatma hataları loglanır.
-
-## Test seviyesi kuralı
-
-`UNIT TEST PASSED` ≠ `REAL PDF TEST PASSED` ≠ `FULL PIPELINE PASSED` ≠ `EXE TEST PASSED`.
-
-Windows CI her push'ta testleri çalıştırır ve başarılı build'i `latest` release asset'i olarak yayınlar. Performans mimarisi tamamlandıktan sonra gerçek PDF regression kapsamı `HKS-12` için PDF1 `7.5 + 4.0 kW`, PDF2 `7.5 + 4.0 kW`, iki fiziksel motor ve iki `MATCH` sonucunu doğrular.
