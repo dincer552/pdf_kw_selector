@@ -10,18 +10,15 @@ from motor_database import expand_motor_group
 from pdf_kw_selector import normalize_power
 
 # PDF1 motor data is read from the value paired with the fixed Rated Power
-# field.  The value may be extracted on the same line or on the next line:
-#   Rated Power [kW]  ->  7,500 x (1x1)
+# field. The value may be extracted on the same line or on the next line:
+# Rated Power [kW] -> 7,500 x (1x1)
 # The first number is kW and the parenthesized NxM expression is the physical
-# motor grouping.  In 2x1, the first number means two physical motors.
+# motor grouping. In 2x1, the first number means two physical motors.
 RATED_POWER_RE = re.compile(
-    r"\brated\s+power\b\s*\[?\s*kw\s*\]?\s*[:=\-]?\s*"
+    r"(?:\brated\s+power\b|(?:anma\s+g(?:ü|u|�)c(?:ü|u|�)|anma\s+g[^a-z0-9\s]{0,2}c[^a-z0-9\s]{0,2}))"
+    r"\s*\[?\s*kw\s*\]?\s*[:=\-]?\s*"
     r"(?P<value>\d+(?:[.,]\d+)?)"
-    r"\s*[x×]\s*\(\s*(?P<quantity>\d+)\s*[x×]\s*(?P<group_count>\d+)\s*\)"
-    r"|"
-    r"(?:anma\s+g(?:ü|u|�)c(?:ü|u|�)|anma\s+g[^a-z0-9\s]{0,2}c[^a-z0-9\s]{0,2})"
-    r"\s*\[?\s*kw\s*\]?\s*[:=\-]?\s*(?P<tr_value>\d+(?:[.,]\d+)?)"
-    r"\s*[x×]\s*\(\s*(?P<tr_quantity>\d+)\s*[x×]\s*(?P<tr_group_count>\d+)\s*\)",
+    r"\s*[x×]\s*\(\s*(?P<quantity>\d+)\s*[x×]\s*(?P<group_count>\d+)\s*\)",
     re.IGNORECASE,
 )
 FAN_MOTOR_POWER_RE = re.compile(
@@ -208,12 +205,13 @@ def _rated_power_match_values(match):
 def _result_from_match(text, page_number, match, forced_component=None):
     cleaned = _clean(text)
     groups = match.groupdict()
-    if "quantity" in groups and (groups.get("value") or groups.get("quantity")):
-        raw, count, group_count = _rated_power_match_values(match)
-        quantity = f"{count}x{group_count}" if count and group_count else None
+    raw, count, group_count = _rated_power_match_values(match)
+    if not raw:
+        raise ValueError("Motor power regex matched without a power value")
+    if group_count:
+        quantity = f"{count}x{group_count}" if count else None
     else:
-        raw = groups.get("value")
-        quantity = _normalize_quantity(groups.get("quantity"))
+        quantity = _normalize_quantity(count)
     value = normalize_power(float(raw.replace(",", ".")), "kw")
     context = _local_context(cleaned, match)
     typ, role = forced_component or detect_component_type(context)
