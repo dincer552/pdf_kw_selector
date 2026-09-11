@@ -138,7 +138,7 @@ def test_release_version_is_read_from_release_notes(monkeypatch, tmp_path):
     assert result["available"] is False
 
 
-def test_unknown_release_version_uses_exe_digest(monkeypatch, tmp_path):
+def test_unknown_release_version_does_not_offer_hash_only_update(monkeypatch, tmp_path):
     monkeypatch.setattr(
         updater,
         "_request_json",
@@ -161,8 +161,6 @@ def test_unknown_release_version_uses_exe_digest(monkeypatch, tmp_path):
     )
     current = tmp_path / "current.exe"
     current.write_bytes(b"current")
-    monkeypatch.setattr(updater, "_sha256", lambda path: "b" * 64)
-
     result = updater.check_for_update(current, "v0.5.4")
 
-    assert result["available"] is True
+    assert result["available"] is False

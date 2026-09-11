@@ -125,20 +125,13 @@ def check_for_update(current_exe: Path | None = None, current_version: str | Non
         or (bool(remote_digest) and not is_zip and current_digest == remote_digest)
     )
     if not version_known and current_version:
-        if remote_digest and not is_zip:
-            warning(
-                "GitHub release sürümü metadata içinde yok; asset SHA-256 ile güncelleme kontrolü yapılıyor",
-                current_version=current_version,
-                release=release.get("tag_name"),
-                sha_match=current_digest == remote_digest,
-            )
-        else:
-            warning(
-                "GitHub release sürümü ve güvenilir EXE SHA-256 bilgisi yok; yanlış güncelleme uyarısı önleniyor",
-                current_version=current_version,
-                release=release.get("tag_name"),
-            )
-            same = True
+        warning(
+            "GitHub release sürümü metadata içinde yok; yanlış güncelleme uyarısı önleniyor",
+            current_version=current_version,
+            release=release.get("tag_name"),
+            sha_match=current_digest == remote_digest if remote_digest and not is_zip else None,
+        )
+        same = True
     # The API asset endpoint redirects to a signed CDN URL.  In some network
     # setups that redirect is served as a truncated response, especially when
     # a Range request is used to resume the download.  The browser download
