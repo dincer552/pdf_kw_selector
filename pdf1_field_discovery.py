@@ -6,6 +6,12 @@ import re
 from ahu_matching import AHUDiscovery, EquipmentOccurrence, normalize_equipment_id
 from project_discovery import ProjectCandidate, ProjectDiscovery, normalize_project_name
 
+_FIELD_STOP_RE = re.compile(
+    r"\s+(?:creation\s+date|revision\s+date|revision\s+no|designer|model|airflow\s+rate)\b",
+    re.I,
+)
+_SUPPORTED_UNIT_RE = re.compile(r"\b(?:HKS[_ -]?\d+|AHU(?:[_ -]+\d+|\d+))\b", re.I)
+
 
 def _value_after_label(lines: list[str], index: int, label: str) -> str:
     line = lines[index].strip()
@@ -32,14 +38,17 @@ def discover_pdf1_unit_reference(pages: list[str]) -> AHUDiscovery:
             if not re.match(r"^\s*unit\s+reference\b", line, re.I):
                 continue
             value = _value_after_label(lines, index, r"unit\s+reference")
-            value = re.sub(r"\s+", " ", value).strip(" .,:;)]}")
-            if not value or re.fullmatch(r"unit\s+reference", value, re.I):
+            match = _SUPPORTED_UNIT_RE.search(value)
+            if not match and index + 1 < len(lines):
+                match = _SUPPORTED_UNIT_RE.search(lines[index + 1])
+            if not match:
                 continue
-            normalized = normalize_equipment_id(value)
+            raw = match.group(0).strip(" .,:;)]}")
+            normalized = normalize_equipment_id(raw)
             key = (normalized, page_no)
             if normalized and key not in seen:
                 seen.add(key)
-                occurrences.append(EquipmentOccurrence(value, normalized, page_no, "unit_reference"))
+                occurrences.append(EquipmentOccurrence(raw, normalized, page_no, "unit_reference"))
     occurrences.sort(key=lambda x: (x.page, x.normalized))
     return AHUDiscovery(tuple(occurrences))
 
@@ -49,11 +58,13 @@ def discover_pdf1_project(pages: list[str]) -> ProjectDiscovery:
     for page_no, text in enumerate(pages, 1):
         lines = (text or "").splitlines()
         for index, line in enumerate(lines):
-            if not re.match(r"^\s*project\s*(?:[:=]|$)", line, re.I):
+            # PDF text extraction commonly puts the value and the next header
+            # on the same line: "Project Ekol Sada Hastanesi Creation date ...".
+            if not re.match(r"^\s*project\b", line, re.I):
                 continue
             value = _value_after_label(lines, index, r"project")
+            value = _FIELD_STOP_RE.split(value, maxsplit=1)[0]
             value = re.sub(r"\s+", " ", value).strip(" :-\t")
-            value = re.split(r"\s+(?:creation\s+date|revision\s+date|revision\s+no)\b", value, maxsplit=1, flags=re.I)[0].strip()
             normalized = normalize_project_name(value)
             if value and normalized and len(normalized.split()) >= 2:
                 candidates.append(ProjectCandidate(value, normalized, "project_field", page_no, "HIGH"))
