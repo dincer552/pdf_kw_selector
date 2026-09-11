@@ -11,7 +11,7 @@ _FIELD_STOP_RE = re.compile(
     re.I,
 )
 _SUPPORTED_UNIT_RE = re.compile(
-    r"\b(?:HKS[_ -]?\d+|KS[_ -]?\d+(?:\.\d+)?|AHU(?:[_ -]+\d+|\d+))\b",
+    r"\b(?:HKS[_ -]?\d+|KS[_ -]?[A-Z]?\d+(?:\.\d+)?|SS[_ -]?\d+(?:\.\d+)?|AHU(?:[_ -]+\d+|\d+))\b",
     re.I,
 )
 
@@ -61,8 +61,6 @@ def discover_pdf1_project(pages: list[str]) -> ProjectDiscovery:
     for page_no, text in enumerate(pages, 1):
         lines = (text or "").splitlines()
         for index, line in enumerate(lines):
-            # PDF text extraction commonly puts the value and the next header
-            # on the same line: "Project Ekol Sada Hastanesi Creation date ...".
             if not re.match(r"^\s*project\b", line, re.I):
                 continue
             value = _value_after_label(lines, index, r"project")
