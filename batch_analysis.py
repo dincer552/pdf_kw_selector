@@ -125,6 +125,13 @@ def _infer_unresolved_right_documents(left_groups,right_documents,already_matche
         if best:assignments.setdefault(best[2],[]).append(document)
     return assignments
 
+def _is_ebm_pdf1(paths):
+    for path in paths:
+        scan=scan_pdf(path,"PDF1")
+        if scan.pdf1_ebm_pages:
+            return True
+    return False
+
 def analyze_batch(pdf1_paths,pdf2_paths):
     left_docs=_discover_documents(pdf1_paths,"PDF1");right_docs=_discover_documents(pdf2_paths,"PDF2");left_groups=_group_documents(left_docs);right_groups=_group_documents(right_docs)
     named_pairs=_pair_project_groups(left_groups,right_groups);used_right_paths=set();project_pair_docs={}
@@ -144,6 +151,9 @@ def analyze_batch(pdf1_paths,pdf2_paths):
         for am in match_ahu_lists(left_equipment,right_equipment):
             lf=_files_for_ahu(lg,am.left_normalized);rf=_files_for_ahu(rg,am.right_normalized); info("AHU MATCH DEBUG: aday",project=pm.left_name,left=am.left_normalized,right=am.right_normalized,score=am.score,status=am.status,reason=getattr(am,"reason",None),pdf1_files=list(lf),pdf2_files=list(rf)); ahu_batches.append(BatchAHU(pm.left_name,am,lf,rf))
             if am.status not in {"EXACT","NORMALIZED_MATCH","USER_APPROVED"}:continue
+            if _is_ebm_pdf1(lf):
+                info("EBM-Papst PDF1 motor karşılaştırması atlandı; AHU eşleşmesi korunuyor",project=pm.left_name,ahu=am.left_normalized,pdf1_files=list(lf),pdf2_files=list(rf))
+                continue
             try:motor_comparisons.extend(compare_motor_records(_extract_side_motors(lf,"PDF1",am.left_normalized),_extract_side_motors(rf,"PDF2",am.right_normalized)))
             except Exception as exc:exception("Motor karşılaştırması başarısız",exc,project=pm.left_name,ahu=am.left_normalized)
     info("AHU MATCH DEBUG: final",project_matches=len(project_matches),ahu_matches=len(ahu_batches),motor_comparisons=len(motor_comparisons))
