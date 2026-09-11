@@ -12,6 +12,7 @@ permissions:
 # Shared branch build: do not cancel another commit's build.
 # This repository uses dincer552-fix-github-updates as its only/default branch.
 # Regression tests are intentionally disabled; builds are validated by the live EXE test.
+# Equipment discovery uses field-first extraction with filename fallback for varied Systemair formats.
 
 jobs:
   build-windows:
