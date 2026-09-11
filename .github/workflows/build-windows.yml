@@ -4,13 +4,13 @@ on:
   workflow_dispatch:
   push:
     branches:
-      - main
+      - dincer552-fix-github-updates
 
 permissions:
   contents: write
 
 # Shared branch build: do not cancel another commit's build.
-# Release publishing remains restricted to main.
+# This repository uses dincer552-fix-github-updates as its only/default branch.
 # Regression tests are intentionally disabled; builds are validated by the live EXE test.
 
 jobs:
@@ -36,14 +36,14 @@ jobs:
       - name: Build EXE
         run: pyinstaller --noconfirm --clean --onefile --windowed --additional-hooks-dir=. --collect-all pypdf --name PDF_KW_Selector_v0.5.4 desktop_grouped_app.py
       - name: Prepare release assets
-        if: github.ref == 'refs/heads/main'
+        if: github.ref == 'refs/heads/dincer552-fix-github-updates'
         shell: pwsh
         run: |
           Copy-Item dist/PDF_KW_Selector_v0.5.4.exe dist/PDF_KW_Selector_latest.exe
           Copy-Item dist/PDF_KW_Selector_v0.5.4.exe "dist/PDF_KW_Selector_$env:GITHUB_SHA.exe"
           Compress-Archive -Path dist/PDF_KW_Selector_v0.5.4.exe -DestinationPath "dist/PDF_KW_Selector_$env:GITHUB_SHA.zip" -CompressionLevel Optimal
       - name: Publish latest release
-        if: github.ref == 'refs/heads/main'
+        if: github.ref == 'refs/heads/dincer552-fix-github-updates'
         env:
           GH_TOKEN: ${{ github.token }}
         shell: bash
@@ -52,9 +52,9 @@ jobs:
             gh release upload latest dist/PDF_KW_Selector_latest.exe --clobber
             gh release upload latest "dist/PDF_KW_Selector_${GITHUB_SHA}.exe"
             gh release upload latest "dist/PDF_KW_Selector_${GITHUB_SHA}.zip"
-            gh release edit latest --title "PDF kW Selector v0.5.4 - Latest" --notes "Version: v0.5.4; Build: $GITHUB_SHA; Latest Windows build from main."
+            gh release edit latest --title "PDF kW Selector v0.5.4 - Latest" --notes "Version: v0.5.4; Build: $GITHUB_SHA; Latest Windows build from dincer552-fix-github-updates."
           else
-            gh release create latest dist/PDF_KW_Selector_latest.exe "dist/PDF_KW_Selector_${GITHUB_SHA}.exe" "dist/PDF_KW_Selector_${GITHUB_SHA}.zip" --target "$GITHUB_SHA" --title "PDF kW Selector v0.5.4 - Latest" --notes "Version: v0.5.4; Build: $GITHUB_SHA; Latest Windows build from main."
+            gh release create latest dist/PDF_KW_Selector_latest.exe "dist/PDF_KW_Selector_${GITHUB_SHA}.exe" "dist/PDF_KW_Selector_${GITHUB_SHA}.zip" --target "$GITHUB_SHA" --title "PDF kW Selector v0.5.4 - Latest" --notes "Version: v0.5.4; Build: $GITHUB_SHA; Latest Windows build from dincer552-fix-github-updates."
           fi
       - uses: actions/upload-artifact@v4
         with:
