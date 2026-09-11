@@ -10,7 +10,7 @@ import batch_analysis as batch
 from ahu_matching import AHUMatch, score_ahu_ids
 from app_logger import exception, info, warning
 from project_matching import ProjectMatch, match_discoveries
-from pypdf import PdfReader
+from pdf_master_scan import scan_pdf
 
 
 def _compact(value: str | None) -> str:
@@ -28,11 +28,12 @@ def _raw_ahu_key(value: str | None) -> str:
 
 
 def _document_identity_tokens(document) -> set[str]:
-    """Collect order/project identity codes from PDF text and its path."""
+    """Collect order/project identity codes from cached PDF text and its path."""
     tokens: set[str] = set()
     try:
         path_text = str(document.path)
-        text = "\n".join((page.extract_text() or "") for page in PdfReader(document.path).pages)
+        scan = scan_pdf(document.path, document.side)
+        text = "\n".join(scan.page_texts)
         combined = f"{path_text}\n{text}"
         for match in re.findall(r"\b\d{2}[A-Z]{2,}\d{3,}\b", combined, flags=re.I):
             tokens.add(match.upper())
@@ -137,9 +138,9 @@ def _build_ahu_confirmations(project_pair_docs):
         left_occurrences = []
         right_occurrences = []
         for document in left_group:
-            left_occurrences.extend(batch.discover_equipment(document.path).equipment_ids)
+            left_occurrences.extend(scan_pdf(document.path, document.side).equipment.equipment_ids)
         for document in right_group:
-            right_occurrences.extend(batch.discover_equipment(document.path).equipment_ids)
+            right_occurrences.extend(scan_pdf(document.path, document.side).equipment.equipment_ids)
 
         left_unique: dict[str, object] = {}
         right_unique: dict[str, object] = {}
@@ -151,8 +152,6 @@ def _build_ahu_confirmations(project_pair_docs):
         unmatched_left = set(left_unique)
         unmatched_right = set(right_unique)
 
-        # Cosmetic differences are deliberately shown to the user once. After approval,
-        # the same separator/zero-normalization rule is reused for subsequent AHUs.
         for lid in list(unmatched_left):
             for rid in list(unmatched_right):
                 lo = left_unique[lid]
@@ -273,9 +272,6 @@ def analyze_with_confirmations(pdf1_paths, pdf2_paths):
                 continue
             lo = occurrence_left[lid]
             ro = occurrence_right[rid]
-            # A user-approved AHU pair is valid for downstream processing exactly
-            # like an exact/normalized match. Keep the reason so the UI still shows
-            # that the pair was explicitly confirmed by the user.
             extra.append(AHUMatch(lo.equipment_id, ro.equipment_id, lid, rid, 1.0, "EXACT", "user confirmed AHU references refer to the same equipment", lo.page, ro.page))
             used_left.add(lid)
             used_right.add(rid)
