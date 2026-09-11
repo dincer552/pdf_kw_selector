@@ -1,6 +1,7 @@
 """Single-pass master scan and cache for engineering PDFs."""
 from __future__ import annotations
 
+from concurrent.futures import ThreadPoolExecutor
 from dataclasses import dataclass
 from functools import lru_cache
 from pathlib import Path
@@ -46,7 +47,8 @@ def _scan_pdf1_motors(pages: tuple[str, ...]) -> tuple[MotorPowerResult, ...]:
 
 
 def _scan_pdf2_motors(pages: tuple[str, ...]) -> tuple[PDF2MotorResult, ...]:
-    equipment_id = next((_equipment_id(text) for text in pages if _equipment_id(text)), None)
+    equipment_ids = [value for text in pages if (value := _equipment_id(text))]
+    equipment_id = equipment_ids[0] if equipment_ids else None
     if not equipment_id:
         warning("PDF2 master scan: equipment ID bulunamadı")
     summary = _summary_quantities(list(pages))
@@ -63,36 +65,54 @@ def _scan_pdf2_motors(pages: tuple[str, ...]) -> tuple[PDF2MotorResult, ...]:
     return tuple(_apply_summary_quantities(results, summary))
 
 
-@lru_cache(maxsize=128)
-def scan_pdf(path: str | Path, side: str) -> MasterPDFScan:
-    """Read and analyze a PDF once; subsequent calls reuse the complete scan."""
+def _scan_single_pdf(path: str | Path, side: str) -> MasterPDFScan:
     side = side.upper().strip()
     if side not in {"PDF1", "PDF2"}:
         raise ValueError("side must be PDF1 or PDF2")
     resolved = Path(path).expanduser().resolve()
+    info("Master PDF scan başladı", path=str(resolved), side=side)
+    pages = _read_pages_once(resolved)
+    project = discover_project_from_text(list(pages))
+    equipment = discover_equipment_from_text(list(pages))
+    if not equipment.unique_ids():
+        filename_occurrence = _equipment_from_filename(resolved)
+        if filename_occurrence is not None:
+            equipment = AHUDiscovery((filename_occurrence,))
+    if side == "PDF1":
+        motors = _scan_pdf1_motors(pages)
+        ebm_pages = tuple(page for page, text in enumerate(pages, 1) if extract_model_brand(text) == "EBM-Papst")
+        return MasterPDFScan(str(resolved), side, pages, project, equipment, pdf1_motors=motors, pdf1_ebm_pages=ebm_pages)
+    motors = _scan_pdf2_motors(pages)
+    return MasterPDFScan(str(resolved), side, pages, project, equipment, pdf2_motors=motors)
+
+
+@lru_cache(maxsize=128)
+def scan_pdf(path: str | Path, side: str) -> MasterPDFScan:
+    """Read and analyze a PDF once; subsequent calls reuse the complete scan."""
     try:
-        info("Master PDF scan başladı", path=str(resolved), side=side)
-        pages = _read_pages_once(resolved)
-        project = discover_project_from_text(list(pages))
-        equipment = discover_equipment_from_text(list(pages))
-        if not equipment.unique_ids():
-            filename_occurrence = _equipment_from_filename(resolved)
-            if filename_occurrence is not None:
-                equipment = AHUDiscovery((filename_occurrence,))
-
-        if side == "PDF1":
-            motors = _scan_pdf1_motors(pages)
-            ebm_pages = tuple(page for page, text in enumerate(pages, 1) if extract_model_brand(text) == "EBM-Papst")
-            scan = MasterPDFScan(str(resolved), side, pages, project, equipment, pdf1_motors=motors, pdf1_ebm_pages=ebm_pages)
-        else:
-            motors = _scan_pdf2_motors(pages)
-            scan = MasterPDFScan(str(resolved), side, pages, project, equipment, pdf2_motors=motors)
-
-        info("Master PDF scan tamamlandı", path=str(resolved), side=side, pages=len(pages), project=project.project_name, equipment=list(equipment.unique_ids()), motor_count=len(motors), ebm_pages=list(scan.pdf1_ebm_pages))
-        return scan
+        return _scan_single_pdf(path, side)
     except Exception as exc:
-        exception("Master PDF scan başarısız", exc, path=str(resolved), side=side)
+        resolved = Path(path).expanduser().resolve()
+        exception("Master PDF scan başarısız", exc, path=str(resolved), side=str(side).upper().strip())
         raise
+
+
+def scan_pdfs(paths_and_sides: list[tuple[str | Path, str]]) -> dict[tuple[str, str], MasterPDFScan]:
+    """Warm the master-scan cache for independent PDFs concurrently."""
+    unique = {}
+    for raw_path, raw_side in paths_and_sides:
+        path = str(Path(raw_path).expanduser().resolve())
+        side = str(raw_side).upper().strip()
+        unique.setdefault((path, side), (path, side))
+    if not unique:
+        return {}
+    workers = min(8, len(unique))
+    info("Paralel master scan başladı", file_count=len(unique), worker_count=workers)
+    with ThreadPoolExecutor(max_workers=workers, thread_name_prefix="pdf-scan") as executor:
+        scans = list(executor.map(lambda item: scan_pdf(*item), unique.values()))
+    result = dict(zip(unique.keys(), scans))
+    info("Paralel master scan tamamlandı", file_count=len(result))
+    return result
 
 
 def clear_master_scan_cache() -> None:
@@ -113,4 +133,4 @@ def build_physical_motor_records(scan: MasterPDFScan):
     return records
 
 
-__all__ = ["MasterPDFScan", "scan_pdf", "clear_master_scan_cache", "build_physical_motor_records"]
+__all__ = ["MasterPDFScan", "scan_pdf", "scan_pdfs", "clear_master_scan_cache", "build_physical_motor_records"]
