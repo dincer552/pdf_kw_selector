@@ -10,7 +10,10 @@ _FIELD_STOP_RE = re.compile(
     r"\s+(?:creation\s+date|revision\s+date|revision\s+no|designer|model|airflow\s+rate)\b",
     re.I,
 )
-_SUPPORTED_UNIT_RE = re.compile(r"\b(?:HKS[_ -]?\d+|AHU(?:[_ -]+\d+|\d+))\b", re.I)
+_SUPPORTED_UNIT_RE = re.compile(
+    r"\b(?:HKS[_ -]?\d+|KS[_ -]?\d+(?:\.\d+)?|AHU(?:[_ -]+\d+|\d+))\b",
+    re.I,
+)
 
 
 def _value_after_label(lines: list[str], index: int, label: str) -> str:
