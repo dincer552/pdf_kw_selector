@@ -51,8 +51,8 @@ jobs:
         run: |
           if gh release view latest >/dev/null 2>&1; then
             gh release upload latest dist/PDF_KW_Selector_latest.exe --clobber
-            gh release upload latest "dist/PDF_KW_Selector_${GITHUB_SHA}.exe"
-            gh release upload latest "dist/PDF_KW_Selector_${GITHUB_SHA}.zip"
+            gh release upload latest "dist/PDF_KW_Selector_${GITHUB_SHA}.exe" --clobber
+            gh release upload latest "dist/PDF_KW_Selector_${GITHUB_SHA}.zip" --clobber
             gh release edit latest --title "PDF kW Selector v0.5.4 - Latest" --notes "Version: v0.5.4; Build: $GITHUB_SHA; Latest Windows build from dincer552-fix-github-updates."
           else
             gh release create latest dist/PDF_KW_Selector_latest.exe "dist/PDF_KW_Selector_${GITHUB_SHA}.exe" "dist/PDF_KW_Selector_${GITHUB_SHA}.zip" --target "$GITHUB_SHA" --title "PDF kW Selector v0.5.4 - Latest" --notes "Version: v0.5.4; Build: $GITHUB_SHA; Latest Windows build from dincer552-fix-github-updates."
