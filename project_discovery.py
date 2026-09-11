@@ -69,6 +69,7 @@ def _candidate(value: str, source: str, page: int, confidence: str) -> ProjectCa
     if not _looks_like_project_name(value): return None
     normalized = normalize_project_name(value)
     if not normalized or normalized in _GENERIC_TOKENS: return None
+    if source == "project_name_field": source = "project_field"
     return ProjectCandidate(value, normalized, source, page, confidence)
 def _is_known_field_value(value: str) -> bool:
     value = _clean_value(value)
@@ -106,7 +107,7 @@ def discover_project_from_text(pages: list[str]) -> ProjectDiscovery:
         for item in candidates:
             key = (item.normalized, item.source)
             if key not in seen: seen.add(key); unique.append(item)
-        explicit = [c for c in unique if c.source == "project_name_field"]
+        explicit = [c for c in unique if c.source == "project_field"]
         selected = explicit[0] if explicit else next((c for c in unique if c.source == "project_header"), None)
         return ProjectDiscovery(selected.value if selected else None, selected.normalized if selected else None, selected.source if selected else None, selected.page if selected else None, selected.confidence if selected else "REVIEW", tuple(unique))
     except Exception as exc:
