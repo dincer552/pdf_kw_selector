@@ -6,32 +6,27 @@ Engineering PDF'lerinden **doğru motor anma gücünü (kW) bulup fiziksel motor
 
 Uygulama Project → AHU → Motor sırasıyla çalışır. PDF1 seçim/referans, PDF2 elektrik/üretim dokümanıdır. Motor karşılaştırması fiziksel motor bazındadır; `2x1` iki fiziksel motor anlamına gelir.
 
-### PDF analiz mimarisi — performans planı
+### PDF analiz mimarisi — tamamlandı
 
-Analiz sürecinde aynı PDF'nin tekrar tekrar açılıp taranması kaldırılacaktır. Hedef mimari **tek geçişli Master PDF Scan + cache** yapısıdır:
+Analiz süreci **tek geçişli Master PDF Scan + cache** mimarisine geçirilmiştir.
 
-1. **PDF bir kez açılacak ve sayfalar bir kez okunacak.**
-2. Aynı taramada mümkün olan tüm bilgiler çıkarılacak:
-   - Proje adı
-   - AHU / `Unit Reference` / ekipman adı
-   - Motor anma gücü (kW)
-   - Sayfa numarası ve ham metin referansları
-   - Motor tipi / rolü ve fiziksel motor miktarı
-   - **EBM-Papst kontrolü yalnızca PDF1'de** yapılacak; PDF2'de EBM taraması yapılmayacak.
-3. Sonraki Project → AHU → Motor eşleştirme adımları tekrar PDF okumak yerine bu cache'deki sonuçları kullanacak.
-4. PDF1 ve PDF2 birbirinden bağımsız olduğu için **PDF seviyesinde paralel tarama** değerlendirilecek.
-5. Güçlü eşleşme anahtarları (`Unit Reference`, normalize edilmiş AHU ID vb.) önce kullanılarak gereksiz karşılaştırmalar azaltılacak.
-6. Motor taraması mümkün olduğunca ilgili sayfalara daraltılacak; tüm PDF'nin tekrar taranması yapılmayacak.
-7. Metin normalizasyonu ve benzeri pahalı işlemler aynı veri üzerinde tekrar edilmeyecek.
-8. Analiz Tkinter ana thread'ini bloklamayacak şekilde worker/background işlemine taşınacak. Bu CPU süresini doğrudan azaltmasa da GUI'nin analiz sırasında donmasını önleyecek.
+- [x] **PDF bir kez açılıyor ve sayfalar bir kez okunuyor.** Master scan sayfa metinlerini cache'liyor.
+- [x] **Tek taramada proje adı, AHU / `Unit Reference`, motor kW, sayfa, motor tipi/rolü/miktarı çıkarılıyor.**
+- [x] **EBM-Papst kontrolü yalnızca PDF1'de yapılıyor.** PDF2'de EBM taraması yapılmıyor.
+- [x] **Sonraki Project → AHU → Motor adımları cache kullanıyor; aynı PDF tekrar okunmuyor.**
+- [x] **PDF1 ve PDF2 master scan seviyesinde paralel taranıyor.**
+- [x] **Güçlü eşleşme anahtarları önce kullanılıyor.** Normalize AHU ve proje ID'leri exact-first eşleştiriliyor; yalnızca kalan adaylarda fuzzy karşılaştırma yapılıyor.
+- [x] **Motor/EBM taraması hedefli.** PDF1 EBM kontrolü yalnızca motor sonucu üreten sayfalarda yapılıyor; PDF2'de EBM taraması yok.
+- [x] **Pahalı normalizasyon tekrarları azaltıldı.** Master scan sonuçları ve normalize edilmiş anahtarlar downstream işlemlerde yeniden kullanılıyor.
+- [x] **GUI ana thread'inin PDF taraması nedeniyle donması kaldırıldı.** Master PDF taraması background worker üzerinde çalışıyor; Tk işlemleri ana thread'e geri dönüyor.
 
-### Performans hedefi
+### Performans hedefi — tamamlandı
 
-Amaç yalnızca analizi hızlandırmak değil, **aynı PDF üzerinde aynı işi birden fazla kez yapmayı mimari olarak engellemek**. Öncelik sırası:
+Amaç yalnızca analizi hızlandırmak değil, **aynı PDF üzerinde aynı işi birden fazla kez yapmayı mimari olarak engellemekti**. Plan tamamlandı:
 
 **Master Scan + Cache → paralel PDF taraması → eşleştirme optimizasyonu → hedefli motor/EBM taraması → GUI worker thread.**
 
-Bu değişiklikler yapılırken mevcut gerçek PDF davranışı korunacak. Özellikle `HKS-12` / `HKS_12` normalize eşleşmesi, `Unit Reference` önceliği ve `AHUKit` gibi yanlış ekipman tespitlerinin engellenmesi regression testleriyle korunacak.
+Mevcut gerçek PDF davranışı korunuyor. Özellikle `HKS-12` / `HKS_12` normalize eşleşmesi, `Unit Reference` önceliği ve `AHUKit` gibi yanlış ekipman tespitlerinin engellenmesi regression testleriyle korunuyor.
 
 ### Tanılama / hata logları
 
@@ -51,4 +46,4 @@ Log dosyası GUI içinden doğrudan açılabilir; log klasörü açılabilir, ye
 
 `UNIT TEST PASSED` ≠ `REAL PDF TEST PASSED` ≠ `FULL PIPELINE PASSED` ≠ `EXE TEST PASSED`.
 
-Windows CI her push'ta testleri çalıştırır ve başarılı build'i `latest` release asset'i olarak yayınlar.
+Windows CI her push'ta testleri çalıştırır ve başarılı build'i `latest` release asset'i olarak yayınlar. Performans mimarisi tamamlandıktan sonra gerçek PDF regression kapsamı `HKS-12` için PDF1 `7.5 + 4.0 kW`, PDF2 `7.5 + 4.0 kW`, iki fiziksel motor ve iki `MATCH` sonucunu doğrular.
