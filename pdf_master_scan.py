@@ -31,82 +31,93 @@ def _scan_pdf1_motors(pages):
 
 def _filename_equipment(path):
     stem=Path(path).stem
-    match=re.search(r"(?<![A-Z0-9])(?:KS|SS)[_-]?[A-Z]?\d+(?:\.\d+)?(?![A-Z0-9])", stem, re.I)
-    if not match:
-        return None
-    raw=re.sub(r"[_\s]+", "-", match.group(0)).upper()
-    normalized=normalize_equipment_id(raw)
-    return EquipmentOccurrence(raw, normalized, 1, "filename") if normalized else None
+    match=re.search(r"(?<![A-Z0-9])(?:KS|SS)[_-]?[A-Z]?\d+(?:\.\d+)?(?![A-Z0-9])",stem,re.I)
+    if not match:return None
+    raw=re.sub(r"[_\s]+","-",match.group(0)).upper(); normalized=normalize_equipment_id(raw)
+    return EquipmentOccurrence(raw,normalized,1,"filename") if normalized else None
 
-def _scan_pdf2_motors(pages, equipment_id=None):
+def _pdf2_unit_number_equipment(pages):
+    """Read the exact value printed after PDF2's Unit Number label."""
+    pattern=re.compile(r"\bunit\s+number\s*[:=]\s*(?P<value>[A-Z0-9][A-Z0-9_.-]*)",re.I)
+    for page_no,text in enumerate(pages,1):
+        inline=pattern.search(text or "")
+        if inline:
+            raw=inline.group("value").strip(".,;:()[]{}")
+            normalized=normalize_equipment_id(raw)
+            if normalized:return EquipmentOccurrence(raw,normalized,page_no,"unit_number")
+        lines=[line.strip() for line in (text or "").splitlines()]
+        for index,line in enumerate(lines):
+            if not re.fullmatch(r"unit\s+number\s*[:=]?\s*",line,re.I):continue
+            for look in range(index+1,min(len(lines),index+5)):
+                raw=lines[look].strip(" :=\t.,;:()[]{}")
+                if not raw:continue
+                raw=raw.split()[0]
+                normalized=normalize_equipment_id(raw)
+                if normalized:return EquipmentOccurrence(raw,normalized,page_no,"unit_number")
+    return None
+
+def _scan_pdf2_motors(pages,equipment_id=None):
     ids=[v for text in pages if (v:=_equipment_id(text))]; equipment_id=equipment_id or (ids[0] if ids else None)
-    if not equipment_id: warning("PDF2 master scan: equipment ID bulunamadı")
+    if not equipment_id:warning("PDF2 master scan: equipment ID bulunamadı")
     summary=_summary_quantities(list(pages)); rows=[]
     for n,text in enumerate(pages,1):
         row=_extract_connection_page(text,n,equipment_id) or _fallback_connection_page(text,n,equipment_id,summary)
-        if row: rows.append(row)
+        if row:rows.append(row)
     rows=_dedupe(rows)
-    if not rows and summary: rows=_summary_only_results(equipment_id,summary,page_number=1)
+    if not rows and summary:rows=_summary_only_results(equipment_id,summary,page_number=1)
     return tuple(_apply_summary_quantities(rows,summary))
 
 def _scan_single_pdf(path,side):
     side=side.upper().strip(); resolved=Path(path).expanduser().resolve()
-    if side not in {"PDF1","PDF2"}: raise ValueError("side must be PDF1 or PDF2")
+    if side not in {"PDF1","PDF2"}:raise ValueError("side must be PDF1 or PDF2")
     info("Master PDF scan başladı",path=str(resolved),side=side); pages=_read_pages_once(resolved)
     if side=="PDF1":
         project=discover_pdf1_project(list(pages)); equipment=discover_pdf1_unit_reference(list(pages)); motors=_scan_pdf1_motors(pages)
         if not equipment.unique_ids():
             fallback=_filename_equipment(resolved) or _equipment_from_filename(resolved)
-            if fallback: equipment=AHUDiscovery((fallback,))
+            if fallback:equipment=AHUDiscovery((fallback,))
         ebm=tuple(p for p,text in enumerate(pages,1) if extract_model_brand(text)=="EBM-Papst")
         info("PDF1 sabit alan keşfi",path=str(resolved),project=project.project_name,unit_reference=list(equipment.unique_ids()),ebm_pages=list(ebm))
         return MasterPDFScan(str(resolved),side,pages,project,equipment,pdf1_motors=motors,pdf1_ebm_pages=ebm)
-    project=discover_project_from_text(list(pages)); equipment=discover_equipment_from_text(list(pages))
+    project=discover_project_from_text(list(pages))
+    unit_number=_pdf2_unit_number_equipment(pages)
+    equipment=AHUDiscovery((unit_number,)) if unit_number else discover_equipment_from_text(list(pages))
     if not equipment.unique_ids():
         fallback=_filename_equipment(resolved) or _equipment_from_filename(resolved)
-        if fallback: equipment=AHUDiscovery((fallback,))
+        if fallback:equipment=AHUDiscovery((fallback,))
     equipment_id=equipment.unique_ids()[0] if equipment.unique_ids() else None
+    info("PDF2 sabit alan keşfi",path=str(resolved),project=project.project_name,unit_number=list(equipment.unique_ids()))
     return MasterPDFScan(str(resolved),side,pages,project,equipment,pdf2_motors=_scan_pdf2_motors(pages,equipment_id))
 
 @lru_cache(maxsize=128)
 def scan_pdf(path,side):
-    try: return _scan_single_pdf(path,side)
+    try:return _scan_single_pdf(path,side)
     except Exception as exc:
-        exception("Master PDF scan başarısız",exc,path=str(Path(path).expanduser().resolve()),side=str(side).upper().strip()); raise
+        exception("Master PDF scan başarısız",exc,path=str(Path(path).expanduser().resolve()),side=str(side).upper().strip());raise
 
-def scan_pdfs(paths_and_sides, progress_callback=None):
+def scan_pdfs(paths_and_sides,progress_callback=None):
     unique={}
     for raw_path,raw_side in paths_and_sides:
-        key=(str(Path(raw_path).expanduser().resolve()),str(raw_side).upper().strip()); unique.setdefault(key,key)
+        key=(str(Path(raw_path).expanduser().resolve()),str(raw_side).upper().strip());unique.setdefault(key,key)
     if not unique:return {}
-    info("Paralel master scan başladı",file_count=len(unique),worker_count=min(8,len(unique)))
-    scans_by_key={}
+    info("Paralel master scan başladı",file_count=len(unique),worker_count=min(8,len(unique)));scans_by_key={}
     with ThreadPoolExecutor(max_workers=min(8,len(unique)),thread_name_prefix="pdf-scan") as ex:
         futures={ex.submit(scan_pdf,*key):key for key in unique.values()}
         for completed,future in enumerate(as_completed(futures),1):
-            key=futures[future]; scans_by_key[key]=future.result()
-            if progress_callback:
-                progress_callback("scan",completed,len(unique),Path(key[0]).name)
-    scans=[scans_by_key[key] for key in unique.values()]
-    return dict(zip(unique.keys(),scans))
+            key=futures[future];scans_by_key[key]=future.result()
+            if progress_callback:progress_callback("scan",completed,len(unique),Path(key[0]).name)
+    scans=[scans_by_key[key] for key in unique.values()];return dict(zip(unique.keys(),scans))
 
-def clear_master_scan_cache(): scan_pdf.cache_clear()
+def clear_master_scan_cache():scan_pdf.cache_clear()
 
 def build_physical_motor_records(scan):
-    records=[]
-    next_index_by_component={}
+    records=[];next_index_by_component={}
     if scan.side=="PDF1":
         for result in scan.pdf1_motors:
-            component=result.component_type or result.component_role or "motor"
-            start_index=next_index_by_component.get(component,1)
-            created=build_stage1_motor_records(result,start_index=start_index)
-            records.extend(created); next_index_by_component[component]=start_index+len(created)
+            component=result.component_type or result.component_role or "motor";start_index=next_index_by_component.get(component,1);created=build_stage1_motor_records(result,start_index=start_index);records.extend(created);next_index_by_component[component]=start_index+len(created)
     else:
         for result in scan.pdf2_motors:
-            component=result.component_type or result.component_role or "motor"
-            start_index=next_index_by_component.get(component,1)
-            created=build_pdf2_motor_records(result,start_index=start_index)
-            records.extend(created); next_index_by_component[component]=start_index+len(created)
+            component=result.component_type or result.component_role or "motor";start_index=next_index_by_component.get(component,1);created=build_pdf2_motor_records(result,start_index=start_index);records.extend(created);next_index_by_component[component]=start_index+len(created)
     return records
 
 __all__=["MasterPDFScan","scan_pdf","scan_pdfs","clear_master_scan_cache","build_physical_motor_records"]
