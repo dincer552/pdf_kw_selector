@@ -3,14 +3,16 @@ name: Build Windows Test EXE
 on:
   workflow_dispatch:
   push:
-    branches: [ main ]
+    branches:
+      - main
+      - dincer552-fix-github-updates
 
 permissions:
   contents: write
 
-concurrency:
-  group: pdf-kw-selector-windows-build
-  cancel-in-progress: true
+# Do not cancel/queue builds from another commit on the same branch.
+# Copilot and ChatGPT can therefore push/build independently; each run
+# checks out the exact commit that triggered it.
 
 jobs:
   build-windows:
@@ -27,16 +29,20 @@ jobs:
         run: |
           python -m pip install --upgrade pip
           pip install -r requirements.txt
-          pip install pyinstaller
+          pip install pyinstaller pytest
+      - name: Run regression tests
+        run: pytest -q
       - name: Build EXE
         run: pyinstaller --noconfirm --clean --onefile --windowed --additional-hooks-dir=. --name PDF_KW_Selector_v0.5.3 desktop_grouped_app.py
       - name: Prepare release assets
+        if: github.ref == 'refs/heads/main'
         shell: pwsh
         run: |
           Copy-Item dist/PDF_KW_Selector_v0.5.3.exe dist/PDF_KW_Selector_latest.exe
           Copy-Item dist/PDF_KW_Selector_v0.5.3.exe "dist/PDF_KW_Selector_$env:GITHUB_SHA.exe"
           Compress-Archive -Path dist/PDF_KW_Selector_v0.5.3.exe -DestinationPath "dist/PDF_KW_Selector_$env:GITHUB_SHA.zip" -CompressionLevel Optimal
       - name: Publish latest release
+        if: github.ref == 'refs/heads/main'
         env:
           GH_TOKEN: ${{ github.token }}
         shell: bash
