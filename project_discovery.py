@@ -1,6 +1,5 @@
 """Project-name discovery from Systemair engineering PDFs."""
 from __future__ import annotations
-
 from dataclasses import dataclass, asdict
 import re
 import unicodedata
@@ -76,6 +75,7 @@ def _looks_like_project_name(value: str) -> bool:
     if not value or _is_field_label(value) or _is_generic_project_name(value) or _NUMERIC_ONLY_RE.fullmatch(value) or _AHU_ONLY_RE.fullmatch(value): return False
     tokens = normalize_project_name(value).split()
     return len(tokens) >= 2 and sum(bool(re.search(r"[a-z]", token)) for token in tokens) >= 2
+
 def _strip_header_metadata(value: str) -> str: return _clean_value(_TRAILING_HEADER_RE.sub("", value or ""))
 def _candidate(value: str, source: str, page: int, confidence: str) -> ProjectCandidate | None:
     value = _strip_header_metadata(value)
@@ -86,6 +86,7 @@ def _candidate(value: str, source: str, page: int, confidence: str) -> ProjectCa
 def _is_known_field_value(value: str) -> bool:
     value = _clean_value(value)
     return bool(_NUMERIC_ONLY_RE.fullmatch(value) or _AHU_ONLY_RE.fullmatch(value) or _is_generic_project_name(value))
+
 def _find_multiline_project_name(lines: list[str], start_index: int) -> str:
     for look in range(start_index + 1, min(len(lines), start_index + 30)):
         value = _clean_value(lines[look])
@@ -94,24 +95,27 @@ def _find_multiline_project_name(lines: list[str], start_index: int) -> str:
     return ""
 
 def _find_label_value(lines: list[str], index: int, label_pattern: re.Pattern[str]) -> str:
-    """Read the value printed to the right of a label, or the next extracted line.
-
-    PDF text extraction can split a visually single row such as
-    ``Proje Name:    Teleferik Ahu`` into separate text fragments.  Prefer the
-    text after the label; otherwise walk a short distance forward and take the
-    first plausible value.
-    """
+    """Read a field value despite normal or scrambled PDF extraction order."""
     line = _clean_value(lines[index])
     match = label_pattern.match(line)
     if match:
         inline = _clean_value(match.group(1))
-        if inline and not _is_field_label(inline):
+        if inline and not _is_field_label(inline) and _looks_like_project_name(inline):
             return _strip_header_metadata(inline)
-    for look in range(index + 1, min(len(lines), index + 5)):
+    for look in range(index + 1, min(len(lines), index + 6)):
         value = _clean_value(lines[look])
         if not value or _is_field_label(value) or _is_known_field_value(value):
             continue
-        return _strip_header_metadata(value)
+        if _looks_like_project_name(value):
+            return _strip_header_metadata(value)
+    # AIRWARE title pages can extract the visible value before "Proje Name:"
+    # even though it is visually printed to the right of that label.
+    for look in range(index - 1, max(-1, index - 12), -1):
+        value = _clean_value(lines[look])
+        if not value or _is_field_label(value) or _is_known_field_value(value):
+            continue
+        if _looks_like_project_name(value):
+            return _strip_header_metadata(value)
     return ""
 
 def discover_project_from_text(pages: list[str]) -> ProjectDiscovery:
