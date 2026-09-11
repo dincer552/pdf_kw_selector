@@ -23,6 +23,7 @@ SUMMARY_PAIR_RE = re.compile(r"fan\s+motor\s+power\s*/?\s*nominal\s+rpm\s*(?P<su
 # Electrical drawings can use KS-B1.02 / KS_B1.02 as well as HKS-12 / AHU-01.
 EQUIPMENT_RE = re.compile(r"\bVE\.A\.D\.\d+\b|\bAHU[_-][A-Z0-9]+(?:[_-][A-Z0-9]+)+\b|\bAHU[-_ ]?[A-Z0-9][A-Z0-9_.-]*\b|\bHKS[-_ ]?\d+\b|\bKS[-_ ]?[A-Z]?\d+(?:\.\d+)?\b|\bSS[-_ ]?[A-Z]?\d+(?:\.\d+)?\b", re.I)
 UNIT_NUMBER_RE = re.compile(r"\bunit\s+number\s*[:=]?\s*(?P<value>[A-Z0-9][A-Z0-9_.-]*)", re.I)
+UNIT_NUMBER_LABEL_RE = re.compile(r"^unit\s+number\s*[:=]?\s*$", re.I)
 
 @dataclass(frozen=True)
 class PDF2MotorResult:
@@ -38,13 +39,43 @@ class PDF2MotorResult:
 
 def _clean(text: str) -> str: return re.sub(r"\s+", " ", text).strip()
 
+def _unit_number_from_lines(text: str) -> str | None:
+    """Extract Unit Number even when PDF text order is visually scrambled.
+
+    AIRWARE electrical title pages may extract the values first and the field
+    labels afterwards.  In the supplied PW_01/PW_02 drawings the sequence is
+    ``Teleferik Ahu, order no, PW_01, -, -`` followed by the labels.  When the
+    Unit Number label has no inline value, use the nearest preceding plausible
+    unit token rather than a following motor-power value.
+    """
+    lines = [line.strip() for line in (text or "").splitlines() if line.strip()]
+    for index, line in enumerate(lines):
+        if not UNIT_NUMBER_LABEL_RE.fullmatch(line):
+            continue
+        for look in range(index - 1, max(-1, index - 8), -1):
+            value = lines[look].strip(" :=\t")
+            if not value or value in {"-", "–", "—"}:
+                continue
+            if re.fullmatch(r"\d+(?:[.,]\d+)?", value):
+                continue
+            if re.fullmatch(r"(?:unit|number|order|project|proje|name)\b.*", value, re.I):
+                continue
+            # Unit numbers are compact identifiers such as PW_01, HKS-12,
+            # KS-B1.02, SS-01.01, AHU-01.  Do not accept long prose here.
+            if len(value) <= 40 and re.fullmatch(r"[A-Z0-9][A-Z0-9_.-]*", value, re.I):
+                return normalize_equipment_id(value)
+    return None
+
 def _equipment_id(text: str) -> str | None:
     cleaned = _clean(text)
-    # The Unit Number field is authoritative for PDF2.  Text extraction may
-    # place the value on the next line, so support both inline and multiline.
+    # The Unit Number field is authoritative for PDF2. Support the normal
+    # inline form first, then the visually scrambled/multiline form.
     unit_match = UNIT_NUMBER_RE.search(cleaned)
     if unit_match:
         return normalize_equipment_id(unit_match.group("value"))
+    unit_from_lines = _unit_number_from_lines(text)
+    if unit_from_lines:
+        return unit_from_lines
     lines = [line.strip() for line in (text or "").splitlines()]
     for index, line in enumerate(lines):
         if re.fullmatch(r"unit\s+number\s*[:=]?\s*", line, re.I):
