@@ -11,11 +11,12 @@ from app_logger import debug, exception, info, warning
 from pypdf import PdfReader
 
 _UNIT_PATTERNS = [
-    ("unit_reference", re.compile(r"\bunit\s+reference\s*[:=]?\s*([A-Z0-9][A-Z0-9_-]{1,})", re.I)),
-    ("unit_number", re.compile(r"\bunit\s+number\s*[:=]?\s*([A-Z0-9][A-Z0-9_-]{1,})", re.I)),
+    ("unit_reference", re.compile(r"\bunit\s+reference\s*[:=]?\s*([A-Z0-9][A-Z0-9_.-]{1,})", re.I)),
+    ("unit_number", re.compile(r"\bunit\s+number\s*[:=]?\s*([A-Z0-9][A-Z0-9_.-]{1,})", re.I)),
     ("hks_token", re.compile(r"(?<![A-Z0-9])(HKS(?:[_ -]?\d+))\b", re.I)),
-    ("ahu_token", re.compile(r"(?<![A-Z0-9])(AHU(?:[_ -]+[A-Z0-9][A-Z0-9_-]*|\d[A-Z0-9_-]*))\b", re.I)),
-    ("ahu_embedded", re.compile(r"(?<![A-Z0-9])(?:[A-Z0-9]+[-_ ]+)(AHU(?:[_ -]+[A-Z0-9][A-Z0-9_-]*|\d[A-Z0-9_-]*))\b", re.I)),
+    ("ks_token", re.compile(r"(?<![A-Z0-9])(KS(?:[_ -]?\d+(?:\.\d+)?))\b", re.I)),
+    ("ahu_token", re.compile(r"(?<![A-Z0-9])(AHU(?:[_ -]+[A-Z0-9][A-Z0-9_.-]*|\d[A-Z0-9_.-]*))\b", re.I)),
+    ("ahu_embedded", re.compile(r"(?<![A-Z0-9])(?:[A-Z0-9]+[-_ ]+)(AHU(?:[_ -]+[A-Z0-9][A-Z0-9_.-]*|\d[A-Z0-9_.-]*))\b", re.I)),
 ]
 _LABELLED_SOURCES = {"unit_reference", "unit_number"}
 _UNIT_REFERENCE_RE = re.compile(r"\bunit\s+reference\b", re.I)
@@ -29,6 +30,9 @@ def normalize_equipment_id(value: str | None) -> str:
     value = unicodedata.normalize("NFKC", value or "").upper().strip()
     value = re.sub(r"\s+", "", value).replace("_", "-")
     value = re.sub(r"-+", "-", value)
+    if value.startswith("KS"):
+        tail = value[2:].lstrip("-")
+        return "KS-" + tail if tail else "KS"
     match = re.search(r"(?:^|-)AHU(?:-|$)(.*)$", value)
     if match:
         tail = _normalize_numeric_zeros(match.group(1).lstrip("-"))
@@ -40,7 +44,11 @@ def normalize_equipment_id(value: str | None) -> str:
 
 
 def _is_supported_equipment_id(normalized: str) -> bool:
-    return normalized.startswith("AHU-") or bool(re.fullmatch(r"HKS-\d+", normalized))
+    return (
+        normalized.startswith("AHU-")
+        or bool(re.fullmatch(r"HKS-\d+", normalized))
+        or bool(re.fullmatch(r"KS-\d+(?:\.\d+)?", normalized))
+    )
 
 @dataclass(frozen=True)
 class EquipmentOccurrence:
@@ -73,10 +81,8 @@ def _unit_reference_occurrences(pages: list[str]) -> list[EquipmentOccurrence]:
             match = _UNIT_REFERENCE_RE.search(line)
             if not match:
                 continue
-            # Prefer the value on the same extracted line after the fixed label.
             remainder = line[match.end():].strip(" :=" + "\t")
             candidates = [remainder] if remainder else []
-            # PDF extraction can put the value on the next line/fragment.
             if not candidates:
                 for look in range(index + 1, min(len(lines), index + 4)):
                     value = lines[look].strip(" :=" + "\t")
@@ -128,7 +134,7 @@ def discover_equipment_from_text(pages: list[str], *, unit_reference_only: bool 
             occurrences = labelled_occurrences
         occurrences.sort(key=lambda x: (x.page, x.normalized, x.source))
         result = AHUDiscovery(tuple(occurrences))
-        info("AHU/equipment keşfi tamamlandı", page_count=len(pages), occurrence_count=len(occurrences), unique_ids=list(result.unique_ids()), labelled=bool(labelled_occurrences))
+        info("AHU/equipment keşfi hesaplandı", page_count=len(pages), occurrence_count=len(occurrences), unique_ids=list(result.unique_ids()), labelled=bool(labelled_occurrences))
         if not result.unique_ids():
             warning("PDF'de geçerli AHU/equipment bulunamadı", page_count=len(pages))
         return result
@@ -138,10 +144,11 @@ def discover_equipment_from_text(pages: list[str], *, unit_reference_only: bool 
 
 def _equipment_from_filename(path: Path) -> EquipmentOccurrence | None:
     stem = re.sub(r"\s+", "_", path.stem.strip())
-    match = re.fullmatch(r"HKS[_ -]?(\d+)", stem, re.I)
+    match = re.fullmatch(r"(?:HKS|KS)[_ -]?(\d+(?:\.\d+)?)", stem, re.I)
     if not match:
         return None
-    raw = f"HKS-{match.group(1)}"
+    prefix = "HKS" if stem.upper().startswith("HKS") else "KS"
+    raw = f"{prefix}-{match.group(1)}"
     normalized = normalize_equipment_id(raw)
     return EquipmentOccurrence(raw, normalized, 1, "filename")
 
