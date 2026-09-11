@@ -9,10 +9,19 @@ from app_logger import debug, exception, info, warning
 from motor_database import expand_motor_group
 from pdf_kw_selector import normalize_power
 
+# PDF1 motor data is read from the value paired with the fixed Rated Power
+# field.  The value may be extracted on the same line or on the next line:
+#   Rated Power [kW]  ->  7,500 x (1x1)
+# The first number is kW and the parenthesized NxM expression is the physical
+# motor grouping.  In 2x1, the first number means two physical motors.
 RATED_POWER_RE = re.compile(
-    r"(?:anma\s+g(?:ü|u|�)c(?:ü|u|�)|anma\s+g[^a-z0-9\s]{0,2}c[^a-z0-9\s]{0,2}|rated\s+power)"
-    r"\s*\[?\s*kw\s*\]?\s*[:=\-]?\s*(?P<value>\d+(?:[.,]\d+)?)"
-    r"(?:\s*[x×]\s*\(?\s*(?P<quantity>\d+(?:[.,]\d+)?(?:\s*[x×]\s*\d+)?)\s*\)?)?",
+    r"\brated\s+power\b\s*\[?\s*kw\s*\]?\s*[:=\-]?\s*"
+    r"(?P<value>\d+(?:[.,]\d+)?)"
+    r"\s*[x×]\s*\(\s*(?P<quantity>\d+)\s*[x×]\s*(?P<group_count>\d+)\s*\)"
+    r"|"
+    r"(?:anma\s+g(?:ü|u|�)c(?:ü|u|�)|anma\s+g[^a-z0-9\s]{0,2}c[^a-z0-9\s]{0,2})"
+    r"\s*\[?\s*kw\s*\]?\s*[:=\-]?\s*(?P<tr_value>\d+(?:[.,]\d+)?)"
+    r"\s*[x×]\s*\(\s*(?P<tr_quantity>\d+)\s*[x×]\s*(?P<tr_group_count>\d+)\s*\)",
     re.IGNORECASE,
 )
 FAN_MOTOR_POWER_RE = re.compile(
@@ -188,15 +197,28 @@ def _local_context(text, match):
     return cleaned[start:end]
 
 
+def _rated_power_match_values(match):
+    groups = match.groupdict()
+    raw = groups.get("value") or groups.get("tr_value")
+    count = groups.get("quantity") or groups.get("tr_quantity")
+    group_count = groups.get("group_count") or groups.get("tr_group_count")
+    return raw, count, group_count
+
+
 def _result_from_match(text, page_number, match, forced_component=None):
     cleaned = _clean(text)
-    raw = match.group("value")
+    groups = match.groupdict()
+    if "quantity" in groups and (groups.get("value") or groups.get("quantity")):
+        raw, count, group_count = _rated_power_match_values(match)
+        quantity = f"{count}x{group_count}" if count and group_count else None
+    else:
+        raw = groups.get("value")
+        quantity = _normalize_quantity(groups.get("quantity"))
     value = normalize_power(float(raw.replace(",", ".")), "kw")
-    q = _normalize_quantity(match.groupdict().get("quantity"))
     context = _local_context(cleaned, match)
     typ, role = forced_component or detect_component_type(context)
     return MotorPowerResult(
-        page_number, value, raw, q, "fan_motor_power", "high" if role else "review",
+        page_number, value, raw, quantity, "fan_motor_power", "high" if role else "review",
         cleaned[max(0, match.start() - 120):min(len(cleaned), match.end() + 120)],
         typ, role, extract_equipment_id(cleaned), extract_model_brand(cleaned),
     )
