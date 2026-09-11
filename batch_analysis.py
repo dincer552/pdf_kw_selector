@@ -71,35 +71,38 @@ def _extract_side_motors(paths,side,target_ahu):
 def _pair_project_groups(left_groups,right_groups):
     """Use exact project names/AHU overlap first; fuzzy scoring is last resort."""
     candidates=[]; used_l=set(); used_r=set(); right_ahu_index={}
+    info("PROJECT MATCH DEBUG: gruplar hazır",left_groups={k:sorted(_ahu_set(v)) for k,v in left_groups.items()},right_groups={k:sorted(_ahu_set(v)) for k,v in right_groups.items()})
     for right_key,right_docs in right_groups.items():
         for ahu in _ahu_set(right_docs): right_ahu_index.setdefault(ahu,[]).append(right_key)
+    info("PROJECT MATCH DEBUG: PDF2 AHU index",ahu_index=right_ahu_index)
     # Exact normalized project names.
     for left_key,left_docs in left_groups.items():
         if not left_key or left_key.startswith("__UNRESOLVED__:"): continue
         right=right_groups.get(left_key)
         if right is None or left_key in used_l or left_key in used_r: continue
-        match=match_discoveries(left_docs[0].project,right[0].project); candidates.append((match.score,left_key,left_key,match)); used_l.add(left_key); used_r.add(left_key)
+        match=match_discoveries(left_docs[0].project,right[0].project); info("PROJECT MATCH DEBUG: exact aday",left=left_key,right=left_key,score=match.score,status=match.status,reason=match.reason); candidates.append((match.score,left_key,left_key,match)); used_l.add(left_key); used_r.add(left_key)
     # Unique exact AHU overlap catches renamed project headers without fuzzy N*M.
     for left_key,left_docs in left_groups.items():
         if left_key in used_l or left_key.startswith("__UNRESOLVED__:"): continue
-        matches=set()
-        for ahu in _ahu_set(left_docs): matches.update(right_ahu_index.get(ahu,()))
+        left_ahus=sorted(_ahu_set(left_docs)); matches=set()
+        for ahu in left_ahus: matches.update(right_ahu_index.get(ahu,()))
         matches -= used_r
+        info("PROJECT MATCH DEBUG: AHU overlap adayı",left=left_key,left_ahus=left_ahus,candidate_right_groups=sorted(matches),overlap={k:sorted(set(left_ahus)&_ahu_set(right_groups[k])) for k in matches})
         if len(matches)!=1: continue
-        right_key=next(iter(matches))
-        match=match_discoveries(left_docs[0].project,right_groups[right_key][0].project); candidates.append((match.score,left_key,right_key,match)); used_l.add(left_key); used_r.add(right_key)
+        right_key=next(iter(matches)); match=match_discoveries(left_docs[0].project,right_groups[right_key][0].project); info("PROJECT MATCH DEBUG: AHU ile proje çifti",left=left_key,right=right_key,score=match.score,status=match.status,reason=match.reason); candidates.append((match.score,left_key,right_key,match)); used_l.add(left_key); used_r.add(right_key)
     # Fuzzy fallback only for genuinely unresolved named groups.
     for left_key,left_docs in left_groups.items():
         if left_key in used_l or left_key.startswith("__UNRESOLVED__:") or not left_key: continue
         for right_key,right_docs in right_groups.items():
             if right_key in used_r or right_key.startswith("__UNRESOLVED__:") or not right_key: continue
             try:
-                match=match_discoveries(left_docs[0].project,right_docs[0].project); candidates.append((match.score,left_key,right_key,match))
+                match=match_discoveries(left_docs[0].project,right_docs[0].project); info("PROJECT MATCH DEBUG: fuzzy aday",left=left_key,right=right_key,score=match.score,status=match.status,reason=match.reason); candidates.append((match.score,left_key,right_key,match))
             except Exception as exc: exception("Proje eşleşme adayı hesaplanamadı",exc,left=left_docs[0].project.project_name,right=right_docs[0].project.project_name)
     output=[]
     for _,lk,rk,m in sorted(candidates,reverse=True,key=lambda x:x[0]):
-        if lk in used_l or rk in used_r or m.status=="NO_MATCH":continue
-        used_l.add(lk);used_r.add(rk);output.append((lk,rk,m))
+        if lk in used_l or rk in used_r or m.status=="NO_MATCH": info("PROJECT MATCH DEBUG: aday elendi",left=lk,right=rk,score=m.score,status=m.status,reason=m.reason); continue
+        used_l.add(lk);used_r.add(rk);output.append((lk,rk,m)); info("PROJECT MATCH DEBUG: FINAL EŞLEŞME",left=lk,right=rk,score=m.score,status=m.status,reason=m.reason)
+    info("PROJECT MATCH DEBUG: sonuç",match_count=len(output),unmatched_left=[k for k in left_groups if k not in used_l],unmatched_right=[k for k in right_groups if k not in used_r])
     return output
 
 def _ahu_set(documents): return {normalize_equipment_id(e) for d in documents for e in d.equipment if normalize_equipment_id(e)}
@@ -140,9 +143,11 @@ def analyze_batch(pdf1_paths,pdf2_paths):
         project_matches.append(pm);left_equipment=[];right_equipment=[]
         for d in lg:left_equipment.extend(scan_pdf(d.path,d.side).equipment.equipment_ids)
         for d in rg:right_equipment.extend(scan_pdf(d.path,d.side).equipment.equipment_ids)
+        info("AHU MATCH DEBUG: proje grubu",project=pm.left_name,pdf1_files=[d.path for d in lg],pdf2_files=[d.path for d in rg],pdf1_ahus=sorted(set(left_equipment)),pdf2_ahus=sorted(set(right_equipment)))
         for am in match_ahu_lists(left_equipment,right_equipment):
-            lf=_files_for_ahu(lg,am.left_normalized);rf=_files_for_ahu(rg,am.right_normalized);ahu_batches.append(BatchAHU(pm.left_name,am,lf,rf))
+            lf=_files_for_ahu(lg,am.left_normalized);rf=_files_for_ahu(rg,am.right_normalized); info("AHU MATCH DEBUG: aday",project=pm.left_name,left=am.left_normalized,right=am.right_normalized,score=am.score,status=am.status,reason=getattr(am,"reason",None),pdf1_files=list(lf),pdf2_files=list(rf)); ahu_batches.append(BatchAHU(pm.left_name,am,lf,rf))
             if am.status not in {"EXACT","NORMALIZED_MATCH","USER_APPROVED"}:continue
             try:motor_comparisons.extend(compare_motor_records(_extract_side_motors(lf,"PDF1",am.left_normalized),_extract_side_motors(rf,"PDF2",am.right_normalized)))
             except Exception as exc:exception("Motor karşılaştırması başarısız",exc,project=pm.left_name,ahu=am.left_normalized)
+    info("AHU MATCH DEBUG: final",project_matches=len(project_matches),ahu_matches=len(ahu_batches),motor_comparisons=len(motor_comparisons))
     return BatchAnalysis(tuple(left_docs),tuple(right_docs),tuple(project_matches),tuple(ahu_batches),tuple(motor_comparisons))
