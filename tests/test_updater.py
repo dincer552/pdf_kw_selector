@@ -136,3 +136,33 @@ def test_release_version_is_read_from_release_notes(monkeypatch, tmp_path):
 
     assert result["version"] == "v0.5.4"
     assert result["available"] is False
+
+
+def test_unknown_release_version_uses_exe_digest(monkeypatch, tmp_path):
+    monkeypatch.setattr(
+        updater,
+        "_request_json",
+        lambda url: {
+            "name": "PDF kW Selector - Latest",
+            "body": "Latest Windows build.",
+            "tag_name": "latest",
+            "assets": [
+                {
+                    "name": "PDF_KW_Selector_latest.exe",
+                    "id": 123,
+                    "state": "uploaded",
+                    "digest": "sha256:" + "a" * 64,
+                    "size": 10,
+                    "url": "https://api.github.com/assets/123",
+                    "browser_download_url": "https://github.com/example/latest.exe",
+                }
+            ],
+        },
+    )
+    current = tmp_path / "current.exe"
+    current.write_bytes(b"current")
+    monkeypatch.setattr(updater, "_sha256", lambda path: "b" * 64)
+
+    result = updater.check_for_update(current, "v0.5.4")
+
+    assert result["available"] is True
