@@ -1,3 +1,14 @@
+# 2026-09-11 — PDF1 Project/Unit Reference keşfi sabit alanlara bağlandı
+
+### Bugün eklenen işler
+
+- [x] **PDF1 ekipman keşfi artık yalnızca `Unit Reference` alanının karşısındaki değeri kullanıyor:** Ekipman tipi (`AHU`, `FAHU`, `HKS` vb.) değişken kabul ediliyor; `Unit Reference` etiketi sabit referans olarak kullanılıyor. `AHU-KIT`, `AHUKIT` ve sayfa içinde geçen diğer tesadüfi AHU/HKS ifadeleri PDF1 ekipman keşfine dahil edilmiyor.
+- [x] **PDF1 Project keşfi artık `Project` alanının karşısındaki değeri kullanıyor:** PDF1'de proje adı sabit `Project` etiketi üzerinden alınıyor. PDF2'deki proje adı farklı/uzun yazılmış olsa bile mevcut normalize + eşleştirme mantığıyla karşılaştırılmaya devam ediyor.
+- [x] **PDF1'de eski genel AHU/HKS metin taraması kaldırıldı:** `Unit Reference` değeri bulunamazsa dosya adından ekipman tahmini de PDF1 için yapılmıyor.
+- [x] **`Unit Reference` ve `Project` için PDF text extraction varyasyonları desteklendi:** Etiket ve değer aynı satırda veya ayrı satırlarda gelse de değer alınabiliyor.
+
+---
+
 # 2026-09-11 — Project/AHU eşleşme rezervasyon hatası düzeltildi
 
 ### Bugün eklenen düzeltme
