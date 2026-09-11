@@ -10,9 +10,8 @@ on:
 permissions:
   contents: write
 
-# Do not cancel/queue builds from another commit on the same branch.
-# Copilot and ChatGPT can therefore push/build independently; each run
-# checks out the exact commit that triggered it.
+# Shared branch build: do not cancel another commit's build.
+# Release publishing remains restricted to main.
 
 jobs:
   build-windows:
