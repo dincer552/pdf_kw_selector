@@ -4,8 +4,9 @@ from concurrent.futures import ThreadPoolExecutor
 from dataclasses import dataclass
 from functools import lru_cache
 from pathlib import Path
+import re
 from pypdf import PdfReader
-from ahu_matching import AHUDiscovery, _equipment_from_filename, discover_equipment_from_text
+from ahu_matching import AHUDiscovery, EquipmentOccurrence, _equipment_from_filename, discover_equipment_from_text, normalize_equipment_id
 from app_logger import exception, info, warning
 from project_discovery import ProjectDiscovery, discover_project_from_text
 from pdf1_field_discovery import discover_pdf1_project, discover_pdf1_unit_reference
@@ -28,8 +29,17 @@ def _scan_pdf1_motors(pages):
     for n,text in enumerate(pages,1): rows.extend(extract_rated_motor_powers_from_page(text,n))
     return tuple(_dedupe_motor_results(rows))
 
-def _scan_pdf2_motors(pages):
-    ids=[v for text in pages if (v:=_equipment_id(text))]; equipment_id=ids[0] if ids else None
+def _filename_equipment(path):
+    stem=Path(path).stem
+    match=re.search(r"(?<![A-Z0-9])(?:KS|SS)[_-]?[A-Z]?\d+(?:\.\d+)?(?![A-Z0-9])", stem, re.I)
+    if not match:
+        return None
+    raw=re.sub(r"[_\s]+", "-", match.group(0)).upper()
+    normalized=normalize_equipment_id(raw)
+    return EquipmentOccurrence(raw, normalized, 1, "filename") if normalized else None
+
+def _scan_pdf2_motors(pages, equipment_id=None):
+    ids=[v for text in pages if (v:=_equipment_id(text))]; equipment_id=equipment_id or (ids[0] if ids else None)
     if not equipment_id: warning("PDF2 master scan: equipment ID bulunamadı")
     summary=_summary_quantities(list(pages)); rows=[]
     for n,text in enumerate(pages,1):
@@ -45,14 +55,18 @@ def _scan_single_pdf(path,side):
     info("Master PDF scan başladı",path=str(resolved),side=side); pages=_read_pages_once(resolved)
     if side=="PDF1":
         project=discover_pdf1_project(list(pages)); equipment=discover_pdf1_unit_reference(list(pages)); motors=_scan_pdf1_motors(pages)
+        if not equipment.unique_ids():
+            fallback=_filename_equipment(resolved) or _equipment_from_filename(resolved)
+            if fallback: equipment=AHUDiscovery((fallback,))
         ebm=tuple(p for p,text in enumerate(pages,1) if extract_model_brand(text)=="EBM-Papst")
         info("PDF1 sabit alan keşfi",path=str(resolved),project=project.project_name,unit_reference=list(equipment.unique_ids()),ebm_pages=list(ebm))
         return MasterPDFScan(str(resolved),side,pages,project,equipment,pdf1_motors=motors,pdf1_ebm_pages=ebm)
     project=discover_project_from_text(list(pages)); equipment=discover_equipment_from_text(list(pages))
     if not equipment.unique_ids():
-        fallback=_equipment_from_filename(resolved)
+        fallback=_filename_equipment(resolved) or _equipment_from_filename(resolved)
         if fallback: equipment=AHUDiscovery((fallback,))
-    return MasterPDFScan(str(resolved),side,pages,project,equipment,pdf2_motors=_scan_pdf2_motors(pages))
+    equipment_id=equipment.unique_ids()[0] if equipment.unique_ids() else None
+    return MasterPDFScan(str(resolved),side,pages,project,equipment,pdf2_motors=_scan_pdf2_motors(pages,equipment_id))
 
 @lru_cache(maxsize=128)
 def scan_pdf(path,side):
