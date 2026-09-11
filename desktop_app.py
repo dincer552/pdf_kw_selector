@@ -7,12 +7,14 @@ import os
 from pathlib import Path
 import subprocess
 import sys
+import threading
 import tkinter as tk
 from tkinter import filedialog, messagebox, ttk
 
 from app_logger import exception, info, read_log, clear_log, log_file, log_directory, startup
 from batch_analysis import analyze_batch
 from desktop_inputs import PdfInput, discover_pdfs
+from pdf_master_scan import scan_pdfs
 from updater import check_for_update, download_update, restart_with_update
 from ahu_matching import normalize_equipment_id
 
@@ -28,6 +30,7 @@ class App(tk.Tk):
         self.pdf1_inputs: list[PdfInput] = []
         self.pdf2_inputs: list[PdfInput] = []
         self.analysis = None
+        self._analysis_running = False
         self._build_ui()
 
     def _build_ui(self):
@@ -91,31 +94,68 @@ class App(tk.Tk):
         info("PDF girişleri güncellendi", side=side, count=len(target), paths=[str(x.path) for x in target])
 
     def clear_inputs(self):
+        if self._analysis_running:
+            return
         self.pdf1_inputs.clear(); self.pdf2_inputs.clear()
         self.pdf1_label.configure(text="0 PDF seçildi"); self.pdf2_label.configure(text="0 PDF seçildi")
         info("PDF seçimleri temizlendi")
 
     def compare(self):
+        if self._analysis_running:
+            return
         if not self.pdf1_inputs or not self.pdf2_inputs:
             messagebox.showwarning("Eksik seçim", "PDF1 ve PDF2 tarafına en az birer PDF/klasör ekleyin."); return
+        self._analysis_running = True
+        self.status.configure(text="PDF'ler taranıyor... Arayüz çalışmaya devam edecek.")
+        self.update_idletasks()
+        pdf1 = [str(x.path) for x in self.pdf1_inputs]
+        pdf2 = [str(x.path) for x in self.pdf2_inputs]
+        threading.Thread(target=self._prepare_analysis, args=(pdf1, pdf2), daemon=True).start()
+
+    def _prepare_analysis(self, pdf1_paths, pdf2_paths):
         try:
-            self.status.configure(text="Project → AHU → Motor toplu analizi yapılıyor..."); self.update_idletasks()
-            self.analysis = analyze_batch(self.pdf1_inputs, self.pdf2_inputs)
-            for item in self.tree.get_children(): self.tree.delete(item)
-            counts={"MATCH":0,"MISMATCH":0,"ONLY_IN_PDF1":0,"ONLY_IN_PDF2":0}; ahu_context={}
-            for batch_ahu in self.analysis.ahu_matches:
-                left=normalize_equipment_id(batch_ahu.match.left_normalized); right=normalize_equipment_id(batch_ahu.match.right_normalized)
-                if left: ahu_context[left]=batch_ahu.project_name or "-"
-                if right: ahu_context[right]=batch_ahu.project_name or "-"
-            comparisons=list(self.analysis.motor_comparisons); comparisons.sort(key=lambda item:(ahu_context.get(normalize_equipment_id(item.equipment_id),"-").casefold(),normalize_equipment_id(item.equipment_id).casefold(),item.component_type.casefold(),item.component_index))
-            previous_group=None; group_number=0
-            for comparison in comparisons:
-                counts[comparison.status]=counts.get(comparison.status,0)+1; ahu=normalize_equipment_id(comparison.equipment_id); project=ahu_context.get(ahu,"-"); group_key=(project.casefold(),ahu.casefold())
-                if group_key!=previous_group: group_number+=1; previous_group=group_key
-                tag="group_a" if group_number%2 else "group_b"
-                self.tree.insert("","end",tags=(tag,),values=(project,ahu,comparison.component_label,comparison.component_type,self._fmt(comparison.pdf1_kw),self._fmt(comparison.pdf2_kw),self._fmt(comparison.difference_kw),comparison.status,comparison.pdf1_page or "-",comparison.pdf2_page or "-"))
-            info("GUI sonuç tablosu oluşturuldu",comparisons=len(comparisons),counts=counts,grouped_ahu_count=group_number); self.status.configure(text=f"✓ Proje {len(self.analysis.project_matches)} | AHU {len(self.analysis.ahu_matches)} | Motor {len(self.analysis.motor_comparisons)} | MATCH {counts['MATCH']} | MISMATCH {counts['MISMATCH']} | PDF1 {counts['ONLY_IN_PDF1']} | PDF2 {counts['ONLY_IN_PDF2']}"); self._set_detail(json.dumps(self.analysis.to_dict(),ensure_ascii=False,indent=2)); self.refresh_logs()
-        except Exception as exc: exception("GUI sonuç tablosu oluşturma hatası",exc); messagebox.showerror("Sonuç gösterme hatası",f"{type(exc).__name__}: {exc}"); self.refresh_logs()
+            scan_pdfs([(path, "PDF1") for path in pdf1_paths] + [(path, "PDF2") for path in pdf2_paths])
+            self.after(0, self._run_analysis_after_scan, pdf1_paths, pdf2_paths)
+        except Exception as exc:
+            self.after(0, self._analysis_failed, exc)
+
+    def _run_analysis_after_scan(self, pdf1_paths, pdf2_paths):
+        try:
+            self.status.configure(text="Eşleştirme ve motor analizi yapılıyor...")
+            self.update_idletasks()
+            self.analysis = analyze_batch(pdf1_paths, pdf2_paths)
+            self._render_analysis()
+            self._post_analysis()
+        except Exception as exc:
+            self._analysis_failed(exc)
+
+    def _post_analysis(self):
+        """Hook for grouped GUI post-processing."""
+
+    def _render_analysis(self):
+        for item in self.tree.get_children(): self.tree.delete(item)
+        counts={"MATCH":0,"MISMATCH":0,"ONLY_IN_PDF1":0,"ONLY_IN_PDF2":0}; ahu_context={}
+        for batch_ahu in self.analysis.ahu_matches:
+            left=normalize_equipment_id(batch_ahu.match.left_normalized); right=normalize_equipment_id(batch_ahu.match.right_normalized)
+            if left: ahu_context[left]=batch_ahu.project_name or "-"
+            if right: ahu_context[right]=batch_ahu.project_name or "-"
+        comparisons=list(self.analysis.motor_comparisons); comparisons.sort(key=lambda item:(ahu_context.get(normalize_equipment_id(item.equipment_id),"-").casefold(),normalize_equipment_id(item.equipment_id).casefold(),item.component_type.casefold(),item.component_index))
+        previous_group=None; group_number=0
+        for comparison in comparisons:
+            counts[comparison.status]=counts.get(comparison.status,0)+1; ahu=normalize_equipment_id(comparison.equipment_id); project=ahu_context.get(ahu,"-"); group_key=(project.casefold(),ahu.casefold())
+            if group_key!=previous_group: group_number+=1; previous_group=group_key
+            tag="group_a" if group_number%2 else "group_b"
+            self.tree.insert("","end",tags=(tag,),values=(project,ahu,comparison.component_label,comparison.component_type,self._fmt(comparison.pdf1_kw),self._fmt(comparison.pdf2_kw),self._fmt(comparison.difference_kw),comparison.status,comparison.pdf1_page or "-",comparison.pdf2_page or "-"))
+        info("GUI sonuç tablosu oluşturuldu",comparisons=len(comparisons),counts=counts,grouped_ahu_count=group_number)
+        self.status.configure(text=f"✓ Proje {len(self.analysis.project_matches)} | AHU {len(self.analysis.ahu_matches)} | Motor {len(self.analysis.motor_comparisons)} | MATCH {counts['MATCH']} | MISMATCH {counts['MISMATCH']} | PDF1 {counts['ONLY_IN_PDF1']} | PDF2 {counts['ONLY_IN_PDF2']}")
+        self._set_detail(json.dumps(self.analysis.to_dict(),ensure_ascii=False,indent=2)); self.refresh_logs()
+
+    def _analysis_failed(self, exc):
+        self._analysis_running = False
+        exception("GUI sonuç tablosu oluşturma hatası",exc)
+        messagebox.showerror("Sonuç gösterme hatası",f"{type(exc).__name__}: {exc}")
+        self.status.configure(text="Analiz başarısız")
+        self.refresh_logs()
 
     def check_updates(self):
         try: info("Güncelleme butonuna basıldı",current_exe=str(Path(sys.executable).resolve()),version=VERSION); info_data=check_for_update(Path(sys.executable))
