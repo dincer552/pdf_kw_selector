@@ -93,6 +93,27 @@ def _find_multiline_project_name(lines: list[str], start_index: int) -> str:
         if _looks_like_project_name(value): return _strip_header_metadata(value)
     return ""
 
+def _find_label_value(lines: list[str], index: int, label_pattern: re.Pattern[str]) -> str:
+    """Read the value printed to the right of a label, or the next extracted line.
+
+    PDF text extraction can split a visually single row such as
+    ``Proje Name:    Teleferik Ahu`` into separate text fragments.  Prefer the
+    text after the label; otherwise walk a short distance forward and take the
+    first plausible value.
+    """
+    line = _clean_value(lines[index])
+    match = label_pattern.match(line)
+    if match:
+        inline = _clean_value(match.group(1))
+        if inline and not _is_field_label(inline):
+            return _strip_header_metadata(inline)
+    for look in range(index + 1, min(len(lines), index + 5)):
+        value = _clean_value(lines[look])
+        if not value or _is_field_label(value) or _is_known_field_value(value):
+            continue
+        return _strip_header_metadata(value)
+    return ""
+
 def discover_project_from_text(pages: list[str]) -> ProjectDiscovery:
     try:
         candidates: list[ProjectCandidate] = []
@@ -104,7 +125,7 @@ def discover_project_from_text(pages: list[str]) -> ProjectDiscovery:
         for index, (page_number, line) in enumerate(fragments):
             match = _LABEL_RE.match(line)
             if match:
-                value = _strip_header_metadata(match.group(1)) or _find_multiline_project_name(lines, index)
+                value = _find_label_value(lines, index, _LABEL_RE)
                 item = _candidate(value, "project_name_field", page_number, "HIGH")
                 if item: candidates.append(item)
                 continue
