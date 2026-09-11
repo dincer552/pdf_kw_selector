@@ -1,3 +1,14 @@
+# 2026-09-11 — EBM-Papst ayrı görünüm ve motor karşılaştırma kuralı
+
+### Bugün eklenen işler
+
+- [x] **PDF1'de `EBM-Papst` belge seviyesinde tespit ediliyor:** `Model Brand = EBM-Papst` ifadesi PDF1'in tüm sayfalarında aranıyor; yalnızca Rated Power sayfalarına bağlı değil.
+- [x] **EBM-Papst PDF1 AHU/Project eşleşmesinden çıkarılmıyor:** PDF2 ile Project → AHU eşleşmesi normal şekilde devam ediyor.
+- [x] **EBM-Papst için motor kW karşılaştırması yapılmıyor:** EBM-Papst tespit edilen PDF1/AHU için motor karşılaştırması atlanıyor; normal AHU eşleşmesi korunuyor.
+- [x] **EBM-PAPST sekmesi eklendi:** EBM tespit edilen PDF1 dosyası, proje, AHU, EBM bulunan sayfalar, eşleşen PDF2 dosyaları ve durum bilgisi ayrı sekmede gösteriliyor.
+
+---
+
 # 2026-09-11 — PDF1 Rated Power ve fiziksel motor adedi keşfi
 
 ### Bugün eklenen işler
