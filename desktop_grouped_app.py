@@ -108,6 +108,11 @@ class GroupedApp(BaseApp):
     def __init__(self):
         super().__init__()
         self._build_ebm_tab()
+        self.tabs.tab(0, text="DANFOS")
+        self.tabs.tab(1, text="EŞLEŞMEYEN PDF'LER (0)")
+        self.tabs.tab(2, text="HATALAR")
+        self.tabs.insert(1, self.ebm_tab)
+        self.unmatched_tab_index = lambda: self.tabs.index(self.unmatched_tab)
         install_pdf_drop_targets(self, self.pdf1_label.master, self.pdf2_label.master)
 
     def _build_ebm_tab(self):
@@ -147,6 +152,10 @@ class GroupedApp(BaseApp):
             self.ebm_tree.insert("", "end", values=row)
         self.tabs.tab(self.ebm_tab, text=f"EBM-PAPST ({len(rows)})")
         info("EBM-Papst sekmesi oluşturuldu", ebm_pdf_count=len(rows), rows=rows)
+
+    def _render_unmatched(self):
+        super()._render_unmatched()
+        self.tabs.tab(self.unmatched_tab_index(), text=f"EŞLEŞMEYEN PDF'LER ({len(self.unmatched_tree.get_children())})")
 
     def _post_analysis(self):
         try:
