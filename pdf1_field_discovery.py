@@ -11,7 +11,7 @@ _FIELD_STOP_RE = re.compile(
     re.I,
 )
 _SUPPORTED_UNIT_RE = re.compile(
-    r"\b(?:HKS[_ -]?\d+|KS[_ -]?[A-Z]?\d+(?:\.\d+)?|SS[_ -]?\d+(?:\.\d+)?|AHU(?:[_ -]+\d+|\d+))\b",
+    r"\b(?:HKS[_ -]?\d+|KS[_ -]?[A-Z]?\d+(?:\.\d+)?|SS[_ -]?[A-Z]?\d+(?:\.\d+)?|PW[_ -]?[A-Z]?\d+(?:\.\d+)?|AHU(?:[_ -]+[A-Z0-9_.-]+|\d[A-Z0-9_.-]*))\b",
     re.I,
 )
 
@@ -29,6 +29,14 @@ def _value_after_label(lines: list[str], index: int, label: str) -> str:
         if re.match(r"^(?:project|unit\s+reference|creation\s+date|revision\s+date|revision\s+no)\b", candidate, re.I):
             break
         return candidate
+    # Handle exporters that place the field value before its label.
+    for candidate in reversed(lines[max(0, index - 8):index]):
+        candidate = candidate.strip(" :-\t")
+        if not candidate:
+            continue
+        if re.match(r"^(?:project|unit\s+reference|creation\s+date|revision\s+date|revision\s+no)\b", candidate, re.I):
+            continue
+        return candidate
     return ""
 
 
@@ -42,8 +50,9 @@ def discover_pdf1_unit_reference(pages: list[str]) -> AHUDiscovery:
                 continue
             value = _value_after_label(lines, index, r"unit\s+reference")
             match = _SUPPORTED_UNIT_RE.search(value)
-            if not match and index + 1 < len(lines):
-                match = _SUPPORTED_UNIT_RE.search(lines[index + 1])
+            if not match:
+                window = "\n".join(lines[max(0, index - 8):min(len(lines), index + 8)])
+                match = _SUPPORTED_UNIT_RE.search(window)
             if not match:
                 continue
             raw = match.group(0).strip(" .,:;)]}")
