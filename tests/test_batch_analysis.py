@@ -1,7 +1,7 @@
 from pathlib import Path
 
 from ahu_matching import discover_equipment_from_text
-from batch_analysis import BatchDocument, _best_project_for_document, _group_documents
+from batch_analysis import BatchDocument, _best_project_for_document, _group_documents, _pair_project_groups
 from project_discovery import discover_project_from_text
 from stage2_pdf_discovery import _equipment_id, _summary_quantities
 
@@ -32,6 +32,23 @@ def test_unnamed_pdf2_document_can_be_inferred_from_ahu():
     assert inferred is not None
     assert inferred[2] == project.project_name_normalized
     assert inferred[0] == 1.0
+
+
+def test_exact_project_groups_pair_without_fuzzy_cross_product():
+    p1 = discover_project_from_text(["Project Ekol Sada Hastanesi"])
+    p2 = discover_project_from_text(["Project Another Hospital"])
+    r1 = discover_project_from_text(["EKOL SADA HASTANESI"])
+    r2 = discover_project_from_text(["Another Hospital"])
+    left = [BatchDocument("a.pdf", "PDF1", p1, ("HKS-12",)), BatchDocument("b.pdf", "PDF1", p2, ("HKS-13",))]
+    right = [BatchDocument("c.pdf", "PDF2", r1, ("HKS-12",)), BatchDocument("d.pdf", "PDF2", r2, ("HKS-13",))]
+
+    result = _pair_project_groups(_group_documents(left), _group_documents(right))
+
+    assert len(result) == 2
+    assert {(item[0], item[1]) for item in result} == {
+        (p1.project_name_normalized, r1.project_name_normalized),
+        (p2.project_name_normalized, r2.project_name_normalized),
+    }
 
 
 def test_pdf2_single_supply_summary_is_supported():
