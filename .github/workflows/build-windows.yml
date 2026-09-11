@@ -61,3 +61,31 @@ jobs:
         with:
           name: PDF_KW_Selector_v0.5.4_Windows
           path: dist/PDF_KW_Selector_v0.5.4.exe
+  deploy-update:
+    needs: build-windows
+    runs-on: self-hosted
+    steps:
+      - uses: actions/download-artifact@v4
+        with:
+          name: PDF_KW_Selector_v0.5.4_Windows
+          path: update-dist
+      - name: Publish VM update manifest
+        shell: bash
+        env:
+          UPDATE_ROOT: /var/www/pdf-selector-updates
+          BUILD_SHA: ${{ github.sha }}
+          VERSION: v0.5.4
+        run: |
+          set -euo pipefail
+          exe="update-dist/PDF_KW_Selector_v0.5.4.exe"
+          size="$(stat -c '%s' "$exe")"
+          sha="$(sha256sum "$exe" | awk '{print $1}')"
+          name="PDF_KW_Selector_${VERSION}_${BUILD_SHA}.exe"
+          install -m 0644 "$exe" "$UPDATE_ROOT/.${name}.tmp"
+          printf '{"version":"%s","build":"%s","file":"%s","size":%s,"sha256":"%s"}\n' \
+            "$VERSION" "$BUILD_SHA" "$name" "$size" "$sha" > "$UPDATE_ROOT/.manifest.json.tmp"
+          mv -f "$UPDATE_ROOT/.${name}.tmp" "$UPDATE_ROOT/$name"
+          mv -f "$UPDATE_ROOT/.manifest.json.tmp" "$UPDATE_ROOT/manifest.json"
+          find "$UPDATE_ROOT" -maxdepth 1 -type f -name 'PDF_KW_Selector_*.exe' \
+            ! -name "$name" ! -name 'PDF_KW_Selector_latest.exe' -delete
+          install -m 0644 "$UPDATE_ROOT/$name" "$UPDATE_ROOT/PDF_KW_Selector_latest.exe"

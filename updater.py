@@ -20,6 +20,7 @@ from app_logger import calculation_error, debug, error, exception, info, warning
 
 REPO = "dincer552/pdf_kw_selector"
 RELEASE_API = f"https://api.github.com/repos/{REPO}/releases/tags/latest"
+UPDATE_MANIFEST_URL = "https://dinceryuksek.com/pdf-updates/manifest.json"
 ASSET_NAME = "PDF_KW_Selector_latest.exe"
 CURRENT_VERSION_RE = re.compile(r"^v?(\d+(?:\.\d+)+)$", re.IGNORECASE)
 IMMUTABLE_ASSET_RE = re.compile(r"^PDF_KW_Selector_[0-9a-f]{40}\.exe$", re.IGNORECASE)
@@ -118,7 +119,41 @@ def _release_build_sha(release: dict) -> str:
 
 
 def check_for_update(current_exe: Path | None = None, current_version: str | None = None, current_build_sha: str | None = None) -> dict:
-    release = _request_json(RELEASE_API)
+    release = _request_json(UPDATE_MANIFEST_URL)
+    if "assets" not in release and release.get("file"):
+        current = Path(current_exe or sys.executable).resolve()
+        current_digest = _sha256(current).lower() if current.exists() else ""
+        remote_digest = str(release.get("sha256") or "").replace("sha256:", "").lower()
+        remote_version = str(release.get("version") or "")
+        remote_build = str(release.get("build") or "").lower()
+        current_build = str(current_build_sha or "").lower()
+        version_known = bool(_version_tuple(current_version)) and bool(_version_tuple(remote_version))
+        same_version = version_known and _version_tuple(current_version) >= _version_tuple(remote_version)
+        same_build = bool(remote_build and current_build) and current_build == remote_build
+        same_digest = bool(remote_digest and current_digest) and current_digest == remote_digest
+        same = same_build or same_digest or (same_version and not remote_build)
+        download_url = urllib.parse.urljoin(UPDATE_MANIFEST_URL, str(release["file"]))
+        info(
+            "VM güncelleme manifesti kontrol edildi",
+            manifest=UPDATE_MANIFEST_URL,
+            current_version=current_version,
+            remote_version=remote_version,
+            current_build_sha=current_build_sha,
+            remote_build_sha=remote_build or None,
+            available=not same,
+        )
+        return {
+            "version": remote_version or "latest",
+            "build_sha": remote_build,
+            "download_url": download_url,
+            "browser_download_url": download_url,
+            "asset_id": None,
+            "asset_name": Path(str(release["file"])).name,
+            "asset_size": release.get("size"),
+            "digest": remote_digest,
+            "current_digest": current_digest,
+            "available": not same,
+        }
     asset = _select_asset(release.get("assets") or [])
     remote_digest = (asset.get("digest") or "").replace("sha256:", "").lower()
     current = Path(current_exe or sys.executable).resolve()

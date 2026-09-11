@@ -170,6 +170,28 @@ def test_release_build_sha_controls_same_version_updates(monkeypatch, tmp_path):
     assert newer["available"] is True
 
 
+def test_vm_manifest_controls_updates_by_build(monkeypatch, tmp_path):
+    monkeypatch.setattr(
+        updater,
+        "_request_json",
+        lambda url: {
+            "version": "v0.5.4",
+            "build": "d305a00",
+            "file": "PDF_KW_Selector_v0.5.4_d305a00.exe",
+            "size": 10,
+            "sha256": "a" * 64,
+        },
+    )
+    current = tmp_path / "current.exe"
+    current.write_bytes(b"current")
+
+    result = updater.check_for_update(current, "v0.5.4", "old1234")
+
+    assert result["available"] is True
+    assert result["build_sha"] == "d305a00"
+    assert result["download_url"].endswith("/PDF_KW_Selector_v0.5.4_d305a00.exe")
+
+
 def test_unknown_release_version_does_not_offer_hash_only_update(monkeypatch, tmp_path):
     monkeypatch.setattr(
         updater,
