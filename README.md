@@ -1,3 +1,14 @@
+# 2026-09-11 — PDF1 Rated Power ve fiziksel motor adedi keşfi
+
+### Bugün eklenen işler
+
+- [x] **PDF1 motor gücü `Rated Power` alanından okunuyor:** Sabit `Rated Power [kW]` etiketi bulunuyor ve hemen karşısındaki değer esas alınıyor. Örneğin `Rated Power [kW] 7,500 x (1x1)` → **7.5 kW**.
+- [x] **Rated Power grup bilgisi fiziksel motor adedini belirliyor:** `1x1` → 1 fiziksel motor, `2x1` → 2 fiziksel motor. İlk sayı motor adedidir; ikinci sayı grup bilgisidir.
+- [x] **PDF text extraction satır kırılmaları destekleniyor:** `Rated Power [kW]` ve değer aynı satırda veya extraction nedeniyle ayrılmış olsa da eşleştiriliyor.
+- [x] **Motor karşılaştırmasına fiziksel motor kayıtları gönderiliyor:** Rated Power değeri ve `NxM` grubu birlikte korunarak PDF2 tarafıyla motor bazında eşleştiriliyor.
+
+---
+
 # 2026-09-11 — PDF1 Project/Unit Reference keşfi sabit alanlara bağlandı
 
 ### Bugün eklenen işler
