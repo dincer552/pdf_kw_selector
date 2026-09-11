@@ -1,5 +1,7 @@
 from pathlib import Path
 
+import batch_analysis
+import pdf_master_scan
 from pdf_master_scan import build_physical_motor_records, scan_pdf
 
 
@@ -42,3 +44,38 @@ def test_master_scan_builds_physical_motor_records_from_cached_results():
     assert len(pdf2_records) == 2
     assert sorted(record.power_kw for record in pdf1_records) == [4.0, 7.5]
     assert sorted(record.power_kw for record in pdf2_records) == [4.0, 7.5]
+
+
+def test_master_scan_cache_reads_a_pdf_once(monkeypatch):
+    calls = []
+    original = pdf_master_scan._read_pages_once
+
+    def counted(path):
+        calls.append(str(path))
+        return original(path)
+
+    monkeypatch.setattr(pdf_master_scan, "_read_pages_once", counted)
+    pdf_master_scan.clear_master_scan_cache()
+
+    first = pdf_master_scan.scan_pdf(PDF1, "PDF1")
+    second = pdf_master_scan.scan_pdf(PDF1, "PDF1")
+
+    assert first is second
+    assert calls == [str(PDF1.resolve())]
+
+
+def test_batch_discovery_uses_master_scan(monkeypatch):
+    calls = []
+    original = batch_analysis.scan_pdf
+
+    def counted(path, side):
+        calls.append((str(path), side))
+        return original(path, side)
+
+    monkeypatch.setattr(batch_analysis, "scan_pdf", counted)
+    pdf_master_scan.clear_master_scan_cache()
+
+    documents = batch_analysis._discover_documents([PDF1, PDF2], "PDF1")
+
+    assert len(documents) == 2
+    assert calls == [(str(PDF1.resolve()), "PDF1"), (str(PDF2.resolve()), "PDF1")]
