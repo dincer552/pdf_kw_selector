@@ -39,10 +39,9 @@ SUMMARY_PAIR_RE = re.compile(
     r"(?P<return_value>\d+(?:[.,]\d+)?)\s*\[?\s*kW\s*\]?\s*"
     r"\(\s*(?P<return_quantity>\d+\s*[x×]\s*\d+)\s*\)", re.I
 )
-# Electrical drawings in this project family use HKS-xx as the unit number.
-# Keep the existing AHU/VE.A.D. forms while also accepting HKS-xx.
+# Electrical drawings in this project family use HKS-xx / KS-xx.xx as the unit number.
 EQUIPMENT_RE = re.compile(
-    r"\bVE\.A\.D\.\d+\b|\bAHU[_-][A-Z0-9]+(?:[_-][A-Z0-9]+)+\b|\bAHU[-_ ]?\d+\b|\bHKS[-_ ]?\d+\b", re.I
+    r"\bVE\.A\.D\.\d+\b|\bAHU[_-][A-Z0-9]+(?:[_-][A-Z0-9]+)+\b|\bAHU[-_ ]?\d+\b|\bHKS[-_ ]?\d+\b|\bKS[-_ ]?\d+(?:\.\d+)?\b", re.I
 )
 
 
@@ -70,7 +69,7 @@ def _equipment_id(text: str) -> str | None:
     if not match:
         return None
     raw = re.sub(r"[-_\s]+", "-", match.group(0)).upper()
-    if re.fullmatch(r"AHU-\d+", raw) or re.fullmatch(r"HKS-\d+", raw):
+    if re.fullmatch(r"AHU-\d+", raw) or re.fullmatch(r"HKS-\d+", raw) or re.fullmatch(r"KS-\d+(?:\.\d+)?", raw):
         return normalize_equipment_id(raw)
     return raw
 
@@ -157,7 +156,6 @@ def _fallback_connection_page(text: str, page_number: int, equipment_id: str | N
 
 
 def _summary_only_results(equipment_id: str | None, summary: dict[str, tuple[float, str]], page_number: int = 1) -> list[PDF2MotorResult]:
-    """Use title-page summary when there are no dedicated Motor Connections pages."""
     if not equipment_id:
         warning("PDF2 summary fallback yapılamadı: equipment ID yok")
         return []
