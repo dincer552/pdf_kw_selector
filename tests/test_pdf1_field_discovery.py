@@ -31,3 +31,15 @@ def test_pdf1_unit_reference_does_not_capture_revision_text():
 
     assert equipment.unique_ids() == ("HKS-12",)
     assert all("REVISION" not in item.equipment_id.upper() for item in equipment.equipment_ids)
+
+
+def test_pdf1_unit_reference_supports_ks_ids_with_dot_and_underscore():
+    pages = [
+        "Project Ekol Sada Hastanesi\n"
+        "Unit Reference KS-00.02 Revision No\n"
+        "Unit Reference KS_01.03 Revision No"
+    ]
+
+    equipment = discover_pdf1_unit_reference(pages)
+
+    assert equipment.unique_ids() == ("KS-00.02", "KS-01.03")
