@@ -55,17 +55,14 @@ def _discover_documents(paths: list[str | Path], side: str) -> list[BatchDocumen
             warning("PDF dosyası bulunamadı veya dosya değil", side=side, path=str(path)); continue
         valid_paths.append(str(path))
     if valid_paths:
-        try:
-            scan_pdfs([(path, side) for path in valid_paths])
-        except Exception as exc:
-            exception("Paralel master scan başarısız; cache taraması seri olarak devam edecek", exc, side=side)
+        try: scan_pdfs([(path, side) for path in valid_paths])
+        except Exception as exc: exception("Paralel master scan başarısız; cache taraması seri olarak devam edecek", exc, side=side)
     for path in valid_paths:
         try:
             scan=scan_pdf(path,side); project=scan.project; equipment=scan.equipment
             document=BatchDocument(path,side,project,equipment.unique_ids()); documents.append(document)
             info("PDF master keşfi tamamlandı", side=side, path=path, pages=scan.page_count, project=project.project_name, equipment=list(document.equipment), motor_count=len(scan.pdf1_motors if side=="PDF1" else scan.pdf2_motors), ebm_pages=list(scan.pdf1_ebm_pages))
-        except Exception as exc:
-            exception("PDF keşfi başarısız; dosya analizin dışında bırakıldı",exc,side=side,path=path)
+        except Exception as exc: exception("PDF keşfi başarısız; dosya analizin dışında bırakıldı",exc,side=side,path=path)
     return documents
 
 
@@ -98,18 +95,31 @@ def _extract_side_motors(paths, side, target_ahu):
 
 
 def _pair_project_groups(left_groups,right_groups):
-    candidates=[]
+    """Pair project groups with exact normalized names before fuzzy scoring."""
+    candidates=[]; used_l=set(); used_r=set()
+    right_exact={key: (key, docs) for key, docs in right_groups.items() if key and not key.startswith("__UNRESOLVED__:")}
+    # Exact normalized project names are definitive and require no O(N*M) scoring.
     for left_key,left_docs in left_groups.items():
+        if left_key.startswith("__UNRESOLVED__:") or not left_key: continue
+        exact=right_exact.get(left_key)
+        if exact is None: continue
+        right_key,right_docs=exact
+        try:
+            match=match_discoveries(left_docs[0].project,right_docs[0].project)
+            candidates.append((match.score,left_key,right_key,match)); used_l.add(left_key); used_r.add(right_key)
+        except Exception as exc: exception("Exact proje eşleşmesi hesaplanamadı",exc,left=left_docs[0].project.project_name,right=right_docs[0].project.project_name)
+    # Only unmatched named groups enter the fuzzy cross-product.
+    for left_key,left_docs in left_groups.items():
+        if left_key in used_l or left_key.startswith("__UNRESOLVED__:") or not left_key: continue
         left=left_docs[0].project
-        if not left.project_name_normalized: continue
         for right_key,right_docs in right_groups.items():
+            if right_key in used_r or right_key.startswith("__UNRESOLVED__:") or not right_key: continue
             right=right_docs[0].project
-            if not right.project_name_normalized: continue
             try:
                 match=match_discoveries(left,right)
                 candidates.append((match.score,left_key,right_key,match))
             except Exception as exc: exception("Proje eşleşme adayı hesaplanamadı",exc,left=left.project_name,right=right.project_name)
-    used_l=set(); used_r=set(); output=[]
+    output=[]
     for _,lk,rk,m in sorted(candidates,reverse=True,key=lambda x:x[0]):
         if lk in used_l or rk in used_r or m.status=="NO_MATCH": continue
         used_l.add(lk); used_r.add(rk); output.append((lk,rk,m))
