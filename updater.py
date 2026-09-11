@@ -60,6 +60,23 @@ def _sha256(path: Path) -> str:
 
 
 def _select_asset(assets: list[dict]) -> dict:
+    canonical = next(
+        (
+            asset
+            for asset in assets
+            if asset.get("name") == ASSET_NAME and asset.get("state") == "uploaded"
+        ),
+        None,
+    )
+    if canonical:
+        info(
+            "Güncelleme için canonical latest EXE asset seçildi",
+            asset=canonical.get("name"),
+            asset_id=canonical.get("id"),
+            size=canonical.get("size"),
+        )
+        return canonical
+
     immutable_zips = [a for a in assets if IMMUTABLE_ZIP_RE.fullmatch(str(a.get("name", ""))) and a.get("state") == "uploaded"]
     if immutable_zips:
         immutable_zips.sort(key=lambda a: (a.get("created_at") or "", a.get("updated_at") or ""), reverse=True)

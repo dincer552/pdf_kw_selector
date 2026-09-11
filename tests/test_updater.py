@@ -23,7 +23,7 @@ def test_download_request_url_keeps_direct_release_url_unchanged():
     assert _download_request_url(original) == original
 
 
-def test_select_asset_prefers_newest_immutable_zip_over_exe_assets():
+def test_select_asset_prefers_canonical_latest_exe_over_stale_immutable_assets():
     assets = [
         {"name": "PDF_KW_Selector_latest.exe", "id": 100, "state": "uploaded", "digest": "sha256:old", "size": 10},
         {"name": "PDF_KW_Selector_aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa.exe", "id": 101, "state": "uploaded", "digest": "sha256:a", "created_at": "2026-09-10T05:00:00Z", "size": 20},
@@ -31,8 +31,8 @@ def test_select_asset_prefers_newest_immutable_zip_over_exe_assets():
         {"name": "PDF_KW_Selector_bbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb.zip", "id": 103, "state": "uploaded", "digest": "sha256:c", "created_at": "2026-09-10T06:00:00Z", "size": 12},
     ]
     selected = _select_asset(assets)
-    assert selected["id"] == 103
-    assert selected["name"].endswith("bbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb.zip")
+    assert selected["id"] == 100
+    assert selected["name"] == "PDF_KW_Selector_latest.exe"
 
 
 def test_select_asset_prefers_newest_immutable_exe_when_no_zip_exists():
