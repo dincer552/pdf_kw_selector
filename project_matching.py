@@ -83,11 +83,18 @@ def match_project_names(left: str | None, right: str | None, *, left_source: str
 
 def _best_candidate(discovery: ProjectDiscovery, target: ProjectDiscovery) -> tuple[ProjectCandidate | None, float, str, str]:
     best_tuple = (None, -1.0, "NO_MATCH", "")
+    target_candidates = tuple(target.candidates or ())
+    exact = {}
+    for candidate in target_candidates:
+        exact.setdefault(candidate.normalized or normalize_project_name(candidate.value), candidate)
     for left in discovery.candidates or ():
-        for right in target.candidates or ():
+        left_normalized = left.normalized or normalize_project_name(left.value)
+        exact_candidate = exact.get(left_normalized)
+        if exact_candidate is not None:
+            return exact_candidate, 1.0, "EXACT", "normalized project candidate is identical"
+        for right in target_candidates:
             score, status, reason = score_project_names(left.value, right.value)
             if score > best_tuple[1]: best_tuple = (right, score, status, reason)
-        if best_tuple[0] is not None and best_tuple[1] >= 1.0: break
     return best_tuple
 
 def match_discoveries(left: ProjectDiscovery, right: ProjectDiscovery) -> ProjectMatch:
@@ -114,11 +121,20 @@ def match_discoveries_with_identifiers(left: ProjectDiscovery, right: ProjectDis
     return base
 
 def match_discovery_lists(left_items: list[ProjectDiscovery], right_items: list[ProjectDiscovery]) -> list[ProjectMatch]:
+    left_norm = {item.project_name_normalized: (index, item) for index, item in enumerate(left_items) if item.project_name_normalized}
+    right_norm = {item.project_name_normalized: (index, item) for index, item in enumerate(right_items) if item.project_name_normalized}
+    output = []; used_left = set(); used_right = set()
+    for normalized, (i, left) in left_norm.items():
+        pair = right_norm.get(normalized)
+        if pair is not None:
+            j, right = pair
+            output.append(match_discoveries(left, right)); used_left.add(i); used_right.add(j)
     pairs = []
     for i, left in enumerate(left_items):
+        if i in used_left: continue
         for j, right in enumerate(right_items):
+            if j in used_right: continue
             match = match_discoveries(left, right); pairs.append((match.score, i, j, match))
-    output = []; used_left = set(); used_right = set()
     for _, i, j, match in sorted(pairs, reverse=True, key=lambda item: item[0]):
         if i in used_left or j in used_right: continue
         output.append(match); used_left.add(i); used_right.add(j)
