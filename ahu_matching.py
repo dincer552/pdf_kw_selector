@@ -14,7 +14,9 @@ _UNIT_PATTERNS = [
     ("unit_reference", re.compile(r"\bunit\s+reference\s*[:=]?\s*([A-Z0-9][A-Z0-9_.-]{1,})", re.I)),
     ("unit_number", re.compile(r"\bunit\s+number\s*[:=]?\s*([A-Z0-9][A-Z0-9_.-]{1,})", re.I)),
     ("hks_token", re.compile(r"(?<![A-Z0-9])(HKS(?:[_ -]?\d+))\b", re.I)),
-    ("ks_token", re.compile(r"(?<![A-Z0-9])(KS(?:[_ -]?\d+(?:\.\d+)?))\b", re.I)),
+    ("ks_token", re.compile(r"(?<![A-Z0-9])(KS(?:[_ -]?[A-Z]?\d+(?:\.\d+)?))\b", re.I)),
+    ("ss_token", re.compile(r"(?<![A-Z0-9])(SS(?:[_ -]?[A-Z]?\d+(?:\.\d+)?))\b", re.I)),
+    ("pw_token", re.compile(r"(?<![A-Z0-9])(PW(?:[_ -]?\d+(?:\.\d+)?))\b", re.I)),
     ("ahu_token", re.compile(r"(?<![A-Z0-9])(AHU(?:[_ -]+[A-Z0-9][A-Z0-9_.-]*|\d[A-Z0-9_.-]*))\b", re.I)),
     ("ahu_embedded", re.compile(r"(?<![A-Z0-9])(?:[A-Z0-9]+[-_ ]+)(AHU(?:[_ -]+[A-Z0-9][A-Z0-9_.-]*|\d[A-Z0-9_.-]*))\b", re.I)),
 ]
@@ -47,7 +49,9 @@ def _is_supported_equipment_id(normalized: str) -> bool:
     return (
         normalized.startswith("AHU-")
         or bool(re.fullmatch(r"HKS-\d+", normalized))
-        or bool(re.fullmatch(r"KS-\d+(?:\.\d+)?", normalized))
+        or bool(re.fullmatch(r"KS-[A-Z]?\d+(?:\.\d+)?", normalized))
+        or bool(re.fullmatch(r"SS-[A-Z]?\d+(?:\.\d+)?", normalized))
+        or bool(re.fullmatch(r"PW-\d+(?:\.\d+)?", normalized))
     )
 
 @dataclass(frozen=True)
@@ -56,8 +60,7 @@ class EquipmentOccurrence:
     normalized: str
     page: int
     source: str
-    def to_dict(self) -> dict:
-        return asdict(self)
+    def to_dict(self) -> dict: return asdict(self)
 
 @dataclass(frozen=True)
 class AHUDiscovery:
@@ -178,8 +181,7 @@ class AHUMatch:
     reason: str
     left_page: int | None = None
     right_page: int | None = None
-    def to_dict(self) -> dict:
-        return asdict(self)
+    def to_dict(self) -> dict: return asdict(self)
 
 
 def score_ahu_ids(left: str | None, right: str | None) -> tuple[float, str, str]:
