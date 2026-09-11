@@ -219,18 +219,23 @@ def download_update(download_url: str, *, expected_digest: str | None = None, as
         offset = 0
         started_at = time.monotonic()
         last_progress_at = 0.0
+        request_url = _download_request_url(download_url)
         for attempt in range(1, 16):
-            request_url = _download_request_url(download_url)
             with _open_download(request_url, offset) as response:
                 status = getattr(response, "status", None)
                 content_length = response.headers.get("Content-Length")
                 content_range = response.headers.get("Content-Range")
                 info("EXE HTTP cevabı alındı", attempt=attempt, status=status, final_url=response.geturl(), content_type=response.headers.get("Content-Type"), content_encoding=response.headers.get("Content-Encoding"), content_length=content_length, content_range=content_range, resume_offset=offset)
+                # Preserve the signed CDN URL after the first redirect. Sending
+                # Range to the GitHub redirect URL can lose the header and
+                # repeatedly return the same truncated 200 response.
+                final_url = response.geturl()
+                if final_url:
+                    request_url = final_url
                 if offset and status == 200:
-                    warning("GitHub Range başlığını yoksaydı; dosya baştan indirilecek", attempt=attempt, resume_offset=offset)
-                    target.unlink(missing_ok=True)
-                    offset = 0
-                    continue
+                    raise RuntimeError(
+                        "GitHub CDN devam indirmesini kabul etmedi; eksik güncelleme dosyası korunmadı."
+                    )
                 if offset and status != 206:
                     raise RuntimeError(f"GitHub devam indirmesi için beklenmeyen HTTP durumu: {status}")
                 with target.open("ab" if offset else "wb") as output:

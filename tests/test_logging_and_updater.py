@@ -134,7 +134,10 @@ def test_download_update_retries_until_expected_size(monkeypatch, tmp_path):
         calls["count"] += 1
         if calls["count"] == 1:
             return _TruncatedResponse(payload[:-4], len(payload))
-        return _FakeResponse(payload)
+        response = _FakeResponse(payload[-4:])
+        response.status = 206
+        response.headers["Content-Range"] = f"bytes={len(payload) - 4}-{len(payload) - 1}/{len(payload)}"
+        return response
 
     monkeypatch.setattr(updater.urllib.request, "urlopen", fake_urlopen)
     monkeypatch.setattr(updater.tempfile, "mkstemp", lambda prefix, suffix: _fake_mkstemp(tmp_path, "retry.exe"))
