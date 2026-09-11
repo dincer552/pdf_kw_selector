@@ -4,7 +4,7 @@ from __future__ import annotations
 from dataclasses import asdict, dataclass
 from pathlib import Path
 
-from ahu_matching import AHUMatch, match_ahu_lists, normalize_equipment_id
+from ahu_matching import AHUMatch, discover_equipment, match_ahu_lists, normalize_equipment_id
 from app_logger import debug, exception, info, warning
 from motor_compare import MotorComparison, compare_motor_records
 from motor_database import build_comparison_key
@@ -105,7 +105,9 @@ def _pair_project_groups(left_groups,right_groups):
         for right_key,right_docs in right_groups.items():
             right=right_docs[0].project
             if not right.project_name_normalized: continue
-            try: candidates.append((match_discoveries(left,right).score,left_key,right_key,match_discoveries(left,right)))
+            try:
+                match=match_discoveries(left,right)
+                candidates.append((match.score,left_key,right_key,match))
             except Exception as exc: exception("Proje eşleşme adayı hesaplanamadı",exc,left=left.project_name,right=right.project_name)
     used_l=set(); used_r=set(); output=[]
     for _,lk,rk,m in sorted(candidates,reverse=True,key=lambda x:x[0]):
