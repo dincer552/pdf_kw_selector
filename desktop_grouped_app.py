@@ -5,6 +5,7 @@ from dataclasses import replace
 from pathlib import Path
 import re
 import sys
+from tkinter import ttk
 
 import desktop_app as desktop_module
 from ahu_matching import normalize_equipment_id
@@ -54,8 +55,6 @@ def _page_is_ebm(path: str, page_number: int) -> bool:
 def _apply_ebm_rules(analysis):
     if analysis is None:
         return None
-    # Motor comparison is already skipped for document-level EBM PDFs in batch_analysis.
-    # Keep this function for compatibility with any legacy comparison rows.
     page_cache: dict[tuple[str, int], bool] = {}
     updated = []
     ebm_count = 0
@@ -112,15 +111,15 @@ class GroupedApp(BaseApp):
         install_pdf_drop_targets(self, self.pdf1_label.master, self.pdf2_label.master)
 
     def _build_ebm_tab(self):
-        tab = __import__("tkinter").ttk.Frame(self.tabs)
+        tab = ttk.Frame(self.tabs)
         self.tabs.add(tab, text="EBM-PAPST (0)")
         cols = ("PDF1", "Proje", "AHU", "EBM Sayfaları", "PDF2", "Durum")
-        self.ebm_tree = __import__("tkinter").ttk.Treeview(tab, columns=cols, show="headings")
+        self.ebm_tree = ttk.Treeview(tab, columns=cols, show="headings")
         widths = {"PDF1": 300, "Proje": 300, "AHU": 120, "EBM Sayfaları": 130, "PDF2": 420, "Durum": 220}
         for col in cols:
             self.ebm_tree.heading(col, text=col)
             self.ebm_tree.column(col, width=widths[col], anchor="w")
-        scroll = __import__("tkinter").ttk.Scrollbar(tab, orient="vertical", command=self.ebm_tree.yview)
+        scroll = ttk.Scrollbar(tab, orient="vertical", command=self.ebm_tree.yview)
         self.ebm_tree.configure(yscrollcommand=scroll.set)
         self.ebm_tree.pack(side="left", fill="both", expand=True, padx=(5, 0), pady=5)
         scroll.pack(side="right", fill="y", padx=(0, 5), pady=5)
@@ -136,11 +135,9 @@ class GroupedApp(BaseApp):
                 continue
             ahu_ids = tuple(document.equipment) or ("-",)
             matching_pdf2 = []
-            matched_ahu = []
             for ahu in self.analysis.ahu_matches:
                 if str(document.path).casefold() in {str(path).casefold() for path in ahu.pdf1_files}:
                     matching_pdf2.extend(ahu.pdf2_files)
-                    matched_ahu.append(normalize_equipment_id(ahu.match.right_normalized) or normalize_equipment_id(ahu.match.left_normalized) or "-")
             pdf2_text = ", ".join(Path(path).name for path in dict.fromkeys(matching_pdf2)) or "-"
             status = "PDF2 AHU eşleşti; motor kW karşılaştırması yapılmadı" if matching_pdf2 else "PDF2 AHU eşleşmesi yok"
             for ahu_id in ahu_ids:
