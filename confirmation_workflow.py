@@ -221,14 +221,18 @@ def _build_ahu_confirmations(project_pair_docs):
     return approved, flexible_auto
 
 
-def analyze_with_confirmations(pdf1_paths, pdf2_paths):
+def analyze_with_confirmations(pdf1_paths, pdf2_paths, progress_callback=None):
     """Run batch analysis after interactive confirmation of uncertain Project/AHU pairs."""
     left_docs = batch._discover_documents(list(pdf1_paths), "PDF1")
     right_docs = batch._discover_documents(list(pdf2_paths), "PDF2")
+    if progress_callback:
+        progress_callback("matching", 1, 5, "PDF belgeleri keşfedildi; proje eşleşmeleri hazırlanıyor")
     left_groups = batch._group_documents(left_docs)
     right_groups = batch._group_documents(right_docs)
 
     approved_projects = _project_confirmation_plan(left_groups, right_groups)
+    if progress_callback:
+        progress_callback("matching", 2, 5, "Projeler eşleştirildi; AHU onayları hazırlanıyor")
 
     project_pair_docs = []
     for left_key, left_docs_group in left_groups.items():
@@ -245,6 +249,8 @@ def analyze_with_confirmations(pdf1_paths, pdf2_paths):
 
     approved_ahus, flexible_ahus = _build_ahu_confirmations(project_pair_docs)
     all_approved_ahus = approved_ahus | flexible_ahus
+    if progress_callback:
+        progress_callback("matching", 3, 5, "AHU eşleştirmeleri tamamlandı; motor analizi başlıyor")
 
     original_project_match = batch.match_discoveries
     original_ahu_match = batch.match_ahu_lists
@@ -295,7 +301,7 @@ def analyze_with_confirmations(pdf1_paths, pdf2_paths):
     batch.match_ahu_lists = confirmed_ahu_matches
     try:
         info("Onaylı eşleştirmelerle hesap başlıyor", approved_projects=list(approved_projects), approved_ahus=list(all_approved_ahus))
-        return batch.analyze_batch(list(pdf1_paths), list(pdf2_paths))
+        return batch.analyze_batch(list(pdf1_paths), list(pdf2_paths), progress_callback=progress_callback)
     except Exception as exc:
         exception("Onaylı eşleştirmeler sonrası toplu analiz hatası", exc)
         raise
