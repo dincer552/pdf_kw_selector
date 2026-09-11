@@ -20,7 +20,7 @@ from app_logger import calculation_error, debug, error, exception, info, warning
 
 REPO = "dincer552/pdf_kw_selector"
 RELEASE_API = f"https://api.github.com/repos/{REPO}/releases/tags/latest"
-UPDATE_MANIFEST_URL = "https://dinceryuksek.com/pdf-updates/manifest.json"
+UPDATE_MANIFEST_URL = "http://20.91.245.7/pdf-updates/manifest.json"
 ASSET_NAME = "PDF_KW_Selector_latest.exe"
 CURRENT_VERSION_RE = re.compile(r"^v?(\d+(?:\.\d+)+)$", re.IGNORECASE)
 IMMUTABLE_ASSET_RE = re.compile(r"^PDF_KW_Selector_[0-9a-f]{40}\.exe$", re.IGNORECASE)
