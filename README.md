@@ -1,3 +1,14 @@
+# 2026-09-11 — Canlı eşleşme teşhisi ve sahipsiz PDF görünümü
+
+### Bugün eklenen işler
+
+- [x] **Canlı Project → AHU eşleşme teşhis logları:** Master scan sonrası PDF1/PDF2 proje grupları, normalize adlar, AHU kümeleri, AHU overlap adayları, proje skor/status/reason bilgileri ve elenen/final eşleşmeler ayrıntılı olarak loglanıyor.
+- [x] **AHU eşleşme teşhis logları:** Her proje grubunda PDF1/PDF2 AHU listeleri, eşleşme adayı, skor, durum, neden ve eşleşmeye giren PDF yolları loglanıyor. Böylece gerçek PDF çalışmasında `project_matches=[]` / `ahu_matches=[]` nedeninin hangi aşamada oluştuğu görülebilecek.
+- [x] **EŞLEŞMEYEN PDF'LER sekmesi:** Sonuç ekranına ayrı bir sekme eklendi. AHU eşleşmesine giremeyen PDF'ler PDF1/PDF2 tarafı, dosya adı, proje, tespit edilen AHU ve neden bilgisiyle listeleniyor; sekme başlığında toplam sayı gösteriliyor.
+- [x] **Sahipsiz PDF teşhisi:** Bir PDF'nin hiçbir başarılı AHU eşleşmesine girmemesi görünür hale getirildi ve bu liste işlem loguna da yazılıyor.
+
+---
+
 # pdf_kw_selector
 
 Engineering PDF'lerinden **doğru motor anma gücünü (kW) bulup fiziksel motor bazında normalize eden ve iki PDF arasında doğrulayan** motor.
