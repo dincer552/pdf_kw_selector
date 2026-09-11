@@ -80,7 +80,8 @@ def _scan_single_pdf(path: str | Path, side: str) -> MasterPDFScan:
             equipment = AHUDiscovery((filename_occurrence,))
     if side == "PDF1":
         motors = _scan_pdf1_motors(pages)
-        ebm_pages = tuple(page for page, text in enumerate(pages, 1) if extract_model_brand(text) == "EBM-Papst")
+        motor_pages = {result.page for result in motors}
+        ebm_pages = tuple(page for page in sorted(motor_pages) if extract_model_brand(pages[page - 1]) == "EBM-Papst")
         return MasterPDFScan(str(resolved), side, pages, project, equipment, pdf1_motors=motors, pdf1_ebm_pages=ebm_pages)
     motors = _scan_pdf2_motors(pages)
     return MasterPDFScan(str(resolved), side, pages, project, equipment, pdf2_motors=motors)
