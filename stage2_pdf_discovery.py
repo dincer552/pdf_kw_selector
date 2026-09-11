@@ -6,44 +6,23 @@ summary is used as a controlled fallback. Supply, Return, Exhaust and
 Activation are kept as separate fan families.
 """
 from __future__ import annotations
-
 import re
 from dataclasses import asdict, dataclass
 from pathlib import Path
-
 from pypdf import PdfReader
-
 from app_logger import debug, exception, info, warning
 from motor_database import MotorRecord, expand_motor_group
 from ahu_matching import normalize_equipment_id
 
-MOTOR_CONNECTION_RE = re.compile(
-    r"\b(?P<direction>supply|return|exhaust|activation)\s+motor\s+connections?\b", re.I
-)
+MOTOR_CONNECTION_RE = re.compile(r"\b(?P<direction>supply|return|exhaust|activation)\s+motor\s+connections?\b", re.I)
 KW_3PH_RE = re.compile(r"(?P<value>\d+(?:[.,]\d+)?)\s*kW\s*3\s*~", re.I)
 KW_SLASH_RE = re.compile(r"(?P<value>\d+(?:[.,]\d+)?)\s*kW\s*/", re.I)
-SUMMARY_GROUPED_KW_RE = re.compile(
-    r"(?P<value>\d+(?:[.,]\d+)?)\s*\[?\s*kW\s*\]?\s*\(\s*"
-    r"(?P<quantity>\d+\s*[x×]\s*\d+)\s*\)", re.I
-)
-SUMMARY_FAN_MOTOR_RE = re.compile(
-    r"fan\s+motor\s+power\s*/?\s*nominal\s+rpm\s*"
-    r"(?P<value>\d+(?:[.,]\d+)?)\s*\[?\s*kW\s*\]?\s*"
-    r"\(\s*(?P<quantity>\d+\s*[x×]\s*\d+)\s*\)", re.I
-)
-SUMMARY_PAIR_RE = re.compile(
-    r"fan\s+motor\s+power\s*/?\s*nominal\s+rpm\s*"
-    r"(?P<supply_value>\d+(?:[.,]\d+)?)\s*\[?\s*kW\s*\]?\s*"
-    r"\(\s*(?P<supply_quantity>\d+\s*[x×]\s*\d+)\s*\)"
-    r".*?"
-    r"(?P<return_value>\d+(?:[.,]\d+)?)\s*\[?\s*kW\s*\]?\s*"
-    r"\(\s*(?P<return_quantity>\d+\s*[x×]\s*\d+)\s*\)", re.I
-)
-# Electrical drawings in this project family use HKS-xx / KS-xx.xx as the unit number.
-EQUIPMENT_RE = re.compile(
-    r"\bVE\.A\.D\.\d+\b|\bAHU[_-][A-Z0-9]+(?:[_-][A-Z0-9]+)+\b|\bAHU[-_ ]?\d+\b|\bHKS[-_ ]?\d+\b|\bKS[-_ ]?\d+(?:\.\d+)?\b", re.I
-)
-
+SUMMARY_GROUPED_KW_RE = re.compile(r"(?P<value>\d+(?:[.,]\d+)?)\s*\[?\s*kW\s*\]?\s*\(\s*(?P<quantity>\d+\s*[x×]\s*\d+)\s*\)", re.I)
+SUMMARY_FAN_MOTOR_RE = re.compile(r"fan\s+motor\s+power\s*/?\s*nominal\s+rpm\s*(?P<value>\d+(?:[.,]\d+)?)\s*\[?\s*kW\s*\]?\s*\(\s*(?P<quantity>\d+\s*[x×]\s*\d+)\s*\)", re.I)
+SUMMARY_PAIR_RE = re.compile(r"fan\s+motor\s+power\s*/?\s*nominal\s+rpm\s*(?P<supply_value>\d+(?:[.,]\d+)?)\s*\[?\s*kW\s*\]?\s*\(\s*(?P<supply_quantity>\d+\s*[x×]\s*\d+)\s*\).*?(?P<return_value>\d+(?:[.,]\d+)?)\s*\[?\s*kW\s*\]?\s*\(\s*(?P<return_quantity>\d+\s*[x×]\s*\d+)\s*\)", re.I)
+# Electrical drawings can use KS-B1.02 / KS_B1.02 as well as HKS-12 / AHU-01.
+EQUIPMENT_RE = re.compile(r"\bVE\.A\.D\.\d+\b|\bAHU[_-][A-Z0-9]+(?:[_-][A-Z0-9]+)+\b|\bAHU[-_ ]?[A-Z0-9][A-Z0-9_.-]*\b|\bHKS[-_ ]?\d+\b|\bKS[-_ ]?[A-Z]?\d+(?:\.\d+)?\b|\bSS[-_ ]?[A-Z]?\d+(?:\.\d+)?\b", re.I)
+UNIT_NUMBER_RE = re.compile(r"\bunit\s+number\s*[:=]?\s*(?P<value>[A-Z0-9][A-Z0-9_.-]*)", re.I)
 
 @dataclass(frozen=True)
 class PDF2MotorResult:
@@ -55,54 +34,44 @@ class PDF2MotorResult:
     source_page: int
     source_text: str
     confidence: str = "high"
+    def to_dict(self) -> dict: return asdict(self)
 
-    def to_dict(self) -> dict:
-        return asdict(self)
-
-
-def _clean(text: str) -> str:
-    return re.sub(r"\s+", " ", text).strip()
-
+def _clean(text: str) -> str: return re.sub(r"\s+", " ", text).strip()
 
 def _equipment_id(text: str) -> str | None:
-    match = EQUIPMENT_RE.search(text)
-    if not match:
-        return None
-    raw = re.sub(r"[-_\s]+", "-", match.group(0)).upper()
-    if re.fullmatch(r"AHU-\d+", raw) or re.fullmatch(r"HKS-\d+", raw) or re.fullmatch(r"KS-\d+(?:\.\d+)?", raw):
-        return normalize_equipment_id(raw)
-    return raw
-
+    cleaned = _clean(text)
+    # The Unit Number field is authoritative for PDF2.  Text extraction may
+    # place the value on the next line, so support both inline and multiline.
+    unit_match = UNIT_NUMBER_RE.search(cleaned)
+    if unit_match:
+        return normalize_equipment_id(unit_match.group("value"))
+    lines = [line.strip() for line in (text or "").splitlines()]
+    for index, line in enumerate(lines):
+        if re.fullmatch(r"unit\s+number\s*[:=]?\s*", line, re.I):
+            for look in range(index + 1, min(len(lines), index + 5)):
+                value = lines[look].strip(" :=\t")
+                if value:
+                    return normalize_equipment_id(value.split()[0].strip(".,;:()[]{}"))
+    match = EQUIPMENT_RE.search(text or "")
+    if not match: return None
+    return normalize_equipment_id(match.group(0))
 
 def _component(direction: str) -> tuple[str, str]:
     direction = direction.lower()
-    if direction == "supply":
-        return "Vantilatör", "supply_fan"
-    if direction in {"return", "exhaust"}:
-        return "Aspiratör", "return_fan" if direction == "return" else "exhaust_fan"
+    if direction == "supply": return "Vantilatör", "supply_fan"
+    if direction in {"return", "exhaust"}: return "Aspiratör", "return_fan" if direction == "return" else "exhaust_fan"
     return "Reaktivasyon", "activation_fan"
 
-
-def _quantity(value: str | None) -> str:
-    return re.sub(r"\s*[x×]\s*", "x", value or "1x1")
-
-
+def _quantity(value: str | None) -> str: return re.sub(r"\s*[x×]\s*", "x", value or "1x1")
 def _quantity_count(value: str | None) -> int:
-    match = re.fullmatch(r"(\d+)x(\d+)", _quantity(value))
-    return int(match.group(1)) * int(match.group(2)) if match else 1
-
+    match = re.fullmatch(r"(\d+)x(\d+)", _quantity(value)); return int(match.group(1)) * int(match.group(2)) if match else 1
 
 def _summary_quantities(page_texts: list[str]) -> dict[str, tuple[float, str]]:
     found: dict[str, tuple[float, str]] = {}
     for text in page_texts[:5]:
-        cleaned = _clean(text)
-        grouped = list(SUMMARY_GROUPED_KW_RE.finditer(cleaned))
+        cleaned = _clean(text); grouped = list(SUMMARY_GROUPED_KW_RE.finditer(cleaned))
         if re.search(r"activation\s+fan\s+motor\s+power", cleaned, re.I) and len(grouped) >= 3:
-            for match, role in (
-                (grouped[0], "supply_fan"),
-                (grouped[1], "activation_fan"),
-                (grouped[-1], "return_fan"),
-            ):
+            for match, role in ((grouped[0], "supply_fan"), (grouped[1], "activation_fan"), (grouped[-1], "return_fan")):
                 found[role] = (float(match.group("value").replace(",", ".")), _quantity(match.group("quantity")))
             continue
         pair = SUMMARY_PAIR_RE.search(cleaned)
@@ -111,156 +80,78 @@ def _summary_quantities(page_texts: list[str]) -> dict[str, tuple[float, str]]:
             found["return_fan"] = (float(pair.group("return_value").replace(",", ".")), _quantity(pair.group("return_quantity")))
             continue
         single = SUMMARY_FAN_MOTOR_RE.search(cleaned)
-        if single:
-            found.setdefault("supply_fan", (float(single.group("value").replace(",", ".")), _quantity(single.group("quantity"))))
-    debug("PDF2 özet fan motor gücü çıkarıldı", summary=found)
-    return found
-
+        if single: found.setdefault("supply_fan", (float(single.group("value").replace(",", ".")), _quantity(single.group("quantity"))))
+    debug("PDF2 özet fan motor gücü çıkarıldı", summary=found); return found
 
 def _extract_connection_page(text: str, page_number: int, equipment_id: str | None) -> PDF2MotorResult | None:
-    cleaned = _clean(text)
-    direction_match = MOTOR_CONNECTION_RE.search(cleaned)
-    if not direction_match or not equipment_id:
-        return None
-    component_type, component_role = _component(direction_match.group("direction"))
-    matches = list(KW_3PH_RE.finditer(cleaned)) or list(KW_SLASH_RE.finditer(cleaned))
+    cleaned = _clean(text); direction_match = MOTOR_CONNECTION_RE.search(cleaned)
+    if not direction_match or not equipment_id: return None
+    component_type, component_role = _component(direction_match.group("direction")); matches = list(KW_3PH_RE.finditer(cleaned)) or list(KW_SLASH_RE.finditer(cleaned))
     if not matches:
-        warning("PDF2 Motor Connections sayfasında kW değeri bulunamadı", page=page_number, direction=direction_match.group("direction"), equipment_id=equipment_id, source_text=cleaned[:1200])
-        return None
-    match = matches[-1]
-    value = float(match.group("value").replace(",", "."))
-    if value < 0:
-        raise ValueError(f"Negative motor kW on page {page_number}")
-    return PDF2MotorResult(
-        equipment_id, component_type, component_role, value, "1x1", page_number,
-        cleaned[max(0, match.start() - 140): min(len(cleaned), match.end() + 140)],
-    )
-
+        warning("PDF2 Motor Connections sayfasında kW değeri bulunamadı", page=page_number, direction=direction_match.group("direction"), equipment_id=equipment_id, source_text=cleaned[:1200]); return None
+    match = matches[-1]; value = float(match.group("value").replace(",", "."))
+    if value < 0: raise ValueError(f"Negative motor kW on page {page_number}")
+    return PDF2MotorResult(equipment_id, component_type, component_role, value, "1x1", page_number, cleaned[max(0, match.start()-140):min(len(cleaned), match.end()+140)])
 
 def _fallback_connection_page(text: str, page_number: int, equipment_id: str | None, summary: dict[str, tuple[float, str]]) -> PDF2MotorResult | None:
-    cleaned = _clean(text)
-    direction_match = MOTOR_CONNECTION_RE.search(cleaned)
-    if not direction_match or not equipment_id:
-        return None
-    _, role = _component(direction_match.group("direction"))
-    item = summary.get(role)
+    cleaned = _clean(text); direction_match = MOTOR_CONNECTION_RE.search(cleaned)
+    if not direction_match or not equipment_id: return None
+    _, role = _component(direction_match.group("direction")); item = summary.get(role)
     if not item:
-        warning("PDF2 Motor Connections sayfasında doğrudan kW yok ve özetten fallback yapılamadı", page=page_number, role=role, equipment_id=equipment_id)
-        return None
+        warning("PDF2 Motor Connections sayfasında doğrudan kW yok ve özetten fallback yapılamadı", page=page_number, role=role, equipment_id=equipment_id); return None
     value, quantity = item
     warning("PDF2 motor değeri summary fallback ile alındı", page=page_number, role=role, equipment_id=equipment_id, value_kw=value, quantity=quantity)
-    return PDF2MotorResult(
-        equipment_id, _component(direction_match.group("direction"))[0], role,
-        value, quantity, page_number, "summary fallback: Fan Motor Power", "medium",
-    )
-
+    return PDF2MotorResult(equipment_id, _component(direction_match.group("direction"))[0], role, value, quantity, page_number, "summary fallback: Fan Motor Power", "medium")
 
 def _summary_only_results(equipment_id: str | None, summary: dict[str, tuple[float, str]], page_number: int = 1) -> list[PDF2MotorResult]:
     if not equipment_id:
-        warning("PDF2 summary fallback yapılamadı: equipment ID yok")
-        return []
-    labels = {
-        "supply_fan": ("Vantilatör", "supply_fan"),
-        "return_fan": ("Aspiratör", "return_fan"),
-        "exhaust_fan": ("Aspiratör", "exhaust_fan"),
-        "activation_fan": ("Reaktivasyon", "activation_fan"),
-    }
-    results: list[PDF2MotorResult] = []
+        warning("PDF2 summary fallback yapılamadı: equipment ID yok"); return []
+    labels = {"supply_fan": ("Vantilatör", "supply_fan"), "return_fan": ("Aspiratör", "return_fan"), "exhaust_fan": ("Aspiratör", "exhaust_fan"), "activation_fan": ("Reaktivasyon", "activation_fan")}
+    results=[]
     for role, (value, quantity) in summary.items():
-        component_type, component_role = labels[role]
-        results.append(
-            PDF2MotorResult(
-                equipment_id,
-                component_type,
-                component_role,
-                value,
-                quantity,
-                page_number,
-                "summary-only fallback: Fan Motor Power / Nominal Rpm",
-                "medium",
-            )
-        )
-    warning("PDF2 yalnızca özet motor gücü ile bulundu", equipment_id=equipment_id, result_count=len(results), results=[x.to_dict() for x in results])
-    return results
-
+        component_type, component_role = labels[role]; results.append(PDF2MotorResult(equipment_id, component_type, component_role, value, quantity, page_number, "summary-only fallback: Fan Motor Power / Nominal Rpm", "medium"))
+    warning("PDF2 yalnızca özet motor gücü ile bulundu", equipment_id=equipment_id, result_count=len(results), results=[x.to_dict() for x in results]); return results
 
 def _apply_summary_quantities(results: list[PDF2MotorResult], summary: dict[str, tuple[float, str]]) -> list[PDF2MotorResult]:
-    grouped: dict[tuple[str, float], list[PDF2MotorResult]] = {}
+    grouped={}
+    for result in results: grouped.setdefault((result.component_role,result.value_kw),[]).append(result)
+    output=[]
     for result in results:
-        grouped.setdefault((result.component_role, result.value_kw), []).append(result)
-    output = []
-    for result in results:
-        quantity = result.quantity
-        summary_item = summary.get(result.component_role)
+        quantity=result.quantity; summary_item=summary.get(result.component_role)
         if summary_item:
-            _, summary_quantity = summary_item
-            expected = _quantity_count(summary_quantity)
-            same_group_count = len(grouped[(result.component_role, result.value_kw)])
-            if expected > 1 and same_group_count >= expected:
-                quantity = "1x1"
-            elif result.quantity == "1x1" and same_group_count == 1:
-                quantity = summary_quantity
-        output.append(PDF2MotorResult(
-            result.equipment_id, result.component_type, result.component_role,
-            result.value_kw, quantity, result.source_page, result.source_text, result.confidence,
-        ))
-    debug("PDF2 summary quantity uygulandı", before=[x.to_dict() for x in results], after=[x.to_dict() for x in output])
-    return output
-
+            _, summary_quantity=summary_item; expected=_quantity_count(summary_quantity); same_group_count=len(grouped[(result.component_role,result.value_kw)])
+            if expected>1 and same_group_count>=expected: quantity="1x1"
+            elif result.quantity=="1x1" and same_group_count==1: quantity=summary_quantity
+        output.append(PDF2MotorResult(result.equipment_id,result.component_type,result.component_role,result.value_kw,quantity,result.source_page,result.source_text,result.confidence))
+    debug("PDF2 summary quantity uygulandı", before=[x.to_dict() for x in results], after=[x.to_dict() for x in output]); return output
 
 def _dedupe(results: list[PDF2MotorResult]) -> list[PDF2MotorResult]:
-    unique = []
-    seen: set[tuple[str, str, float, int]] = set()
+    unique=[]; seen=set()
     for result in results:
-        key = (result.equipment_id.upper(), result.component_role, result.value_kw, result.source_page)
+        key=(result.equipment_id.upper(),result.component_role,result.value_kw,result.source_page)
         if key in seen:
-            debug("PDF2 motor sonucu tekrarlandı ve atlandı", key=key, page=result.source_page)
-            continue
-        seen.add(key)
-        unique.append(result)
+            debug("PDF2 motor sonucu tekrarlandı ve atlandı", key=key, page=result.source_page); continue
+        seen.add(key); unique.append(result)
     return unique
-
 
 def find_pdf2_motor_powers(path: str | Path) -> list[PDF2MotorResult]:
     try:
-        info("PDF2 motor taraması başladı", path=str(path))
-        pages = [page.extract_text() or "" for page in PdfReader(str(path)).pages]
-        equipment_id = next((_equipment_id(text) for text in pages if _equipment_id(text)), None)
-        if not equipment_id:
-            warning("PDF2 equipment ID bulunamadı", path=str(path))
-        summary = _summary_quantities(pages)
-        results: list[PDF2MotorResult] = []
-        for page_number, text in enumerate(pages, 1):
-            result = _extract_connection_page(text, page_number, equipment_id)
-            if not result:
-                result = _fallback_connection_page(text, page_number, equipment_id, summary)
-            if result:
-                results.append(result)
-
-        results = _dedupe(results)
-        if not results and summary:
-            results = _summary_only_results(equipment_id, summary, page_number=1)
-
-        results = _apply_summary_quantities(results, summary)
-        info("PDF2 motor taraması tamamlandı", path=str(path), pages=len(pages), equipment_id=equipment_id, result_count=len(results), results=[x.to_dict() for x in results])
-        return results
+        info("PDF2 motor taraması başladı", path=str(path)); pages=[page.extract_text() or "" for page in PdfReader(str(path)).pages]
+        equipment_id=next((_equipment_id(text) for text in pages if _equipment_id(text)),None)
+        if not equipment_id: warning("PDF2 equipment ID bulunamadı",path=str(path))
+        summary=_summary_quantities(pages); results=[]
+        for page_number,text in enumerate(pages,1):
+            result=_extract_connection_page(text,page_number,equipment_id) or _fallback_connection_page(text,page_number,equipment_id,summary)
+            if result: results.append(result)
+        results=_dedupe(results)
+        if not results and summary: results=_summary_only_results(equipment_id,summary,page_number=1)
+        results=_apply_summary_quantities(results,summary)
+        info("PDF2 motor taraması tamamlandı",path=str(path),pages=len(pages),equipment_id=equipment_id,result_count=len(results),results=[x.to_dict() for x in results]); return results
     except Exception as exc:
-        exception("PDF2 motor taraması başarısız", exc, path=str(path))
-        raise
-
+        exception("PDF2 motor taraması başarısız",exc,path=str(path)); raise
 
 def build_pdf2_motor_records(result: PDF2MotorResult, start_index: int = 1) -> list[MotorRecord]:
     try:
-        records = expand_motor_group(
-            equipment_id=result.equipment_id,
-            equipment_type="AHU",
-            component_type=result.component_type,
-            group=result.quantity,
-            power_kw=result.value_kw,
-            source_page=result.source_page,
-            start_index=start_index,
-        )
-        return records
+        return expand_motor_group(equipment_id=result.equipment_id,equipment_type="AHU",component_type=result.component_type,group=result.quantity,power_kw=result.value_kw,source_page=result.source_page,start_index=start_index)
     except Exception as exc:
-        exception("PDF2 fiziksel motor kaydı oluşturma hatası", exc, result=result.to_dict(), start_index=start_index)
-        raise
+        exception("PDF2 fiziksel motor kaydı oluşturma hatası",exc,result=result.to_dict(),start_index=start_index); raise
