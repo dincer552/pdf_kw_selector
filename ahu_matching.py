@@ -51,7 +51,7 @@ def _is_supported_equipment_id(normalized: str) -> bool:
         or bool(re.fullmatch(r"HKS-\d+", normalized))
         or bool(re.fullmatch(r"KS-[A-Z]?\d+(?:\.\d+)?", normalized))
         or bool(re.fullmatch(r"SS-[A-Z]?\d+(?:\.\d+)?", normalized))
-        or bool(re.fullmatch(r"PW-\d+(?:\.\d+)?", normalized))
+        or bool(re.fullmatch(r"PW-[A-Z]?\d+(?:\.\d+)?", normalized))
     )
 
 @dataclass(frozen=True)
@@ -87,7 +87,14 @@ def _unit_reference_occurrences(pages: list[str]) -> list[EquipmentOccurrence]:
             remainder = line[match.end():].strip(" :=" + "\t")
             candidates = [remainder] if remainder else []
             if not candidates:
-                for look in range(index + 1, min(len(lines), index + 4)):
+                for look in range(index + 1, min(len(lines), index + 5)):
+                    value = lines[look].strip(" :=" + "\t")
+                    if value:
+                        candidates.append(value)
+                        break
+            # Some PDF exporters place the visible value before the label.
+            if not candidates:
+                for look in range(index - 1, max(-1, index - 8), -1):
                     value = lines[look].strip(" :=" + "\t")
                     if value:
                         candidates.append(value)
@@ -147,11 +154,10 @@ def discover_equipment_from_text(pages: list[str], *, unit_reference_only: bool 
 
 def _equipment_from_filename(path: Path) -> EquipmentOccurrence | None:
     stem = re.sub(r"\s+", "_", path.stem.strip())
-    match = re.fullmatch(r"(?:HKS|KS)[_ -]?(\d+(?:\.\d+)?)", stem, re.I)
+    match = re.fullmatch(r"(HKS|KS|SS|PW)[_ -]?([A-Z]?\d+(?:\.\d+)?)", stem, re.I)
     if not match:
         return None
-    prefix = "HKS" if stem.upper().startswith("HKS") else "KS"
-    raw = f"{prefix}-{match.group(1)}"
+    raw = f"{match.group(1).upper()}-{match.group(2).upper()}"
     normalized = normalize_equipment_id(raw)
     return EquipmentOccurrence(raw, normalized, 1, "filename")
 
