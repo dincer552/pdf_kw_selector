@@ -45,7 +45,7 @@ def _scan_single_pdf(path,side):
     info("Master PDF scan başladı",path=str(resolved),side=side); pages=_read_pages_once(resolved)
     if side=="PDF1":
         project=discover_pdf1_project(list(pages)); equipment=discover_pdf1_unit_reference(list(pages)); motors=_scan_pdf1_motors(pages)
-        motor_pages={r.page_number for r in motors}; ebm=tuple(p for p in sorted(motor_pages) if extract_model_brand(pages[p-1])=="EBM-Papst")
+        ebm=tuple(p for p,text in enumerate(pages,1) if extract_model_brand(text)=="EBM-Papst")
         info("PDF1 sabit alan keşfi",path=str(resolved),project=project.project_name,unit_reference=list(equipment.unique_ids()),ebm_pages=list(ebm))
         return MasterPDFScan(str(resolved),side,pages,project,equipment,pdf1_motors=motors,pdf1_ebm_pages=ebm)
     project=discover_project_from_text(list(pages)); equipment=discover_equipment_from_text(list(pages))
