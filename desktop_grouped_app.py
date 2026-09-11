@@ -112,7 +112,7 @@ class GroupedApp(BaseApp):
         self.tabs.tab(1, text="EŞLEŞMEYEN PDF'LER (0)")
         self.tabs.tab(2, text="HATALAR")
         self.tabs.insert(1, self.ebm_tab)
-        self.unmatched_tab_index = lambda: self.tabs.index(self.unmatched_tab)
+        self.unmatched_tab_index = lambda: 2
         install_pdf_drop_targets(self, self.pdf1_label.master, self.pdf2_label.master)
 
     def _build_ebm_tab(self):
