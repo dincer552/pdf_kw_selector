@@ -88,7 +88,11 @@ def check_for_update(current_exe: Path | None = None) -> dict:
     current_digest = _sha256(current).lower() if current.exists() else ""
     is_zip = str(asset.get("name", "")).lower().endswith(".zip")
     same = bool(remote_digest) and not is_zip and current_digest == remote_digest
-    download_url = asset.get("url") or asset.get("browser_download_url")
+    # The API asset endpoint redirects to a signed CDN URL.  In some network
+    # setups that redirect is served as a truncated response, especially when
+    # a Range request is used to resume the download.  The browser download
+    # URL goes through GitHub's release CDN directly and supports resuming.
+    download_url = asset.get("browser_download_url") or asset.get("url")
     if not download_url:
         raise RuntimeError("Güncelleme EXE indirme adresi GitHub'dan alınamadı.")
     info("Güncelleme kontrolü tamamlandı", release=release.get("tag_name"), asset=asset.get("name"), asset_id=asset.get("id"), asset_size=asset.get("size"), current_exe=str(current), current_sha256=current_digest, remote_sha256=remote_digest, available=not same, download_endpoint=download_url, browser_download_url=asset.get("browser_download_url"))
@@ -107,6 +111,12 @@ def _open_download(url: str, start: int = 0):
     if start:
         headers["Range"] = f"bytes={start}-"
     return urllib.request.urlopen(urllib.request.Request(url, headers=headers), timeout=180)
+
+
+def _download_request_url(url: str) -> str:
+    if "github.com/" in url and "/releases/download/" in url:
+        return url
+    return _cache_busted(url)
 
 
 def _extract_verified_zip(zip_path: Path, asset_name: str | None) -> Path:
@@ -157,7 +167,7 @@ def download_update(download_url: str, *, expected_digest: str | None = None, as
     try:
         offset = 0
         for attempt in range(1, 16):
-            request_url = _cache_busted(download_url)
+            request_url = _download_request_url(download_url)
             with _open_download(request_url, offset) as response:
                 status = getattr(response, "status", None)
                 content_length = response.headers.get("Content-Length")
