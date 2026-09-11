@@ -8,7 +8,7 @@ import re
 from pypdf import PdfReader
 from ahu_matching import AHUDiscovery, EquipmentOccurrence, _equipment_from_filename, discover_equipment_from_text, normalize_equipment_id
 from app_logger import exception, info, warning
-from project_discovery import ProjectDiscovery, discover_project_from_text
+from project_discovery import ProjectDiscovery, ProjectCandidate, discover_project_from_text, normalize_project_name
 from pdf1_field_discovery import discover_pdf1_project, discover_pdf1_unit_reference
 from stage1_page_discovery import MotorPowerResult, build_stage1_motor_records, extract_rated_motor_powers_from_page, extract_model_brand, _dedupe_motor_results
 from stage2_pdf_discovery import PDF2MotorResult, _apply_summary_quantities, _dedupe, _equipment_id, _extract_connection_page, _fallback_connection_page, _summary_only_results, _summary_quantities, _unit_number_from_lines, build_pdf2_motor_records
@@ -31,6 +31,7 @@ def _filename_equipment(path):
     if not match:return None
     raw=f"{match.group(1).upper()}-{match.group(2).upper()}"; normalized=normalize_equipment_id(raw)
     return EquipmentOccurrence(raw,normalized,1,"filename") if normalized else None
+
 def _pdf2_unit_number_equipment(pages):
     for page_no,text in enumerate(pages,1):
         value=_unit_number_from_lines(text)
@@ -40,6 +41,29 @@ def _pdf2_unit_number_equipment(pages):
             raw=inline.group("value").strip(".,;:()[]{}"); normalized=normalize_equipment_id(raw)
             if normalized and re.search(r"\d",normalized):return EquipmentOccurrence(raw,normalized,page_no,"unit_number")
     return None
+
+def _safe_pdf2_project(pages, discovered):
+    """Prefer an actual project-looking value over PDF-exporter field noise."""
+    current=discovered.project_name or ""
+    bad=not current or bool(re.search(r"\bkw\b|m[³3]\s*/?\s*h|\bstage\b|\b(?:fan|motor|power)\b|^www\.|\bsystemair\b",current,re.I))
+    if not bad:return discovered
+    candidates=[]
+    for page_no,text in enumerate(pages[:3],1):
+        for raw in (text or "").splitlines():
+            value=re.sub(r"\s+"," ",raw).strip(" :-\t")
+            norm=normalize_project_name(value)
+            if len(norm.split())<2 or re.search(r"\bkw\b|m[³3]\s*/?\s*h|\bstage\b|\b(?:fan|motor|power|air volume)\b|^www\.|\bsystemair\b|\b(?:address|adres|telefon|fax)\b",value,re.I):continue
+            if re.fullmatch(r"(?:HKS|KS|SS|PW)[-_ ]?[A-Z]?\d+(?:\.\d+)?",value,re.I):continue
+            alpha=sum(c.isalpha() for c in value)
+            score=alpha+len(value)
+            if value.upper()==value:score+=20
+            if len(value)>=12:score+=10
+            candidates.append((score,value,page_no))
+    if not candidates:return discovered
+    _,value,page_no=max(candidates,key=lambda x:x[0])
+    candidate=ProjectCandidate(value,normalize_project_name(value),"project_name_field",page_no,"HIGH")
+    return ProjectDiscovery(value,candidate.normalized,candidate.source,page_no,"HIGH",tuple(list(discovered.candidates)+[candidate]))
+
 def _scan_pdf2_motors(pages,equipment_id=None):
     ids=[v for text in pages if (v:=_equipment_id(text))]; equipment_id=equipment_id or (ids[0] if ids else None)
     if not equipment_id:warning("PDF2 master scan: equipment ID bulunamadı")
@@ -50,6 +74,7 @@ def _scan_pdf2_motors(pages,equipment_id=None):
     rows=_dedupe(rows)
     if not rows and summary:rows=_summary_only_results(equipment_id,summary,page_number=1)
     return tuple(_apply_summary_quantities(rows,summary))
+
 def _scan_single_pdf(path,side):
     side=side.upper().strip(); resolved=Path(path).expanduser().resolve()
     if side not in {"PDF1","PDF2"}:raise ValueError("side must be PDF1 or PDF2")
@@ -62,19 +87,25 @@ def _scan_single_pdf(path,side):
         ebm=tuple(p for p,text in enumerate(pages,1) if extract_model_brand(text)=="EBM-Papst")
         info("PDF1 sabit alan keşfi",path=str(resolved),project=project.project_name,unit_reference=list(equipment.unique_ids()),ebm_pages=list(ebm))
         return MasterPDFScan(str(resolved),side,pages,project,equipment,pdf1_motors=motors,pdf1_ebm_pages=ebm)
-    project=discover_project_from_text(list(pages)); unit_number=_pdf2_unit_number_equipment(pages)
-    equipment=AHUDiscovery((unit_number,)) if unit_number else discover_equipment_from_text(list(pages))
+    project=_safe_pdf2_project(pages,discover_project_from_text(list(pages)))
+    # PDF2 filename is an authoritative fallback when Unit Number is absent.
+    # This prevents incidental words/labels on wiring pages from becoming AHU IDs.
+    filename_equipment=_filename_equipment(resolved) or _equipment_from_filename(resolved)
+    unit_number=_pdf2_unit_number_equipment(pages)
+    equipment=AHUDiscovery((unit_number,)) if unit_number else (AHUDiscovery((filename_equipment,)) if filename_equipment else discover_equipment_from_text(list(pages)))
     if not equipment.unique_ids():
-        fallback=_filename_equipment(resolved) or _equipment_from_filename(resolved)
+        fallback=filename_equipment
         if fallback:equipment=AHUDiscovery((fallback,))
     equipment_id=equipment.unique_ids()[0] if equipment.unique_ids() else None
     info("PDF2 sabit alan keşfi",path=str(resolved),project=project.project_name,unit_number=list(equipment.unique_ids()))
     return MasterPDFScan(str(resolved),side,pages,project,equipment,pdf2_motors=_scan_pdf2_motors(pages,equipment_id))
+
 @lru_cache(maxsize=128)
 def scan_pdf(path,side):
     try:return _scan_single_pdf(path,side)
     except Exception as exc:
         exception("Master PDF scan başarısız",exc,path=str(Path(path).expanduser().resolve()),side=str(side).upper().strip());raise
+
 def scan_pdfs(paths_and_sides,progress_callback=None):
     unique={}
     for raw_path,raw_side in paths_and_sides:
@@ -87,6 +118,7 @@ def scan_pdfs(paths_and_sides,progress_callback=None):
             key=futures[future];scans_by_key[key]=future.result()
             if progress_callback:progress_callback("scan",completed,len(unique),Path(key[0]).name)
     scans=[scans_by_key[key] for key in unique.values()];return dict(zip(unique.keys(),scans))
+
 def clear_master_scan_cache():scan_pdf.cache_clear()
 def build_physical_motor_records(scan):
     records=[];next_index_by_component={}
