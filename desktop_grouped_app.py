@@ -26,11 +26,11 @@ def _path_strings(items):
     return result
 
 
-def _confirmed_analyze(pdf1_inputs, pdf2_inputs):
+def _confirmed_analyze(pdf1_inputs, pdf2_inputs, progress_callback=None):
     pdf1_paths = _path_strings(pdf1_inputs)
     pdf2_paths = _path_strings(pdf2_inputs)
     info("Onaylı analiz girişleri normalize edildi", pdf1_count=len(pdf1_paths), pdf2_count=len(pdf2_paths))
-    return analyze_with_confirmations(pdf1_paths, pdf2_paths)
+    return analyze_with_confirmations(pdf1_paths, pdf2_paths, progress_callback=progress_callback)
 
 
 desktop_module.analyze_batch = _confirmed_analyze
