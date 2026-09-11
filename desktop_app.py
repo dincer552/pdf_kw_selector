@@ -60,14 +60,14 @@ class App(tk.Tk):
     def compare(self):
         if self._analysis_running:return
         if not self.pdf1_inputs or not self.pdf2_inputs: messagebox.showwarning("Eksik seçim","PDF1 ve PDF2 tarafına en az birer PDF/klasör ekleyin."); return
-        self._analysis_running=True; self.status.configure(text="PDF'ler taranıyor... Arayüz çalışmaya devam edecek."); self.update_idletasks(); pdf1=[str(x.path) for x in self.pdf1_inputs]; pdf2=[str(x.path) for x in self.pdf2_inputs]; threading.Thread(target=self._prepare_analysis,args=(pdf1,pdf2),daemon=True).start()
+        self._analysis_running=True; self.update_progress.set(0); self.update_detail.set("PDF taraması başlıyor..."); self.update_panel.pack(fill="x"); self.status.configure(text="PDF'ler taranıyor..."); self.update_idletasks(); pdf1=[str(x.path) for x in self.pdf1_inputs]; pdf2=[str(x.path) for x in self.pdf2_inputs]; threading.Thread(target=self._prepare_analysis,args=(pdf1,pdf2),daemon=True).start()
     def _prepare_analysis(self,pdf1_paths,pdf2_paths):
         try:
-            scan_pdfs([(p,"PDF1") for p in pdf1_paths]+[(p,"PDF2") for p in pdf2_paths]); self.after(0,self._run_analysis_after_scan,pdf1_paths,pdf2_paths)
+            scan_pdfs([(p,"PDF1") for p in pdf1_paths]+[(p,"PDF2") for p in pdf2_paths],progress_callback=lambda stage,done,total,detail:self.after(0,self._analysis_progress,stage,done,total,detail)); self.after(0,self._run_analysis_after_scan,pdf1_paths,pdf2_paths)
         except Exception as exc:self.after(0,self._analysis_failed,exc)
     def _run_analysis_after_scan(self,pdf1_paths,pdf2_paths):
         try:
-            self.status.configure(text="Eşleştirme ve motor analizi yapılıyor..."); self.update_idletasks(); self.analysis=analyze_batch(pdf1_paths,pdf2_paths); self._render_analysis(); self._render_unmatched(); self._post_analysis(); self._analysis_running=False
+            self.status.configure(text="Eşleştirme ve motor analizi yapılıyor..."); self.update_idletasks(); self.analysis=analyze_batch(pdf1_paths,pdf2_paths,progress_callback=lambda stage,done,total,detail:self.after(0,self._analysis_progress,stage,done,total,detail)); self._render_analysis(); self._render_unmatched(); self._post_analysis(); self._analysis_running=False; self.update_detail.set("Analiz tamamlandı • %100"); self.update_progress.set(100)
         except Exception as exc:self._analysis_failed(exc)
     def _post_analysis(self):pass
     def _render_analysis(self):
@@ -102,7 +102,15 @@ class App(tk.Tk):
         for item in self.unmatched_tree.get_children(): self.unmatched_tree.delete(item)
         if hasattr(self,"tabs"): self.tabs.tab(1,text="EŞLEŞMEYEN PDF'LER (0)")
     def _analysis_failed(self,exc):
-        self._analysis_running=False; exception("GUI sonuç tablosu oluşturma hatası",exc); messagebox.showerror("Sonuç gösterme hatası",f"{type(exc).__name__}: {exc}"); self.status.configure(text="Analiz başarısız"); self.refresh_logs()
+        self._analysis_running=False; exception("GUI sonuç tablosu oluşturma hatası",exc); messagebox.showerror("Sonuç gösterme hatası",f"{type(exc).__name__}: {exc}"); self.status.configure(text="Analiz başarısız"); self.update_detail.set("Analiz başarısız"); self.refresh_logs()
+    def _analysis_progress(self, stage, done, total, detail):
+        if stage == "scan":
+            percent=done / max(total, 1) * 60
+            text=f"PDF tarama %{percent:.1f} • {done}/{total} dosya • {detail}"
+        else:
+            percent=60 + done / max(total, 1) * 40
+            text=f"Karşılaştırma %{percent:.1f} • {detail}"
+        self.update_progress.set(percent); self.update_detail.set(text); info("Toplu analiz ilerlemesi",stage=stage,percent=round(percent,1),completed=done,total=total,detail=detail); self.refresh_logs()
 
     def check_updates(self):
         try: info("Güncelleme butonuna basıldı",current_exe=str(Path(sys.executable).resolve()),version=VERSION); info_data=check_for_update(Path(sys.executable), VERSION)

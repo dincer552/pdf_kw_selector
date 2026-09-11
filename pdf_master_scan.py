@@ -1,6 +1,6 @@
 """Single-pass master scan and cache for engineering PDFs."""
 from __future__ import annotations
-from concurrent.futures import ThreadPoolExecutor
+from concurrent.futures import ThreadPoolExecutor, as_completed
 from dataclasses import dataclass
 from functools import lru_cache
 from pathlib import Path
@@ -74,13 +74,20 @@ def scan_pdf(path,side):
     except Exception as exc:
         exception("Master PDF scan başarısız",exc,path=str(Path(path).expanduser().resolve()),side=str(side).upper().strip()); raise
 
-def scan_pdfs(paths_and_sides):
+def scan_pdfs(paths_and_sides, progress_callback=None):
     unique={}
     for raw_path,raw_side in paths_and_sides:
         key=(str(Path(raw_path).expanduser().resolve()),str(raw_side).upper().strip()); unique.setdefault(key,key)
     if not unique:return {}
     info("Paralel master scan başladı",file_count=len(unique),worker_count=min(8,len(unique)))
-    with ThreadPoolExecutor(max_workers=min(8,len(unique)),thread_name_prefix="pdf-scan") as ex: scans=list(ex.map(lambda x:scan_pdf(*x),unique.values()))
+    scans_by_key={}
+    with ThreadPoolExecutor(max_workers=min(8,len(unique)),thread_name_prefix="pdf-scan") as ex:
+        futures={ex.submit(scan_pdf,*key):key for key in unique.values()}
+        for completed,future in enumerate(as_completed(futures),1):
+            key=futures[future]; scans_by_key[key]=future.result()
+            if progress_callback:
+                progress_callback("scan",completed,len(unique),Path(key[0]).name)
+    scans=[scans_by_key[key] for key in unique.values()]
     return dict(zip(unique.keys(),scans))
 
 def clear_master_scan_cache(): scan_pdf.cache_clear()

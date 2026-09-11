@@ -132,9 +132,14 @@ def _is_ebm_pdf1(paths):
             return True
     return False
 
-def analyze_batch(pdf1_paths,pdf2_paths):
+def analyze_batch(pdf1_paths,pdf2_paths,progress_callback=None):
+    def progress(stage, current, total, detail):
+        if progress_callback:
+            progress_callback(stage, current, total, detail)
     left_docs=_discover_documents(pdf1_paths,"PDF1");right_docs=_discover_documents(pdf2_paths,"PDF2");left_groups=_group_documents(left_docs);right_groups=_group_documents(right_docs)
+    progress("matching",1,5,"PDF belgeleri gruplandı")
     named_pairs=_pair_project_groups(left_groups,right_groups);used_right_paths=set();project_pair_docs={}
+    progress("matching",2,5,"Projeler eşleştiriliyor")
     for lk,rk,m in named_pairs:
         rg=right_groups[rk];used_right_paths.update(d.path for d in rg);project_pair_docs[lk]=(m,list(left_groups[lk]),list(rg))
     for lk,docs in _infer_unresolved_right_documents(left_groups,right_docs,used_right_paths).items():
@@ -143,6 +148,7 @@ def analyze_batch(pdf1_paths,pdf2_paths):
         lg=left_groups[lk];p=lg[0].project;right_name=docs[0].project.project_name if docs[0].project.project_name else None;overlap_total=sum(len(_ahu_set([d])&_ahu_set(lg)) for d in docs)
         project_pair_docs[lk]=(ProjectMatch(p.project_name,right_name,p.project_name_normalized,normalize_project_name(right_name or "") or None,round(overlap_total/max(1,sum(len(_ahu_set([d])) for d in docs)),4),"INFERRED_FROM_AHU","PDF2 project name is unavailable; project was inferred from AHU references",p.project_source,None),list(lg),list(docs))
     project_matches=[];ahu_batches=[];motor_comparisons=[]
+    progress("matching",3,5,"AHU ekipmanları eşleştiriliyor")
     for pm,lg,rg in project_pair_docs.values():
         project_matches.append(pm);left_equipment=[];right_equipment=[]
         for d in lg:left_equipment.extend(scan_pdf(d.path,d.side).equipment.equipment_ids)
@@ -156,5 +162,7 @@ def analyze_batch(pdf1_paths,pdf2_paths):
                 continue
             try:motor_comparisons.extend(compare_motor_records(_extract_side_motors(lf,"PDF1",am.left_normalized),_extract_side_motors(rf,"PDF2",am.right_normalized)))
             except Exception as exc:exception("Motor karşılaştırması başarısız",exc,project=pm.left_name,ahu=am.left_normalized)
+    progress("matching",4,5,"Motor sonuçları oluşturuluyor")
     info("AHU MATCH DEBUG: final",project_matches=len(project_matches),ahu_matches=len(ahu_batches),motor_comparisons=len(motor_comparisons))
+    progress("matching",5,5,"Analiz tamamlandı")
     return BatchAnalysis(tuple(left_docs),tuple(right_docs),tuple(project_matches),tuple(ahu_batches),tuple(motor_comparisons))
