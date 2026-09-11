@@ -5,8 +5,6 @@ from dataclasses import replace
 import re
 import sys
 
-from pypdf import PdfReader
-
 import desktop_app as desktop_module
 from ahu_matching import normalize_equipment_id
 from app_logger import exception, info, startup, warning
@@ -15,6 +13,7 @@ from drag_drop import install_pdf_drop_targets
 from result_grouping import group_result_rows
 from updater import apply_update
 from confirmation_workflow import analyze_with_confirmations
+from pdf_master_scan import scan_pdf
 
 
 def _path_strings(items):
@@ -40,17 +39,14 @@ def _confirmed_analyze(pdf1_inputs, pdf2_inputs):
 desktop_module.analyze_batch = _confirmed_analyze
 
 
-EBM_BRAND_RE = re.compile(r"\bmodel\s+brand\b\s*[:=\-]?\s*(EBM\s*[- ]?\s*Papst)\b", re.I)
-
-
 def _page_is_ebm(path: str, page_number: int) -> bool:
-    """Check the exact PDF1 motor page for Model Brand = EBM-Papst."""
+    """Check a cached PDF1 motor page for Model Brand = EBM-Papst."""
     try:
-        pages = PdfReader(path).pages
-        if page_number < 1 or page_number > len(pages):
+        scan = scan_pdf(path, "PDF1")
+        if page_number < 1 or page_number > len(scan.page_texts):
             return False
-        text = pages[page_number - 1].extract_text() or ""
-        match = EBM_BRAND_RE.search(re.sub(r"\s+", " ", text))
+        text = scan.page_texts[page_number - 1]
+        match = re.search(r"\bmodel\s+brand\b\s*[:=\-]?\s*(EBM\s*[- ]?\s*Papst)\b", re.sub(r"\s+", " ", text), re.I)
         if match:
             info("PDF1 EBM-Papst motor tespit edildi", path=path, page=page_number, brand=match.group(1))
             return True
@@ -95,38 +91,23 @@ def _apply_ebm_rules(analysis):
 
         ebm_count += 1
         status = "EBM-PAPST - PDF2 MOTOR YOK" if comparison.pdf2_kw is None else "EBM-PAPST - kW KONTROLÜ YOK"
-        updated.append(
-            replace(
-                comparison,
-                component_label=f"{comparison.component_label} [EBM]",
-                difference_kw=None,
-                status=status,
-            )
-        )
+        updated.append(replace(comparison, component_label=f"{comparison.component_label} [EBM]", difference_kw=None, status=status))
 
     info("EBM-Papst motor kuralları uygulandı", ebm_motor_count=ebm_count)
     return replace(analysis, motor_comparisons=tuple(updated))
 
 
 def _rerender_modified_rows(app, original_analysis):
-    """Update the already-rendered Treeview rows without running the analysis again."""
+    """Update already-rendered rows after EBM classification."""
     comparisons = list(original_analysis.motor_comparisons)
     comparisons.sort(key=lambda item: (
-        next((
-            normalize_equipment_id(ahu.match.left_normalized)
-            for ahu in original_analysis.ahu_matches
-            if normalize_equipment_id(ahu.match.left_normalized) == normalize_equipment_id(item.equipment_id)
-        ), "-").casefold(),
-        normalize_equipment_id(item.equipment_id).casefold(),
-        item.component_type.casefold(),
-        item.component_index,
+        next((normalize_equipment_id(ahu.match.left_normalized) for ahu in original_analysis.ahu_matches if normalize_equipment_id(ahu.match.left_normalized) == normalize_equipment_id(item.equipment_id)), "-").casefold(),
+        normalize_equipment_id(item.equipment_id).casefold(), item.component_type.casefold(), item.component_index,
     ))
-
     item_ids = list(app.tree.get_children())
     if len(item_ids) != len(comparisons):
         warning("EBM sonuç satırları yeniden işlenemedi: Treeview satır sayısı farklı", tree_rows=len(item_ids), comparisons=len(comparisons))
         return
-
     for item_id, comparison in zip(item_ids, comparisons):
         values = list(app.tree.item(item_id, "values"))
         if comparison.status.startswith("EBM-PAPST"):
@@ -142,11 +123,8 @@ class GroupedApp(BaseApp):
         super().__init__()
         install_pdf_drop_targets(self, self.pdf1_label.master, self.pdf2_label.master)
 
-    def compare(self):
-        super().compare()
+    def _post_analysis(self):
         try:
-            if self.analysis is None:
-                return
             original = self.analysis
             self.analysis = _apply_ebm_rules(original)
             _rerender_modified_rows(self, self.analysis)
@@ -163,6 +141,10 @@ class GroupedApp(BaseApp):
         except Exception as exc:
             exception("Project/AHU sonuç gruplama hatası", exc)
             self.refresh_logs()
+
+    def compare(self):
+        # BaseApp performs the scan in a worker and invokes _post_analysis on Tk.
+        super().compare()
 
 
 if __name__ == "__main__":
