@@ -1,3 +1,15 @@
+# 2026-09-11 — KS ekipmanlarında `_` / `-` eşleşme düzeltmesi
+
+### Bugün eklenen işler
+
+- [x] **`KS_00.02` ve `KS-00.02` aynı ekipman olarak normalize ediliyor:** Alt çizgi `_` ve tire `-` farkı eşleşmeyi bozmayacak şekilde desteklendi.
+- [x] **KS ekipmanları keşfe dahil edildi:** `KS-00.02`, `KS_00.02`, `KS-01.03` gibi referanslar geçerli ekipman ID'si olarak tanınıyor.
+- [x] **KS formatında baştaki sıfırlar korunuyor:** `KS-00.02` yanlışlıkla `KS-0.02` biçimine dönüştürülmüyor.
+- [x] **PDF2 KS keşfi de düzeltildi:** Elektrik PDF'lerinde `KS-xx.xx` / `KS_xx.xx` ekipman referansları motor taramasında kullanılabiliyor.
+- [x] **Regression test eklendi:** `KS-00.02` ↔ `KS_00.02` eşleşmesinin `EXACT` olması doğrulanıyor.
+
+---
+
 # 2026-09-11 — EBM-Papst ayrı görünüm ve motor karşılaştırma kuralı
 
 ### Bugün eklenen işler
