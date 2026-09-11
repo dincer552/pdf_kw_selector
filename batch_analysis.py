@@ -79,20 +79,20 @@ def _pair_project_groups(left_groups,right_groups):
     for left_key,left_docs in left_groups.items():
         if not left_key or left_key.startswith("__UNRESOLVED__:"): continue
         right=right_groups.get(left_key)
-        if right is None or left_key in used_l or left_key in used_r: continue
-        match=match_discoveries(left_docs[0].project,right[0].project); info("PROJECT MATCH DEBUG: exact aday",left=left_key,right=left_key,score=match.score,status=match.status,reason=match.reason); candidates.append((match.score,left_key,left_key,match)); used_l.add(left_key); used_r.add(left_key)
+        if right is None: continue
+        match=match_discoveries(left_docs[0].project,right[0].project); info("PROJECT MATCH DEBUG: exact aday",left=left_key,right=left_key,score=match.score,status=match.status,reason=match.reason); candidates.append((match.score,left_key,left_key,match));
     # Unique exact AHU overlap catches renamed project headers without fuzzy N*M.
     for left_key,left_docs in left_groups.items():
-        if left_key in used_l or left_key.startswith("__UNRESOLVED__:"): continue
-        left_ahus=sorted(_ahu_set(left_docs)); matches=set()
-        for ahu in left_ahus: matches.update(right_ahu_index.get(ahu,()))
+        if left_key.startswith("__UNRESOLVED__:"): continue
+        matches=set()
+        for ahu in _ahu_set(left_docs): matches.update(right_ahu_index.get(ahu,()))
         matches -= used_r
-        info("PROJECT MATCH DEBUG: AHU overlap adayı",left=left_key,left_ahus=left_ahus,candidate_right_groups=sorted(matches),overlap={k:sorted(set(left_ahus)&_ahu_set(right_groups[k])) for k in matches})
+        info("PROJECT MATCH DEBUG: AHU overlap adayı",left=left_key,left_ahus=sorted(_ahu_set(left_docs)),candidate_right_groups=sorted(matches),overlap={k:sorted(_ahu_set(left_docs)&_ahu_set(right_groups[k])) for k in matches})
         if len(matches)!=1: continue
-        right_key=next(iter(matches)); match=match_discoveries(left_docs[0].project,right_groups[right_key][0].project); info("PROJECT MATCH DEBUG: AHU ile proje çifti",left=left_key,right=right_key,score=match.score,status=match.status,reason=match.reason); candidates.append((match.score,left_key,right_key,match)); used_l.add(left_key); used_r.add(right_key)
+        right_key=next(iter(matches)); match=match_discoveries(left_docs[0].project,right_groups[right_key][0].project); info("PROJECT MATCH DEBUG: AHU ile proje çifti",left=left_key,right=right_key,score=match.score,status=match.status,reason=match.reason); candidates.append((match.score,left_key,right_key,match))
     # Fuzzy fallback only for genuinely unresolved named groups.
     for left_key,left_docs in left_groups.items():
-        if left_key in used_l or left_key.startswith("__UNRESOLVED__:") or not left_key: continue
+        if left_key.startswith("__UNRESOLVED__:") or not left_key: continue
         for right_key,right_docs in right_groups.items():
             if right_key in used_r or right_key.startswith("__UNRESOLVED__:") or not right_key: continue
             try:
