@@ -37,7 +37,6 @@ def test_select_asset_prefers_canonical_latest_exe_over_stale_immutable_assets()
 
 def test_select_asset_prefers_newest_immutable_exe_when_no_zip_exists():
     assets = [
-        {"name": "PDF_KW_Selector_latest.exe", "id": 100, "state": "uploaded", "digest": "sha256:old", "size": 10},
         {"name": "PDF_KW_Selector_aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa.exe", "id": 101, "state": "uploaded", "digest": "sha256:a", "created_at": "2026-09-10T05:00:00Z", "size": 20},
         {"name": "PDF_KW_Selector_bbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb.exe", "id": 102, "state": "uploaded", "digest": "sha256:b", "created_at": "2026-09-10T06:00:00Z", "size": 30},
     ]
@@ -106,4 +105,34 @@ def test_check_for_update_does_not_downgrade_newer_local_version(monkeypatch, tm
 
     result = updater.check_for_update(current, "v0.5.4")
 
+    assert result["available"] is False
+
+
+def test_release_version_is_read_from_release_notes(monkeypatch, tmp_path):
+    monkeypatch.setattr(
+        updater,
+        "_request_json",
+        lambda url: {
+            "name": "PDF kW Selector - Latest",
+            "body": "Version: v0.5.4; Latest Windows build.",
+            "tag_name": "latest",
+            "assets": [
+                {
+                    "name": "PDF_KW_Selector_latest.exe",
+                    "id": 123,
+                    "state": "uploaded",
+                    "digest": "sha256:" + "a" * 64,
+                    "size": 10,
+                    "url": "https://api.github.com/assets/123",
+                    "browser_download_url": "https://github.com/example/latest.exe",
+                }
+            ],
+        },
+    )
+    current = tmp_path / "current.exe"
+    current.write_bytes(b"current")
+
+    result = updater.check_for_update(current, "v0.5.4")
+
+    assert result["version"] == "v0.5.4"
     assert result["available"] is False

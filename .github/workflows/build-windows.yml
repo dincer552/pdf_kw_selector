@@ -49,9 +49,9 @@ jobs:
             gh release upload latest dist/PDF_KW_Selector_latest.exe --clobber
             gh release upload latest "dist/PDF_KW_Selector_${GITHUB_SHA}.exe"
             gh release upload latest "dist/PDF_KW_Selector_${GITHUB_SHA}.zip"
-            gh release edit latest --title "PDF kW Selector - Latest" --notes "Latest Windows build from main. Commit: $GITHUB_SHA"
+            gh release edit latest --title "PDF kW Selector v0.5.4 - Latest" --notes "Version: v0.5.4; Latest Windows build from main. Commit: $GITHUB_SHA"
           else
-            gh release create latest dist/PDF_KW_Selector_latest.exe "dist/PDF_KW_Selector_${GITHUB_SHA}.exe" "dist/PDF_KW_Selector_${GITHUB_SHA}.zip" --target "$GITHUB_SHA" --title "PDF kW Selector - Latest" --notes "Latest Windows build from main. Commit: $GITHUB_SHA"
+            gh release create latest dist/PDF_KW_Selector_latest.exe "dist/PDF_KW_Selector_${GITHUB_SHA}.exe" "dist/PDF_KW_Selector_${GITHUB_SHA}.zip" --target "$GITHUB_SHA" --title "PDF kW Selector v0.5.4 - Latest" --notes "Version: v0.5.4; Latest Windows build from main. Commit: $GITHUB_SHA"
           fi
       - uses: actions/upload-artifact@v4
         with:

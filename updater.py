@@ -105,6 +105,12 @@ def _version_tuple(version: str | None) -> tuple[int, ...]:
     return tuple(int(part) for part in match.group(1).split(".")) if match else ()
 
 
+def _release_version(release: dict) -> str:
+    text = " ".join(str(release.get(key) or "") for key in ("name", "body", "tag_name"))
+    match = re.search(r"\bv?(\d+(?:\.\d+)+)\b", text, re.IGNORECASE)
+    return f"v{match.group(1)}" if match else ""
+
+
 def check_for_update(current_exe: Path | None = None, current_version: str | None = None) -> dict:
     release = _request_json(RELEASE_API)
     asset = _select_asset(release.get("assets") or [])
@@ -112,12 +118,15 @@ def check_for_update(current_exe: Path | None = None, current_version: str | Non
     current = Path(current_exe or sys.executable).resolve()
     current_digest = _sha256(current).lower() if current.exists() else ""
     is_zip = str(asset.get("name", "")).lower().endswith(".zip")
-    release_version = release.get("name") or release.get("tag_name") or "latest"
+    release_version = _release_version(release)
     version_known = bool(_version_tuple(current_version)) and bool(_version_tuple(release_version))
     same = (
         (version_known and _version_tuple(current_version) >= _version_tuple(release_version))
         or (bool(remote_digest) and not is_zip and current_digest == remote_digest)
     )
+    if not version_known and current_version:
+        warning("GitHub release sürümü metadata içinde yok; yanlış güncelleme uyarısı önleniyor", current_version=current_version, release=release.get("tag_name"))
+        same = True
     # The API asset endpoint redirects to a signed CDN URL.  In some network
     # setups that redirect is served as a truncated response, especially when
     # a Range request is used to resume the download.  The browser download
@@ -126,7 +135,7 @@ def check_for_update(current_exe: Path | None = None, current_version: str | Non
     if not download_url:
         raise RuntimeError("Güncelleme EXE indirme adresi GitHub'dan alınamadı.")
     info("Güncelleme kontrolü tamamlandı", release=release.get("tag_name"), asset=asset.get("name"), asset_id=asset.get("id"), asset_size=asset.get("size"), current_exe=str(current), current_sha256=current_digest, remote_sha256=remote_digest, available=not same, download_endpoint=download_url, browser_download_url=asset.get("browser_download_url"))
-    return {"version": release_version, "published_at": release.get("published_at"), "download_url": download_url, "browser_download_url": asset.get("browser_download_url"), "asset_api_url": asset.get("url"), "asset_id": asset.get("id"), "asset_name": asset.get("name"), "asset_size": asset.get("size"), "digest": remote_digest, "current_digest": current_digest, "available": not same}
+    return {"version": release_version or release.get("tag_name") or "latest", "published_at": release.get("published_at"), "download_url": download_url, "browser_download_url": asset.get("browser_download_url"), "asset_api_url": asset.get("url"), "asset_id": asset.get("id"), "asset_name": asset.get("name"), "asset_size": asset.get("size"), "digest": remote_digest, "current_digest": current_digest, "available": not same}
 
 
 def _cache_busted(url: str) -> str:
@@ -263,7 +272,18 @@ def apply_update(temp_exe: str, target_exe: str, parent_pid: int) -> None:
     else: raise RuntimeError("Eski program kapatılamadı.")
     if not temp_path.exists() or temp_path.stat().st_size <= 0: raise RuntimeError("Güncelleme geçici EXE'si geçersiz.")
     target_path.parent.mkdir(parents=True, exist_ok=True)
-    os.replace(temp_path, target_path)
+    last_error = None
+    for attempt in range(1, 31):
+        try:
+            os.replace(temp_path, target_path)
+            last_error = None
+            break
+        except PermissionError as exc:
+            last_error = exc
+            warning("Güncelleme dosyası henüz serbest değil; tekrar denenecek", attempt=attempt, target=str(target_path))
+            time.sleep(1)
+    if last_error:
+        raise PermissionError(f"Güncelleme dosyası değiştirilemedi: {target_path}") from last_error
     subprocess.Popen([str(target_path)], close_fds=True)
 
 
