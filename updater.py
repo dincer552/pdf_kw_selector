@@ -315,5 +315,58 @@ def _pid_running(pid: int) -> bool:
 
 def restart_with_update(temp_exe: Path, target_exe: Path | None = None) -> None:
     target = Path(target_exe or sys.executable).resolve()
-    subprocess.Popen([str(target), "--apply-update", str(temp_exe), str(target), str(os.getpid())], close_fds=True, creationflags=getattr(subprocess, "CREATE_NO_WINDOW", 0))
+    if os.name == "nt":
+        # Do not start the target EXE as the updater: Windows locks the newly
+        # started image, so that process cannot replace the target file.
+        fd, raw_script = tempfile.mkstemp(prefix="pdf_kw_selector_update_", suffix=".ps1")
+        os.close(fd)
+        script = Path(raw_script)
+        script.write_text(
+            r"""
+param([string]$Source, [string]$Target, [int]$ParentPid, [string]$ScriptPath)
+$ErrorActionPreference = "Stop"
+try {
+    for ($i = 0; $i -lt 120; $i++) {
+        if (-not (Get-Process -Id $ParentPid -ErrorAction SilentlyContinue)) { break }
+        Start-Sleep -Milliseconds 250
+    }
+    if (Get-Process -Id $ParentPid -ErrorAction SilentlyContinue) {
+        throw "Eski program kapatılamadı."
+    }
+    for ($i = 0; $i -lt 60; $i++) {
+        try {
+            Move-Item -LiteralPath $Source -Destination $Target -Force -ErrorAction Stop
+            Start-Process -FilePath $Target
+            break
+        } catch {
+            if ($i -eq 59) { throw }
+            Start-Sleep -Seconds 1
+        }
+    }
+} finally {
+    Remove-Item -LiteralPath $ScriptPath -Force -ErrorAction SilentlyContinue
+}
+""".strip(),
+            encoding="utf-8",
+        )
+        subprocess.Popen(
+            [
+                "powershell.exe",
+                "-NoProfile",
+                "-ExecutionPolicy",
+                "Bypass",
+                "-WindowStyle",
+                "Hidden",
+                "-File",
+                str(script),
+                str(temp_exe),
+                str(target),
+                str(os.getpid()),
+                str(script),
+            ],
+            close_fds=True,
+            creationflags=getattr(subprocess, "CREATE_NO_WINDOW", 0),
+        )
+    else:
+        subprocess.Popen([str(target), "--apply-update", str(temp_exe), str(target), str(os.getpid())], close_fds=True)
     raise SystemExit(0)
