@@ -5,7 +5,6 @@ from dataclasses import dataclass, asdict
 import re
 import unicodedata
 from pathlib import Path
-
 from pypdf import PdfReader
 from app_logger import debug, exception, info, warning
 
@@ -47,7 +46,6 @@ class ProjectDiscovery:
     def to_dict(self) -> dict:
         data = asdict(self); data["candidates"] = [candidate.to_dict() for candidate in self.candidates]; return data
 
-
 def normalize_project_name(value: str) -> str:
     value = unicodedata.normalize("NFKC", value or "").replace("İ", "I").replace("ı", "i").replace("–", "-").replace("—", "-").replace("−", "-").casefold()
     value = "".join(char for char in unicodedata.normalize("NFKD", value) if not unicodedata.combining(char))
@@ -55,40 +53,32 @@ def normalize_project_name(value: str) -> str:
     value = re.sub(r"\s+", " ", value).strip()
     return re.sub(r"^(?:project|proje)\s+", "", value)
 
-
 def _clean_value(value: str) -> str: return re.sub(r"\s+", " ", value or "").strip(" :-\t")
 def _is_field_label(value: str) -> bool: return bool(_FIELD_LABEL_RE.match(_clean_value(value)))
-
 def _is_generic_project_name(value: str) -> bool:
     normalized = normalize_project_name(_clean_value(value))
     return bool(normalized) and (normalized in _GENERIC_FAN_PROJECT_SET or bool(_GENERIC_FAN_PROJECT_RE.fullmatch(normalized)) or any(pattern.fullmatch(normalized) for pattern in _GENERIC_ENGINEERING_FIELD_PATTERNS))
-
 def _looks_like_project_name(value: str) -> bool:
     value = _clean_value(value)
     if not value or _is_field_label(value) or _is_generic_project_name(value) or _NUMERIC_ONLY_RE.fullmatch(value) or _AHU_ONLY_RE.fullmatch(value): return False
     tokens = normalize_project_name(value).split()
     return len(tokens) >= 2 and sum(bool(re.search(r"[a-z]", token)) for token in tokens) >= 2
-
 def _strip_header_metadata(value: str) -> str: return _clean_value(_TRAILING_HEADER_RE.sub("", value or ""))
-
 def _candidate(value: str, source: str, page: int, confidence: str) -> ProjectCandidate | None:
     value = _strip_header_metadata(value)
     if not _looks_like_project_name(value): return None
     normalized = normalize_project_name(value)
     if not normalized or normalized in _GENERIC_TOKENS: return None
     return ProjectCandidate(value, normalized, source, page, confidence)
-
 def _is_known_field_value(value: str) -> bool:
     value = _clean_value(value)
     return bool(_NUMERIC_ONLY_RE.fullmatch(value) or _AHU_ONLY_RE.fullmatch(value) or _is_generic_project_name(value))
-
 def _find_multiline_project_name(lines: list[str], start_index: int) -> str:
     for look in range(start_index + 1, min(len(lines), start_index + 30)):
         value = _clean_value(lines[look])
         if not value or _is_field_label(value) or _is_known_field_value(value): continue
         if _looks_like_project_name(value): return _strip_header_metadata(value)
     return ""
-
 
 def discover_project_from_text(pages: list[str]) -> ProjectDiscovery:
     try:
@@ -101,28 +91,26 @@ def discover_project_from_text(pages: list[str]) -> ProjectDiscovery:
         for index, (page_number, line) in enumerate(fragments):
             match = _LABEL_RE.match(line)
             if match:
-                raw = _strip_header_metadata(match.group(1))
-                value = raw or _find_multiline_project_name(lines, index)
+                value = _strip_header_metadata(match.group(1)) or _find_multiline_project_name(lines, index)
                 item = _candidate(value, "project_name_field", page_number, "HIGH")
                 if item: candidates.append(item)
                 continue
             match = _PROJECT_RE.match(line)
             if match:
-                value = _strip_header_metadata(line)
-                item = _candidate(value, "project_header", page_number, "HIGH")
+                item = _candidate(_strip_header_metadata(line), "project_header", page_number, "HIGH")
                 if item: candidates.append(item)
                 continue
+            item = _candidate(line, "project_header", page_number, "MEDIUM")
+            if item: candidates.append(item)
         unique: list[ProjectCandidate] = []; seen: set[tuple[str, str]] = set()
         for item in candidates:
             key = (item.normalized, item.source)
             if key not in seen: seen.add(key); unique.append(item)
         explicit = [c for c in unique if c.source == "project_name_field"]
-        selected = explicit[0] if explicit else (next((c for c in unique if c.source == "project_header"), None))
-        result = ProjectDiscovery(selected.value if selected else None, selected.normalized if selected else None, selected.source if selected else None, selected.page if selected else None, selected.confidence if selected else "REVIEW", tuple(unique))
-        return result
+        selected = explicit[0] if explicit else next((c for c in unique if c.source == "project_header"), None)
+        return ProjectDiscovery(selected.value if selected else None, selected.normalized if selected else None, selected.source if selected else None, selected.page if selected else None, selected.confidence if selected else "REVIEW", tuple(unique))
     except Exception as exc:
         exception("Proje keşfi hesaplama hatası", exc, page_count=len(pages)); raise
-
 
 def discover_project(path: str | Path) -> ProjectDiscovery:
     try:
