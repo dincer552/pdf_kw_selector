@@ -17,8 +17,8 @@ _UNIT_PATTERNS = [
     ("ahu_token", re.compile(r"(?<![A-Z0-9])(AHU(?:[_ -]+[A-Z0-9][A-Z0-9_-]*|\d[A-Z0-9_-]*))\b", re.I)),
     ("ahu_embedded", re.compile(r"(?<![A-Z0-9])(?:[A-Z0-9]+[-_ ]+)(AHU(?:[_ -]+[A-Z0-9][A-Z0-9_-]*|\d[A-Z0-9_-]*))\b", re.I)),
 ]
-
 _LABELLED_SOURCES = {"unit_reference", "unit_number"}
+_UNIT_REFERENCE_RE = re.compile(r"\bunit\s+reference\b", re.I)
 
 
 def _normalize_numeric_zeros(value: str) -> str:
@@ -64,8 +64,48 @@ class AHUDiscovery:
         return {"equipment_ids": [x.to_dict() for x in self.equipment_ids], "unique_ids": list(self.unique_ids())}
 
 
-def discover_equipment_from_text(pages: list[str]) -> AHUDiscovery:
+def _unit_reference_occurrences(pages: list[str]) -> list[EquipmentOccurrence]:
+    occurrences = []
+    seen = set()
+    for page_no, text in enumerate(pages, start=1):
+        lines = [line.strip() for line in (text or "").splitlines()]
+        for index, line in enumerate(lines):
+            match = _UNIT_REFERENCE_RE.search(line)
+            if not match:
+                continue
+            # Prefer the value on the same extracted line after the fixed label.
+            remainder = line[match.end():].strip(" :=" + "\t")
+            candidates = [remainder] if remainder else []
+            # PDF extraction can put the value on the next line/fragment.
+            if not candidates:
+                for look in range(index + 1, min(len(lines), index + 4)):
+                    value = lines[look].strip(" :=" + "\t")
+                    if value:
+                        candidates.append(value)
+                        break
+            for raw in candidates:
+                raw = raw.split()[0].strip(".,;:()[]{}")
+                normalized = normalize_equipment_id(raw)
+                if not _is_supported_equipment_id(normalized) or len(normalized) < 5:
+                    continue
+                key = (normalized, page_no)
+                if key in seen:
+                    continue
+                seen.add(key)
+                occurrences.append(EquipmentOccurrence(raw, normalized, page_no, "unit_reference"))
+    return occurrences
+
+
+def discover_equipment_from_text(pages: list[str], *, unit_reference_only: bool = False) -> AHUDiscovery:
     try:
+        if unit_reference_only:
+            occurrences = _unit_reference_occurrences(pages)
+            result = AHUDiscovery(tuple(occurrences))
+            info("PDF1 Unit Reference keşfi tamamlandı", page_count=len(pages), occurrence_count=len(occurrences), unique_ids=list(result.unique_ids()))
+            if not result.unique_ids():
+                warning("PDF1'de Unit Reference değeri bulunamadı", page_count=len(pages))
+            return result
+
         occurrences = []
         labelled_occurrences = []
         seen_page = set()
@@ -180,17 +220,12 @@ def match_ahu_lists(left: list[EquipmentOccurrence], right: list[EquipmentOccurr
     for item in right: right_unique.setdefault(item.normalized, item)
 
     output = []
-    used_l = set()
-    used_r = set()
-
-    # Fast path: normalized IDs that occur on both sides are unambiguous exact
-    # matches. This avoids the O(N*M) scoring work for the common case.
+    used_l = set(); used_r = set()
     for normalized in left_unique.keys() & right_unique.keys():
         lo = left_unique[normalized]; ro = right_unique[normalized]
         output.append(match_ahu_ids(normalized, normalized, left_page=lo.page, right_page=ro.page))
         used_l.add(normalized); used_r.add(normalized)
 
-    # Only unmatched IDs need fuzzy / approved-family comparison.
     pairs = []
     remaining_left = [(lid, lo) for lid, lo in left_unique.items() if lid not in used_l]
     remaining_right = [(rid, ro) for rid, ro in right_unique.items() if rid not in used_r]
@@ -205,24 +240,17 @@ def match_ahu_lists(left: list[EquipmentOccurrence], right: list[EquipmentOccurr
             pairs.append((m.score, lid, rid, m))
 
     for _, lid, rid, m in sorted(pairs, key=lambda x: x[0], reverse=True):
-        if lid in used_l or rid in used_r or m.status == "NO_MATCH":
-            continue
+        if lid in used_l or rid in used_r or m.status == "NO_MATCH": continue
         output.append(m); used_l.add(lid); used_r.add(rid)
-
     for lid, item in left_unique.items():
-        if lid not in used_l:
-            output.append(AHUMatch(item.equipment_id, None, lid, None, 0.0, "ONLY_IN_PDF1", "equipment exists only on left side", item.page, None))
+        if lid not in used_l: output.append(AHUMatch(item.equipment_id, None, lid, None, 0.0, "ONLY_IN_PDF1", "equipment exists only on left side", item.page, None))
     for rid, item in right_unique.items():
-        if rid not in used_r:
-            output.append(AHUMatch(None, item.equipment_id, None, rid, 0.0, "ONLY_IN_PDF2", "equipment exists only on right side", None, item.page))
+        if rid not in used_r: output.append(AHUMatch(None, item.equipment_id, None, rid, 0.0, "ONLY_IN_PDF2", "equipment exists only on right side", None, item.page))
     info("AHU eşleştirme hesaplandı", pdf1_unique=len(left_unique), pdf2_unique=len(right_unique), output_count=len(output), approved_variants=len(approved_variants), matches=[x.to_dict() for x in output])
     return output
 
 
 def _suffix_tokens(value: str) -> list[str]:
     normalized = normalize_equipment_id(value)
-    if normalized.startswith("AHU-"):
-        tail = normalized[4:]
-    else:
-        tail = normalized
+    tail = normalized[4:] if normalized.startswith("AHU-") else normalized
     return [x for x in re.split(r"[-_ ]+", tail) if x]
