@@ -459,6 +459,7 @@ def restart_with_update(temp_exe: Path, target_exe: Path | None = None) -> None:
             r"""
 param([string]$Source, [string]$Target, [int]$ParentPid, [string]$ScriptPath)
 $ErrorActionPreference = "Stop"
+$installed = $false
 try {
     for ($i = 0; $i -lt 120; $i++) {
         if (-not (Get-Process -Id $ParentPid -ErrorAction SilentlyContinue)) { break }
@@ -470,13 +471,27 @@ try {
     for ($i = 0; $i -lt 60; $i++) {
         try {
             Move-Item -LiteralPath $Source -Destination $Target -Force -ErrorAction Stop
-            Start-Process -FilePath $Target
+            $installed = $true
+            Start-Process -FilePath $Target -WorkingDirectory (Split-Path -Parent $Target) -ErrorAction Stop
             break
         } catch {
             if ($i -eq 59) { throw }
             Start-Sleep -Seconds 1
         }
     }
+} catch {
+    Add-Type -AssemblyName PresentationFramework
+    $message = if ($installed) {
+        "Güncelleme tamamlandı ancak program otomatik başlatılamadı.`n`nLütfen Tamam'a bastıktan sonra programı masaüstü kısayolundan yeniden başlatın."
+    } else {
+        "Güncelleme kurulamadı. Lütfen programı kapatıp güncellemeyi yeniden deneyin."
+    }
+    [System.Windows.MessageBox]::Show(
+        $message,
+        "PDF kW Selector güncellemesi",
+        [System.Windows.MessageBoxButton]::OK,
+        [System.Windows.MessageBoxImage]::Information
+    ) | Out-Null
 } finally {
     Remove-Item -LiteralPath $ScriptPath -Force -ErrorAction SilentlyContinue
 }
