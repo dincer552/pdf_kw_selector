@@ -69,7 +69,9 @@ def _scan_pdf1_motors(pages,equipment_id=None,path=None):
   try:coord=discover_coordinate_motor_powers(path)
   except Exception as e:warning('PDF1 koordinat motor taraması başarısız',path=str(path),error=str(e))
  for n,text in enumerate(pages,1):
-  for r in (coord.get(n) or extract_rated_motor_powers_from_page(text,n)):
+  # PDF1 motor discovery is strictly coordinate-based. No generic Rated Power
+  # text scan or filename-derived motor fallback is allowed.
+  for r in (coord.get(n) or ()):
    if not r.equipment_id and equipment_id:r=r.__class__(page_number=r.page_number,value_kw=r.value_kw,raw_value=r.raw_value,quantity=r.quantity,field=r.field,confidence=r.confidence,source_text=r.source_text,component_type=r.component_type,component_role=r.component_role,equipment_id=equipment_id,model_brand=r.model_brand)
    rows.append(r)
  return tuple(_dedupe_motor_results(rows))
@@ -84,7 +86,6 @@ def _scan_pdf2_motors(pages,equipment_id=None):
 def _scan_single_pdf(path,side):
  side=side.upper().strip();resolved=Path(path).expanduser().resolve();pages=_read_pages_once(resolved)
  if side=='PDF1':
-  # PDF1 identity comes ONLY from the coordinate-based Project/Unit Reference fields.
   project=discover_pdf1_project(list(pages),path=resolved);equipment=discover_pdf1_unit_reference(list(pages),path=resolved);eid=equipment.unique_ids()[0] if equipment.unique_ids() else None
   motors=_scan_pdf1_motors(pages,eid,resolved);ebm=tuple(p for p,t in enumerate(pages,1) if extract_model_brand(t)=='EBM-Papst')
   return MasterPDFScan(str(resolved),side,pages,project,equipment,pdf1_motors=motors,pdf1_ebm_pages=ebm)
