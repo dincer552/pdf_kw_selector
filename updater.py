@@ -468,7 +468,7 @@ def restart_with_update(temp_exe: Path, target_exe: Path | None = None) -> None:
         script = Path(raw_script)
         script.write_text(
             r"""
-param([string]$Source, [string]$Target, [int]$ParentPid, [string]$ScriptPath, [string]$LauncherPath)
+param([string]$Source, [string]$Target, [int]$ParentPid, [string]$ScriptPath)
 $ErrorActionPreference = "Stop"
 $installed = $false
 try {
@@ -489,41 +489,13 @@ try {
             Start-Sleep -Seconds 1
         }
     }
-    $launcher = @'
-param([string]$Target, [string]$LauncherPath)
-$ErrorActionPreference = "Stop"
-try {
-    Start-Sleep -Seconds 8
-    for ($attempt = 1; $attempt -le 3; $attempt++) {
-        $process = Start-Process -FilePath $Target -WorkingDirectory (Split-Path -Parent $Target) -PassThru -ErrorAction Stop
-        Start-Sleep -Seconds 10
-        if (-not $process.HasExited) { exit 0 }
-        Start-Sleep -Seconds 3
-    }
     Add-Type -AssemblyName PresentationFramework
     [System.Windows.MessageBox]::Show(
-        "Güncelleme tamamlandı ancak program otomatik başlatılamadı. Lütfen yeniden başlatın.",
+        "Güncelleme tamamlandı. Lütfen yeniden başlatın.",
         "PDF kW Selector güncellemesi",
         [System.Windows.MessageBoxButton]::OK,
         [System.Windows.MessageBoxImage]::Information
     ) | Out-Null
-} catch {
-    Add-Type -AssemblyName PresentationFramework
-    [System.Windows.MessageBox]::Show(
-        "Güncelleme tamamlandı ancak program otomatik başlatılamadı. Lütfen yeniden başlatın.",
-        "PDF kW Selector güncellemesi",
-        [System.Windows.MessageBoxButton]::OK,
-        [System.Windows.MessageBoxImage]::Information
-    ) | Out-Null
-} finally {
-    Remove-Item -LiteralPath $LauncherPath -Force -ErrorAction SilentlyContinue
-}
-'@
-    Set-Content -LiteralPath $LauncherPath -Value $launcher -Encoding UTF8
-    Start-Process -FilePath "powershell.exe" -ArgumentList @(
-        "-NoProfile", "-ExecutionPolicy", "Bypass", "-WindowStyle", "Hidden",
-        "-File", $LauncherPath, $Target, $LauncherPath
-    ) -WindowStyle Hidden
 } catch {
     Add-Type -AssemblyName PresentationFramework
     $message = if ($installed) {
@@ -543,9 +515,6 @@ try {
 """.strip(),
             encoding="utf-8-sig",
         )
-        launcher_fd, raw_launcher = tempfile.mkstemp(prefix="pdf_kw_selector_launcher_", suffix=".ps1")
-        os.close(launcher_fd)
-        launcher = Path(raw_launcher)
         subprocess.Popen(
             [
                 "powershell.exe",
@@ -560,7 +529,6 @@ try {
                 str(target),
                 str(os.getpid()),
                 str(script),
-                str(launcher),
             ],
             close_fds=True,
             creationflags=getattr(subprocess, "CREATE_NO_WINDOW", 0),
