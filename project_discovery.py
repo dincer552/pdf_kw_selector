@@ -57,7 +57,13 @@ def normalize_project_name(value: str) -> str:
     value = "".join(char for char in unicodedata.normalize("NFKD", value) if not unicodedata.combining(char))
     value = re.sub(r"[^a-z0-9]+", " ", value)
     value = re.sub(r"\s+", " ", value).strip()
-    return re.sub(r"^(?:project|proje)\s+", "", value)
+    value = re.sub(r"^(?:project|proje)\s+", "", value)
+
+    # Project alias: these are the same Eker Balıkesir project.
+    if value == "eker balikesir":
+        return "eker sut urunleri yeni fabrika yatirimi"
+
+    return value
 
 def _raw_normalized(value: str) -> str:
     value = unicodedata.normalize("NFKC", value or "").replace("İ", "I").replace("ı", "i").replace("–", "-").replace("—", "-").replace("−", "-").casefold()
@@ -108,8 +114,6 @@ def _find_label_value(lines: list[str], index: int, label_pattern: re.Pattern[st
             continue
         if _looks_like_project_name(value):
             return _strip_header_metadata(value)
-    # AIRWARE title pages can extract the visible value before "Proje Name:"
-    # even though it is visually printed to the right of that label.
     for look in range(index - 1, max(-1, index - 12), -1):
         value = _clean_value(lines[look])
         if not value or _is_field_label(value) or _is_known_field_value(value):
