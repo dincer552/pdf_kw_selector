@@ -35,16 +35,22 @@ jobs:
         env:
           APP_VERSION: v0.5.4.${{ github.run_number }}
         run: |
-          Set-Content -Path build_info.py -Value '"""Build metadata embedded in packaged applications."""', 'BUILD_SHA = "$env:GITHUB_SHA"', 'BUILD_VERSION = "$env:APP_VERSION"'
+          Set-Content -Path build_info.py -Value '"""Build metadata embedded in packaged applications."""', "BUILD_SHA = `"$env:GITHUB_SHA`"", "BUILD_VERSION = `"$env:APP_VERSION`""
       - name: Build EXE
-        run: pyinstaller --noconfirm --clean --onefile --windowed --additional-hooks-dir=. --collect-all pypdf --name PDF_KW_Selector_v0.5.4 desktop_grouped_app.py
+        shell: pwsh
+        env:
+          APP_VERSION: v0.5.4.${{ github.run_number }}
+        run: pyinstaller --noconfirm --clean --onefile --windowed --additional-hooks-dir=. --collect-all pypdf --name "PDF_KW_Selector_$env:APP_VERSION" desktop_grouped_app.py
       - name: Prepare release assets
         if: github.ref == 'refs/heads/dincer552-fix-github-updates'
         shell: pwsh
+        env:
+          APP_VERSION: v0.5.4.${{ github.run_number }}
         run: |
-          Copy-Item dist/PDF_KW_Selector_v0.5.4.exe dist/PDF_KW_Selector_latest.exe
-          Copy-Item dist/PDF_KW_Selector_v0.5.4.exe "dist/PDF_KW_Selector_$env:GITHUB_SHA.exe"
-          Compress-Archive -Path dist/PDF_KW_Selector_v0.5.4.exe -DestinationPath "dist/PDF_KW_Selector_$env:GITHUB_SHA.zip" -CompressionLevel Optimal
+          $source = "dist/PDF_KW_Selector_$env:APP_VERSION.exe"
+          Copy-Item $source dist/PDF_KW_Selector_latest.exe
+          Copy-Item $source "dist/PDF_KW_Selector_$env:GITHUB_SHA.exe"
+          Compress-Archive -Path $source -DestinationPath "dist/PDF_KW_Selector_$env:GITHUB_SHA.zip" -CompressionLevel Optimal
       - name: Publish latest release
         if: github.ref == 'refs/heads/dincer552-fix-github-updates'
         env:
@@ -63,7 +69,7 @@ jobs:
       - uses: actions/upload-artifact@v4
         with:
           name: PDF_KW_Selector_v0.5.4_Windows
-          path: dist/PDF_KW_Selector_v0.5.4.exe
+          path: dist/PDF_KW_Selector_v0.5.4.${{ github.run_number }}.exe
   deploy-update:
     needs: build-windows
     runs-on: self-hosted
@@ -80,7 +86,7 @@ jobs:
           VERSION: v0.5.4.${{ github.run_number }}
         run: |
           set -euo pipefail
-          exe="update-dist/PDF_KW_Selector_v0.5.4.exe"
+          exe="update-dist/PDF_KW_Selector_v0.5.4.${{ github.run_number }}.exe"
           size="$(stat -c '%s' "$exe")"
           sha="$(sha256sum "$exe" | awk '{print $1}')"
           name="PDF_KW_Selector_${VERSION}_${BUILD_SHA}.exe"
