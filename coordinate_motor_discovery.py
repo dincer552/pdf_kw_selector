@@ -32,8 +32,8 @@ def _parse_rated_power(raw):
  if number:return normalize_power(float(number.group(1).replace(",",".")),"kw"),number.group(1),(f"{qty.group(1)}x{qty.group(2)}" if qty else None)
  return None
 
-def discover_coordinate_motor_powers(path: str|Path):
- result={};doc=fitz.open(str(path))
+def discover_coordinate_motor_powers(path: str|Path|None=None,document=None):
+ result={};owns_document=document is None;doc=document if document is not None else fitz.open(str(path))
  try:
   for page_number,page in enumerate(doc,1):
    if not _is_plug_fan_page(page):continue
@@ -45,7 +45,8 @@ def discover_coordinate_motor_powers(path: str|Path):
    if direction=="supply air":component_type,component_role="Vantilatör","supply_fan"
    else:component_type,component_role="Aspiratör","exhaust_fan"
    result.setdefault(page_number,[]).append(MotorPowerResult(page_number=page_number,value_kw=value_kw,raw_value=raw_value,quantity=quantity,field="fan_motor_power_coordinates",confidence="high",source_text=f"{direction.title()} | {rated_raw}",component_type=component_type,component_role=component_role,equipment_id=None,model_brand=model_brand or None))
- finally:doc.close()
+ finally:
+  if owns_document:doc.close()
  return result
 
 __all__=["discover_coordinate_motor_powers"]
