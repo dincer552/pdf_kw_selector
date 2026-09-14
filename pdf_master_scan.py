@@ -144,7 +144,7 @@ def _scan_single_pdf(path,side):
     info("Master PDF scan başladı",path=str(resolved),side=side); pages=_read_pages_once(resolved)
     filename_equipment=_filename_equipment(resolved)
     if side=="PDF1":
-        project=discover_pdf1_project(list(pages)); discovered_equipment=discover_pdf1_unit_reference(list(pages))
+        project=discover_pdf1_project(list(pages)); discovered_equipment=discover_pdf1_unit_reference(list(pages),path=resolved)
         # A filename prefix is authoritative when the document itself only says generic AHU-1.
         # AD-AHU-01 and PR-AHU-01 are different physical units and must never collapse to AHU-1.
         if filename_equipment and re.fullmatch(r"[A-Z0-9]+-AHU-[A-Z]?\d+(?:\.\d+)?", filename_equipment.normalized):
