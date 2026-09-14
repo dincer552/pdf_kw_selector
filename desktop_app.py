@@ -41,34 +41,17 @@ class App(tk.Tk):
         detail_frame=ttk.LabelFrame(result_tab,text="Sonuç JSON / teknik detay",padding=5); detail_frame.pack(fill="both",expand=False,padx=8,pady=4); self.detail=tk.Text(detail_frame,height=6,wrap="none"); self.detail.pack(fill="both",expand=True); self.detail.configure(state="disabled")
         self.update_progress=tk.DoubleVar(value=0); self.update_detail=tk.StringVar(value="Güncelleme hazır"); style=ttk.Style(self); style.configure("Update.Horizontal.TProgressbar",troughcolor="#d9d9d9",background="#20a050",lightcolor="#20a050",darkcolor="#16803d")
         progress=ttk.Frame(self,padding=(5,0)); self.update_panel=progress; ttk.Label(progress,textvariable=self.update_detail,anchor="e").pack(side="right"); self.update_bar=ttk.Progressbar(progress,style="Update.Horizontal.TProgressbar",variable=self.update_progress,maximum=100,length=360); self.update_bar.pack(side="right",padx=8)
-        buttons=ttk.Frame(self,padding=5); buttons.pack(fill="x"); ttk.Button(buttons,text="ANALİZ",command=self.compare).pack(side="left",padx=3); ttk.Button(buttons,text="SEÇİMLERİ TEMİZLE",command=self.clear_inputs).pack(side="left",padx=3); ttk.Button(buttons,text="JSON KAYDET",command=self.save_json).pack(side="left",padx=3)
+        buttons=ttk.Frame(self,padding=5); buttons.pack(fill="x"); ttk.Button(buttons,text="TOPLU ANALİZ",command=self.compare).pack(side="left",padx=3); ttk.Button(buttons,text="SEÇİMLERİ TEMİZLE",command=self.clear_inputs).pack(side="left",padx=3); ttk.Button(buttons,text="JSON KAYDET",command=self.save_json).pack(side="left",padx=3)
         self.update_notice=ttk.Frame(buttons); self.update_notice.pack(side="right",padx=8); self.update_notice_label=ttk.Label(self.update_notice,text="Yeni sürüm mevcut",foreground="#16803d"); self.update_notice_label.pack(side="left",padx=(0,6)); ttk.Button(self.update_notice,text="İNDİR",command=self.download_available_update).pack(side="left"); self.update_notice.pack_forget()
         self.status=ttk.Label(buttons,text="Hazır",anchor="e"); self.status.pack(side="right")
         self.log_text=tk.Text(log_tab,wrap="none"); self.log_text.pack(fill="both",expand=True,padx=5,pady=5); log_buttons=ttk.Frame(log_tab,padding=5); log_buttons.pack(fill="x"); ttk.Button(log_buttons,text="LOGLARI YENİLE",command=self.refresh_logs).pack(side="left",padx=3); ttk.Button(log_buttons,text="LOG DOSYASINI AÇ",command=self.open_log_file).pack(side="left",padx=3); ttk.Button(log_buttons,text="LOG KLASÖRÜNÜ AÇ",command=self.open_log_directory).pack(side="left",padx=3); ttk.Button(log_buttons,text="LOGLARI TEMİZLE",command=self.clear_logs).pack(side="left",padx=3); self.refresh_logs()
 
     def _manual_update_check(self):
-        if self._update_check_running or getattr(self, "_download_running", False):
-            return
-        self._update_check_running = True
-        self._manual_check_active = True
-        self._update_check_spinner_index = 0
-        self._spin_update_check_button()
-        self.status.configure(text="Güncellemeler kontrol ediliyor...")
-        self.update_detail.set("Güncel sürüm kontrol ediliyor...")
-        self.update_panel.pack(fill="x")
-        self.update_idletasks()
-        threading.Thread(target=self._check_updates_background, daemon=True).start()
-
+        if self._update_check_running or getattr(self, "_download_running", False): return
+        self._update_check_running=True; self._manual_check_active=True; self._update_check_spinner_index=0; self._spin_update_check_button(); self.status.configure(text="Güncellemeler kontrol ediliyor..."); self.update_detail.set("Güncel sürüm kontrol ediliyor..."); self.update_panel.pack(fill="x"); self.update_idletasks(); threading.Thread(target=self._check_updates_background,daemon=True).start()
     def _spin_update_check_button(self):
-        if not getattr(self, "_manual_check_active", False):
-            self.update_check_button.configure(text="↻", state="normal")
-            return
-        symbols = ("↻", "⟳", "↺", "⟲")
-        index = self._update_check_spinner_index % len(symbols)
-        self.update_check_button.configure(text=symbols[index], state="disabled")
-        self._update_check_spinner_index += 1
-        self.after(180, self._spin_update_check_button)
-
+        if not getattr(self,"_manual_check_active",False): self.update_check_button.configure(text="↻",state="normal"); return
+        symbols=("↻","⟳","↺","⟲"); index=self._update_check_spinner_index%len(symbols); self.update_check_button.configure(text=symbols[index],state="disabled"); self._update_check_spinner_index+=1; self.after(180,self._spin_update_check_button)
     def _file_box(self,parent,title,side):
         frame=ttk.LabelFrame(parent,text=title,padding=6); label=ttk.Label(frame,text="0 PDF seçildi"); label.pack(side="left",fill="x",expand=True); ttk.Button(frame,text="PDF EKLE",command=lambda:self.add_files(side)).pack(side="right",padx=2); ttk.Button(frame,text="KLASÖR EKLE",command=lambda:self.add_folder(side)).pack(side="right",padx=2); return label,frame
     def add_files(self,side): self._merge_inputs(side,list(filedialog.askopenfilenames(title=f"{side} PDF seç",filetypes=[("PDF","*.pdf")])) )
@@ -82,25 +65,11 @@ class App(tk.Tk):
         label=self.pdf1_label if side=="PDF1" else self.pdf2_label; names=", ".join(Path(x.path).name for x in target[:3]); label.configure(text=f"{len(target)} PDF: {names}{' ...' if len(target)>3 else ''}"); info("PDF girişleri güncellendi",side=side,count=len(target),paths=[str(x.path) for x in target])
     def clear_inputs(self):
         if self._analysis_running:return
-        self.pdf1_inputs.clear(); self.pdf2_inputs.clear(); self.pdf1_label.configure(text="0 PDF seçildi"); self.pdf2_label.configure(text="0 PDF seçildi")
-        self.analysis = None
+        self.pdf1_inputs.clear(); self.pdf2_inputs.clear(); self.pdf1_label.configure(text="0 PDF seçildi"); self.pdf2_label.configure(text="0 PDF seçildi"); self.analysis=None
         for item in self.tree.get_children(): self.tree.delete(item)
-        self._clear_unmatched()
-        self._clear_analysis_detail()
-        self.status.configure(text="Hazır")
-        self.update_progress.set(0)
-        self.update_detail.set("Güncelleme hazır")
-        self.update_panel.pack_forget()
-        self._clear_grouped_results()
-        info("PDF seçimleri ve analiz sonuçları temizlendi")
-
-    def _clear_analysis_detail(self):
-        self._set_detail("")
-
-    def _clear_grouped_results(self):
-        """Hook for grouped result tabs; the log tab must remain untouched."""
-        return
-
+        self._clear_unmatched(); self._clear_analysis_detail(); self.status.configure(text="Hazır"); self.update_progress.set(0); self.update_detail.set("Güncelleme hazır"); self.update_panel.pack_forget(); self._clear_grouped_results(); info("PDF seçimleri ve analiz sonuçları temizlendi")
+    def _clear_analysis_detail(self): self._set_detail("")
+    def _clear_grouped_results(self): return
     def compare(self):
         if self._analysis_running:return
         if not self.pdf1_inputs or not self.pdf2_inputs: messagebox.showwarning("Eksik seçim","PDF1 ve PDF2 tarafına en az birer PDF/klasör ekleyin."); return
@@ -140,40 +109,19 @@ class App(tk.Tk):
         rows.sort(key=lambda row:(row[0],row[1].casefold()))
         for side,pdf,project,ahus,reason,path in rows:self.unmatched_tree.insert("","end",values=(side,pdf,project,ahus,reason),tags=(path,))
         self.tabs.tab(1,text=f"EŞLEŞMEYEN PDF'LER ({len(rows)})")
-        info("Eşleşmeyen PDF listesi oluşturuldu",unmatched_count=len(rows),matched_ahu_pdf_count=len(matched_paths),unmatched=[{"side":r[0],"path":r[5],"project":r[2],"ahu":r[3],"reason":r[4]} for r in rows)
+        info("Eşleşmeyen PDF listesi oluşturuldu",unmatched_count=len(rows),matched_ahu_pdf_count=len(matched_paths),unmatched=[{"side":r[0],"path":r[5],"project":r[2],"ahu":r[3],"reason":r[4]} for r in rows])
     def _clear_unmatched(self):
         if not hasattr(self,"unmatched_tree"): return
         for item in self.unmatched_tree.get_children(): self.unmatched_tree.delete(item)
         if hasattr(self,"tabs"): self.tabs.tab(1,text="EŞLEŞMEYEN PDF'LER (0)")
     def _analysis_failed(self,exc):
         self._analysis_running=False; exception("GUI sonuç tablosu oluşturma hatası",exc); messagebox.showerror("Sonuç gösterme hatası",f"{type(exc).__name__}: {exc}"); self.status.configure(text="Analiz başarısız"); self.update_detail.set("Analiz başarısız"); self.refresh_logs()
-    def _analysis_progress(self, stage, done, total, detail):
-        if stage == "scan":
-            self.update_detail.set(f"PDF taraması: {done}/{total} • {detail}")
-        elif stage == "analysis":
-            self.update_detail.set(f"Analiz: {done}/{total} • {detail}")
-        else:
-            self.update_detail.set(detail)
-        if total: self.update_progress.set(min(100.0, (done / total) * 100.0))
+    def _analysis_progress(self,stage,done,total,detail):
+        if stage=="scan": self.update_detail.set(f"PDF taraması: {done}/{total} • {detail}")
+        elif stage=="analysis": self.update_detail.set(f"Analiz: {done}/{total} • {detail}")
+        else: self.update_detail.set(detail)
+        if total:self.update_progress.set(min(100.0,(done/total)*100.0))
         self.update_idletasks()
     def _set_detail(self,text):
-        self.detail.configure(state="normal"); self.detail.delete("1.0", "end"); self.detail.insert("1.0",text); self.detail.configure(state="disabled")
-    def _fmt(self,value):
-        return "-" if value is None else f"{value:g}"
-    def _schedule_update_check(self):
-        if not self._update_check_running: threading.Thread(target=self._check_updates_background,daemon=True).start()
-        self.after(UPDATE_CHECK_INTERVAL_MS,self._schedule_update_check)
-    def _check_updates_background(self):
-        return
-    def download_available_update(self):
-        return
-    def refresh_logs(self):
-        return
-    def open_log_file(self):
-        return
-    def open_log_directory(self):
-        return
-    def clear_logs(self):
-        return
-    def save_json(self):
-        return
+        self.detail.configure(state="normal"); self.detail.delete("1.0","end"); self.detail.insert("1.0",text); self.detail.configure(state="disabled")
+    def _fmt(self,value): return "-" if value is None else f"{value:g}"
