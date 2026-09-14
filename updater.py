@@ -480,7 +480,7 @@ try {
     }
     Add-Type -AssemblyName PresentationFramework
     [System.Windows.MessageBox]::Show(
-        "Güncelleme tamamlandı.`n`nProgram otomatik olarak yeniden başlatılmayacaktır. Lütfen Tamam'a bastıktan sonra programı kendiniz yeniden başlatın.",
+        "Güncelleme tamamlandı. Lütfen yeniden başlatın.",
         "PDF kW Selector güncellemesi",
         [System.Windows.MessageBoxButton]::OK,
         [System.Windows.MessageBoxImage]::Information
@@ -502,7 +502,7 @@ try {
     Remove-Item -LiteralPath $ScriptPath -Force -ErrorAction SilentlyContinue
 }
 """.strip(),
-            encoding="utf-8",
+            encoding="utf-8-sig",
         )
         subprocess.Popen(
             [
