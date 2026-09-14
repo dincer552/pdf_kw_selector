@@ -470,12 +470,21 @@ try {
     }
     for ($i = 0; $i -lt 60; $i++) {
         try {
-            Move-Item -LiteralPath $Source -Destination $Target -Force -ErrorAction Stop
-            $installed = $true
+            if (-not $installed) {
+                Move-Item -LiteralPath $Source -Destination $Target -Force -ErrorAction Stop
+                $installed = $true
+            }
             Start-Sleep -Seconds 2
             $workingDirectory = Split-Path -Parent $Target
             $process = Start-Process -FilePath $Target -WorkingDirectory $workingDirectory -PassThru -ErrorAction Stop
-            Start-Sleep -Seconds 8
+            Start-Sleep -Seconds 5
+            if ($process.HasExited) {
+                if ($i -eq 59) {
+                    throw "Yeni program başlatıldıktan sonra beklenmedik şekilde kapandı."
+                }
+                Start-Sleep -Seconds 2
+                continue
+            }
             break
         } catch {
             if ($i -eq 59) { throw }
