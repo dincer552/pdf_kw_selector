@@ -9,16 +9,7 @@ from app_logger import exception, info, warning
 from project_discovery import ProjectDiscovery, ProjectCandidate, normalize_project_name
 from pdf1_field_discovery import discover_pdf1_project, discover_pdf1_unit_reference
 from stage1_page_discovery import MotorPowerResult, build_stage1_motor_records, _dedupe_motor_results
-from stage2_pdf_discovery import (
-    PDF2MotorResult,
-    _apply_summary_quantities,
-    _dedupe,
-    _extract_connection_page,
-    _fallback_connection_page,
-    _summary_only_results,
-    _summary_quantities,
-    build_pdf2_motor_records,
-)
+from stage2_pdf_discovery import PDF2MotorResult, discover_coordinate_pdf2_motor_powers, build_pdf2_motor_records
 from coordinate_motor_discovery import discover_coordinate_motor_powers
 
 # ALL PDF2 project/AHU identification is coordinate-only.
@@ -59,8 +50,6 @@ def _pdf2_coordinate_ahu(document: fitz.Document) -> AHUDiscovery:
     value = _coordinate_text(page, _PDF2_AHU_BOX)
     if not value:
         return AHUDiscovery(())
-    # The text physically present in this coordinate box is the AHU/equipment name.
-    # No format validation or whitelist is performed. Normalization is only for matching.
     normalized = normalize_equipment_id(value) or value
     return AHUDiscovery((EquipmentOccurrence(value, normalized, 1, "ahu_coordinates"),))
 
@@ -120,23 +109,12 @@ def _scan_pdf1_motors(pages, equipment_id=None, path=None, document=None):
     return tuple(_dedupe_motor_results(rows))
 
 
-def _scan_pdf2_motors(pages, equipment_id=None):
-    # Motor-power discovery remains separate from PDF2 equipment identification.
-    # It receives ONLY the coordinate-derived AHU ID from the caller.
+def _scan_pdf2_motors(document, equipment_id=None):
+    # PDF2 motor power is STRICTLY connection-label + fixed-coordinate based.
+    # The label only selects the page. The kW value can come ONLY from the fixed box.
     if not equipment_id:
         return ()
-    summary = _summary_quantities(list(pages))
-    rows = []
-    for page_number, text in enumerate(pages, 1):
-        result = _extract_connection_page(text, page_number, equipment_id) or _fallback_connection_page(
-            text, page_number, equipment_id, summary
-        )
-        if result:
-            rows.append(result)
-    rows = _dedupe(rows)
-    if not rows and summary:
-        rows = _summary_only_results(equipment_id, summary, page_number=1)
-    return tuple(_apply_summary_quantities(rows, summary))
+    return discover_coordinate_pdf2_motor_powers(document, equipment_id)
 
 
 def _scan_single_pdf(path, side):
@@ -171,7 +149,7 @@ def _scan_single_pdf(path, side):
     if side != "PDF2":
         raise ValueError(f"Unknown PDF side: {side}")
 
-    # PDF2: one document open. Identification is STRICTLY page-1 coordinate based.
+    # PDF2: one document open. Identification and motor kW are coordinate based.
     doc = fitz.open(str(resolved))
     try:
         pages = tuple(page.get_text("text") or "" for page in doc)
@@ -179,7 +157,7 @@ def _scan_single_pdf(path, side):
         equipment = _pdf2_coordinate_ahu(doc)
         equipment_ids = equipment.unique_ids()
         equipment_id = equipment_ids[0] if equipment_ids else None
-        motors = _scan_pdf2_motors(pages, equipment_id)
+        motors = _scan_pdf2_motors(doc, equipment_id)
         return MasterPDFScan(
             str(resolved), side, pages, project, equipment,
             pdf2_motors=motors,
