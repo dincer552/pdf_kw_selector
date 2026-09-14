@@ -14,6 +14,7 @@ import urllib.error
 import urllib.parse
 import urllib.request
 import zipfile
+from concurrent.futures import ThreadPoolExecutor, as_completed
 from collections.abc import Callable
 
 from app_logger import calculation_error, debug, error, exception, info, warning
@@ -258,38 +259,48 @@ def _extract_verified_zip(zip_path: Path, asset_name: str | None) -> Path:
 
 
 def _download_manifest_chunks(chunks: list[dict], target: Path, expected_size: int | None, progress_callback: ProgressCallback | None) -> None:
+    def fetch_chunk(index: int, chunk: dict) -> tuple[int, bytes]:
+        url = str(chunk["url"])
+        expected_chunk_size = int(chunk["size"])
+        data = b""
+        for attempt in range(1, 6):
+            with _open_download(_cache_busted(url)) as response:
+                data = response.read()
+            if len(data) == expected_chunk_size:
+                return index, data
+            warning(
+                "Güncelleme parçası eksik indirildi; yeniden denenecek",
+                chunk=url,
+                attempt=attempt,
+                bytes=len(data),
+                expected_bytes=expected_chunk_size,
+            )
+        raise RuntimeError(
+            f"Güncelleme parçası eksik indirildi: {len(data)}/{expected_chunk_size} bayt."
+        )
+
     downloaded = 0
     started_at = time.monotonic()
+    pending: dict[int, bytes] = {}
+    next_index = 0
     with target.open("wb") as output:
-        for chunk in chunks:
-            url = str(chunk["url"])
-            expected_chunk_size = int(chunk["size"])
-            data = b""
-            for attempt in range(1, 6):
-                with _open_download(_cache_busted(url)) as response:
-                    data = response.read()
-                if len(data) == expected_chunk_size:
-                    break
-                warning(
-                    "Güncelleme parçası eksik indirildi; yeniden denenecek",
-                    chunk=url,
-                    attempt=attempt,
-                    bytes=len(data),
-                    expected_bytes=expected_chunk_size,
-                )
-            if len(data) != expected_chunk_size:
-                raise RuntimeError(
-                    f"Güncelleme parçası eksik indirildi: {len(data)}/{expected_chunk_size} bayt."
-                )
-            output.write(data)
-            downloaded += len(data)
-            if progress_callback:
-                progress_callback(
-                    "download",
-                    downloaded,
-                    expected_size,
-                    downloaded / max(time.monotonic() - started_at, 0.001),
-                )
+        with ThreadPoolExecutor(max_workers=4, thread_name_prefix="pdf-update") as executor:
+            futures = [executor.submit(fetch_chunk, index, chunk) for index, chunk in enumerate(chunks)]
+            for future in as_completed(futures):
+                index, data = future.result()
+                pending[index] = data
+                while next_index in pending:
+                    data = pending.pop(next_index)
+                    output.write(data)
+                    downloaded += len(data)
+                    next_index += 1
+                    if progress_callback:
+                        progress_callback(
+                            "download",
+                            downloaded,
+                            expected_size,
+                            downloaded / max(time.monotonic() - started_at, 0.001),
+                        )
 
 
 def download_update(download_url: str, *, expected_digest: str | None = None, asset_id: int | None = None, browser_download_url: str | None = None, expected_size: int | None = None, asset_name: str | None = None, progress_callback: ProgressCallback | None = None, chunks: list[dict] | None = None) -> Path:
