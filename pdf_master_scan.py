@@ -9,7 +9,7 @@ from ahu_matching import AHUDiscovery,EquipmentOccurrence,_equipment_from_filena
 from app_logger import exception,info,warning
 from project_discovery import ProjectDiscovery,ProjectCandidate,discover_project_from_text,normalize_project_name
 from pdf1_field_discovery import discover_pdf1_project,discover_pdf1_unit_reference
-from stage1_page_discovery import MotorPowerResult,build_stage1_motor_records,extract_rated_motor_powers_from_page,extract_model_brand,_dedupe_motor_results
+from stage1_page_discovery import MotorPowerResult,build_stage1_motor_records,extract_rated_motor_powers_from_page,_dedupe_motor_results
 from stage2_pdf_discovery import PDF2MotorResult,_apply_summary_quantities,_dedupe,_equipment_id,_extract_connection_page,_fallback_connection_page,_summary_only_results,_summary_quantities,_unit_number_from_lines,build_pdf2_motor_records
 from coordinate_motor_discovery import discover_coordinate_motor_powers
 @dataclass(frozen=True)
@@ -69,8 +69,6 @@ def _scan_pdf1_motors(pages,equipment_id=None,path=None):
   try:coord=discover_coordinate_motor_powers(path)
   except Exception as e:warning('PDF1 koordinat motor taraması başarısız',path=str(path),error=str(e))
  for n,text in enumerate(pages,1):
-  # PDF1 motor discovery is strictly coordinate-based. No generic Rated Power
-  # text scan or filename-derived motor fallback is allowed.
   for r in (coord.get(n) or ()):
    if not r.equipment_id and equipment_id:r=r.__class__(page_number=r.page_number,value_kw=r.value_kw,raw_value=r.raw_value,quantity=r.quantity,field=r.field,confidence=r.confidence,source_text=r.source_text,component_type=r.component_type,component_role=r.component_role,equipment_id=equipment_id,model_brand=r.model_brand)
    rows.append(r)
@@ -86,8 +84,14 @@ def _scan_pdf2_motors(pages,equipment_id=None):
 def _scan_single_pdf(path,side):
  side=side.upper().strip();resolved=Path(path).expanduser().resolve();pages=_read_pages_once(resolved)
  if side=='PDF1':
-  project=discover_pdf1_project(list(pages),path=resolved);equipment=discover_pdf1_unit_reference(list(pages),path=resolved);eid=equipment.unique_ids()[0] if equipment.unique_ids() else None
-  motors=_scan_pdf1_motors(pages,eid,resolved);ebm=tuple(p for p,t in enumerate(pages,1) if extract_model_brand(t)=='EBM-Papst')
+  # PDF1 authoritative fields: Project/Unit Reference and all motor/EBM data come
+  # from the fixed coordinate readers. Plug-fan page identification itself may
+  # still use the page title text to decide which pages are eligible.
+  project=discover_pdf1_project(list(pages),path=resolved)
+  equipment=discover_pdf1_unit_reference(list(pages),path=resolved)
+  eid=equipment.unique_ids()[0] if equipment.unique_ids() else None
+  motors=_scan_pdf1_motors(pages,eid,resolved)
+  ebm=tuple(sorted({r.page_number for r in motors if (r.model_brand or '').strip().casefold()=='ebm-papst'}))
   return MasterPDFScan(str(resolved),side,pages,project,equipment,pdf1_motors=motors,pdf1_ebm_pages=ebm)
  project=_safe_pdf2_project(pages,discover_project_from_text(list(pages)));f=_filename_equipment(resolved);unit=_pdf2_unit_number_equipment(pages,resolved)
  if f and re.fullmatch(r'[A-Z0-9]+-AHU-[A-Z]?\d+(?:\.\d+)?',f.normalized):unit=f
