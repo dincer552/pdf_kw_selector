@@ -7,7 +7,8 @@ from ahu_matching import AHUDiscovery, EquipmentOccurrence, normalize_equipment_
 from project_discovery import ProjectCandidate, ProjectDiscovery, normalize_project_name
 
 _PROJECT_BOX = (256.0, 763.0, 115.0, 18.0)
-_UNIT_REFERENCE_BOX = (258.0, 738.0, 107.0, 20.0)
+# PDF1 AHU / Unit Reference is now read ONLY from page 2 using this viewer coordinate.
+_UNIT_REFERENCE_BOX = (253.0, 751.0, 117.0, 17.0)
 
 
 def _viewer_rect(page: fitz.Page, box) -> fitz.Rect:
@@ -28,22 +29,24 @@ def _read_coordinate_fields(path=None, document=None):
     owns_document = document is None
     doc = document if document is not None else fitz.open(str(Path(path)))
     try:
-        # PDF1 coordinate fields are valid ONLY on page 1. Other pages repeat
-        # similar header coordinates and can contain Airflow Rate or other data.
+        # PDF1 Project: ONLY page 1 and ONLY the fixed Project coordinate box.
         if len(doc) > 0:
             page = doc[0]
-            page_number = 1
             project_value = _rect_text(page, _PROJECT_BOX)
             if project_value:
                 normalized = normalize_project_name(project_value)
                 if normalized:
-                    projects.append(ProjectCandidate(project_value, normalized, "project_coordinates", page_number, "HIGH"))
-            # Unit Reference is the source of truth. Take whatever is inside the
-            # coordinate box on page 1; no format or whitelist validation.
+                    projects.append(ProjectCandidate(project_value, normalized, "project_coordinates", 1, "HIGH"))
+
+        # PDF1 AHU / Unit Reference: ONLY page 2 and ONLY the fixed coordinate box.
+        # Whatever text is physically inside this box is the AHU name. No format,
+        # regex, whitelist, filename, or other-page fallback is used.
+        if len(doc) > 1:
+            page = doc[1]
             unit_value = _rect_text(page, _UNIT_REFERENCE_BOX)
             if unit_value:
                 normalized = normalize_equipment_id(unit_value)
-                units.append(EquipmentOccurrence(unit_value, normalized or unit_value, page_number, "unit_reference_coordinates"))
+                units.append(EquipmentOccurrence(unit_value, normalized or unit_value, 2, "unit_reference_coordinates"))
     finally:
         if owns_document:
             doc.close()
@@ -69,7 +72,7 @@ def discover_pdf1_project(pages, path=None, document=None):
 
 
 def discover_pdf1_unit_reference(pages, path=None, document=None):
-    """PDF1 Unit Reference is read ONLY from the fixed coordinate box on page 1."""
+    """PDF1 Unit Reference is read ONLY from the fixed coordinate box on page 2."""
     if document is None and not path:
         return AHUDiscovery(())
     _, units = _read_coordinate_fields(path, document)
