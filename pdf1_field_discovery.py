@@ -33,10 +33,11 @@ def _rect_text(page: fitz.Page, box) -> str:
     return " ".join(w[4].strip() for w in words if w[4].strip()).strip()
 
 
-def _read_coordinate_fields(path):
+def _read_coordinate_fields(path=None, document=None):
     projects = []
     units = []
-    doc = fitz.open(str(path))
+    owns_document = document is None
+    doc = document if document is not None else fitz.open(str(Path(path)))
     try:
         for page_number, page in enumerate(doc, 1):
             project_value = _rect_text(page, _PROJECT_BOX)
@@ -68,15 +69,16 @@ def _read_coordinate_fields(path):
                         )
                     )
     finally:
-        doc.close()
+        if owns_document:
+            doc.close()
     return projects, units
 
 
-def discover_pdf1_project(pages, path=None):
+def discover_pdf1_project(pages, path=None, document=None):
     """PDF1 Project is read ONLY from the fixed Project coordinate box."""
-    if not path:
+    if document is None and not path:
         return ProjectDiscovery(None, None, None, None, "REVIEW", ())
-    projects, _ = _read_coordinate_fields(Path(path))
+    projects, _ = _read_coordinate_fields(path, document)
     seen = set()
     candidates = []
     for item in projects:
@@ -97,11 +99,11 @@ def discover_pdf1_project(pages, path=None):
     )
 
 
-def discover_pdf1_unit_reference(pages, path=None):
+def discover_pdf1_unit_reference(pages, path=None, document=None):
     """PDF1 Unit Reference is read ONLY from the fixed Unit Reference coordinate box."""
-    if not path:
+    if document is None and not path:
         return AHUDiscovery(())
-    _, units = _read_coordinate_fields(Path(path))
+    _, units = _read_coordinate_fields(path, document)
     seen = set()
     candidates = []
     for item in units:
