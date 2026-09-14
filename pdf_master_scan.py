@@ -12,6 +12,7 @@ from project_discovery import ProjectDiscovery, ProjectCandidate, discover_proje
 from pdf1_field_discovery import discover_pdf1_project, discover_pdf1_unit_reference
 from stage1_page_discovery import MotorPowerResult, build_stage1_motor_records, extract_rated_motor_powers_from_page, extract_model_brand, _dedupe_motor_results
 from stage2_pdf_discovery import PDF2MotorResult, _apply_summary_quantities, _dedupe, _equipment_id, _extract_connection_page, _fallback_connection_page, _summary_only_results, _summary_quantities, _unit_number_from_lines, build_pdf2_motor_records
+from coordinate_motor_discovery import discover_coordinate_motor_powers
 
 @dataclass(frozen=True)
 class MasterPDFScan:
@@ -32,51 +33,41 @@ _DIRECTION_COMPONENTS = {
 }
 
 def _pdf1_coordinate_selection(text, raw_value=None):
-    """Select fan direction using layout coordinates instead of concatenated text spacing."""
-    lines = (text or "").splitlines()
-    headers = []
-    rated_rows = []
+    """Legacy text-layout selector retained as fallback when coordinate extraction is unavailable."""
+    lines = (text or "").splitlines(); headers = []; rated_rows = []
     for y, line in enumerate(lines):
         header = re.search(r"\b(?:plug\s+fan|fan)\b.*?\b(supply|exhaust|return)\s+air(?=section|\s|$)", line, re.IGNORECASE)
-        if not header:
-            header = re.search(r"\b(supply|exhaust|return)\s+air(?=section|\s|$)", line, re.IGNORECASE)
-        if header:
-            headers.append((y, header.start(1), header.group(1).casefold(), line))
+        if not header: header = re.search(r"\b(supply|exhaust|return)\s+air(?=section|\s|$)", line, re.IGNORECASE)
+        if header: headers.append((y, header.start(1), header.group(1).casefold(), line))
         if re.search(r"\brated\s+power\b", line, re.IGNORECASE):
-            value_match = None
-            if raw_value:
-                value_match = re.search(re.escape(str(raw_value)), line, re.IGNORECASE)
-                if not value_match:
-                    normalized_raw = str(raw_value).replace(",", ".")
-                    value_match = re.search(re.escape(normalized_raw), line.replace(",", "."), re.IGNORECASE)
+            value_match = re.search(re.escape(str(raw_value)), line, re.IGNORECASE) if raw_value else None
             rated_rows.append((y, line.find("Rated Power"), value_match.start() if value_match else None, line))
-    if not headers or not rated_rows:
-        return None
+    if not headers or not rated_rows: return None
     rated = rated_rows[0]
     if raw_value:
         for candidate in rated_rows:
-            if candidate[2] is not None:
-                rated = candidate
-                break
+            if candidate[2] is not None: rated = candidate; break
     prior = [header for header in headers if header[0] <= rated[0]]
-    if not prior:
-        return None
-    selected = prior[-1]
-    component = _DIRECTION_COMPONENTS.get(selected[2])
-    if not component:
-        return None
-    debug("PDF1 coordinate motor selection", header_y=selected[0], header_x=selected[1], rated_power_y=rated[0], rated_power_x=rated[1], direction=selected[2], raw_value=raw_value)
+    if not prior: return None
+    selected = prior[-1]; component = _DIRECTION_COMPONENTS.get(selected[2])
+    if not component: return None
+    debug("PDF1 legacy coordinate selection fallback", header_y=selected[0], header_x=selected[1], rated_power_y=rated[0], rated_power_x=rated[1], direction=selected[2], raw_value=raw_value)
     return component
 
-def _scan_pdf1_motors(pages, equipment_id=None):
+def _scan_pdf1_motors(pages, equipment_id=None, path=None):
+    """Prefer real PDF word coordinates; fall back to existing text parser page-by-page."""
     rows=[]
+    coordinate_rows = {}
+    if path:
+        try:
+            coordinate_rows = discover_coordinate_motor_powers(path)
+            info("PDF1 koordinat motor taraması",path=str(path),pages=len(coordinate_rows),results=sum(len(v) for v in coordinate_rows.values()))
+        except Exception as exc:
+            warning("PDF1 koordinat motor taraması başarısız, metin fallback kullanılacak",path=str(path),error=str(exc))
     for n,text in enumerate(pages,1):
-        page_rows = extract_rated_motor_powers_from_page(text,n)
+        page_rows = coordinate_rows.get(n) or extract_rated_motor_powers_from_page(text,n)
         for result in page_rows:
-            coordinate_component = _pdf1_coordinate_selection(text, result.raw_value)
-            if coordinate_component:
-                result = result.__class__(page_number=result.page_number, value_kw=result.value_kw, raw_value=result.raw_value, quantity=result.quantity, field=result.field, confidence="high", source_text=result.source_text, component_type=coordinate_component[0], component_role=coordinate_component[1], equipment_id=result.equipment_id or equipment_id, model_brand=result.model_brand)
-            elif not result.equipment_id and equipment_id:
+            if not result.equipment_id and equipment_id:
                 result = result.__class__(page_number=result.page_number, value_kw=result.value_kw, raw_value=result.raw_value, quantity=result.quantity, field=result.field, confidence=result.confidence, source_text=result.source_text, component_type=result.component_type, component_role=result.component_role, equipment_id=equipment_id, model_brand=result.model_brand)
             rows.append(result)
     return tuple(_dedupe_motor_results(rows))
@@ -150,7 +141,7 @@ def _scan_single_pdf(path,side):
             f=_filename_equipment(resolved) or _equipment_from_filename(resolved)
             if f:equipment=AHUDiscovery((f,))
         equipment_id=equipment.unique_ids()[0] if equipment.unique_ids() else None
-        motors=_scan_pdf1_motors(pages,equipment_id)
+        motors=_scan_pdf1_motors(pages,equipment_id,path=resolved)
         ebm=tuple(p for p,text in enumerate(pages,1) if extract_model_brand(text)=="EBM-Papst")
         info("PDF1 sabit alan keşfi",path=str(resolved),project=project.project_name,unit_reference=list(equipment.unique_ids()),ebm_pages=list(ebm))
         return MasterPDFScan(str(resolved),side,pages,project,equipment,pdf1_motors=motors,pdf1_ebm_pages=ebm)
