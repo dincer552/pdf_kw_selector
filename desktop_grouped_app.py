@@ -21,7 +21,7 @@ class GroupedApp(BaseApp):
     def __init__(self):
         super().__init__(); self._build_ebm_tab(); self.tabs.tab(0,text="DANFOS"); self.tabs.insert(1,self.ebm_tab); self.unmatched_tab_index=lambda:2; self.tree.tag_configure("mismatch",background="#ffb3b3",foreground="#000000"); install_pdf_drop_targets(self,self.pdf1_label.master,self.pdf2_label.master)
     def _build_ebm_tab(self):
-        tab=ttk.Frame(self.tabs); self.tabs.add(tab,text="EBM-PAPST (0)"); cols=("PDF1","Proje","AHU","EBM Sayfaları","PDF2","Durum"); self.ebm_tree=ttk.Treeview(tab,columns=cols,show="headings"); widths={"PDF1":300,"Proje":300,"AHU":120,"EBM Sayfaları":130,"PDF2":420,"Durum":260}
+        tab=ttk.Frame(self.tabs); self.tabs.add(tab,text="EBM-PAPST (0)"); cols=("Proje","AHU","Seçim çıktısı","Elektrik p.","Durum"); self.ebm_tree=ttk.Treeview(tab,columns=cols,show="headings"); widths={"Proje":300,"AHU":120,"Seçim çıktısı":300,"Elektrik p.":420,"Durum":260}
         for col in cols:self.ebm_tree.heading(col,text=col);self.ebm_tree.column(col,width=widths[col],anchor="w")
         scroll=ttk.Scrollbar(tab,orient="vertical",command=self.ebm_tree.yview);self.ebm_tree.configure(yscrollcommand=scroll.set);self.ebm_tree.pack(side="left",fill="both",expand=True,padx=(5,0),pady=5);scroll.pack(side="right",fill="y",padx=(0,5),pady=5);self.ebm_tab=tab
     def _render_ebm(self):
@@ -34,7 +34,7 @@ class GroupedApp(BaseApp):
             for ahu in self.analysis.ahu_matches:
                 if str(document.path).casefold() in {str(p).casefold() for p in ahu.pdf1_files}:matching.extend(ahu.pdf2_files)
             pdf2=", ".join(Path(p).name for p in dict.fromkeys(matching)) or "-"; status="PDF2 AHU eşleşti; motor kW karşılaştırması yapılmadı" if matching else "PDF2 AHU eşleşmesi yok"
-            for ahu_id in tuple(document.equipment) or ("-",):rows.append((Path(document.path).name,document.project.project_name or "-",ahu_id or "-",", ".join(map(str,scan.pdf1_ebm_pages)),pdf2,status))
+            for ahu_id in tuple(document.equipment) or ("-",):rows.append((document.project.project_name or "-",ahu_id or "-",Path(document.path).name,pdf2,status))
         rows.sort(key=lambda r:(str(r[1]).casefold(),str(r[2]).casefold(),str(r[0]).casefold()))
         for row in rows:self.ebm_tree.insert("","end",values=row)
         self.tabs.tab(self.ebm_tab,text=f"EBM-PAPST ({len(rows)})")
