@@ -8,11 +8,38 @@ import fitz
 from pypdf import PdfReader
 from ahu_matching import AHUDiscovery,EquipmentOccurrence,_equipment_from_filename,discover_equipment_from_text,normalize_equipment_id
 from app_logger import exception,info,warning
-from project_discovery import ProjectDiscovery,ProjectCandidate,discover_project_from_text,normalize_project_name
+from project_discovery import ProjectDiscovery,ProjectCandidate,normalize_project_name,discover_project_from_text
 from pdf1_field_discovery import discover_pdf1_project,discover_pdf1_unit_reference
 from stage1_page_discovery import MotorPowerResult,build_stage1_motor_records,extract_rated_motor_powers_from_page,_dedupe_motor_results
 from stage2_pdf_discovery import PDF2MotorResult,_apply_summary_quantities,_dedupe,_equipment_id,_extract_connection_page,_fallback_connection_page,_summary_only_results,_summary_quantities,_unit_number_from_lines,build_pdf2_motor_records
 from coordinate_motor_discovery import discover_coordinate_motor_powers
+
+# PDF2 viewer coordinates use the same bottom-left origin as the user's PDF viewer.
+# PyMuPDF uses a top-left origin, so the Y axis is converted in _viewer_rect().
+_PDF2_PROJECT_BOX=(381.0,508.0,383.0,26.0)
+_PDF2_AHU_BOX=(381.0,508.0,383.0,26.0)
+
+def _viewer_rect(page,box):
+    x,y,w,h=box
+    ph=float(page.rect.height)
+    return fitz.Rect(x,ph-(y+h),x+w,ph-y)
+
+def _pdf2_coordinate_text(page,box):
+    words=page.get_text('words',clip=_viewer_rect(page,box))
+    words.sort(key=lambda w:(w[1],w[0]))
+    return ' '.join(w[4].strip() for w in words if w[4].strip()).strip()
+
+def _pdf2_coordinate_project(document):
+    if not document:
+        return ProjectDiscovery(None,None,None,None,'REVIEW',())
+    page=document[0]
+    value=_pdf2_coordinate_text(page,_PDF2_PROJECT_BOX)
+    if not value:
+        return ProjectDiscovery(None,None,None,1,'REVIEW',())
+    normalized=normalize_project_name(value)
+    candidate=ProjectCandidate(value,normalized,'coordinate',1,'HIGH')
+    return ProjectDiscovery(value,normalized,'coordinate',1,'HIGH',(candidate,))
+
 @dataclass(frozen=True)
 class MasterPDFScan:
  path:str;side:str;page_texts:tuple[str,...];project:ProjectDiscovery;equipment:AHUDiscovery
@@ -20,6 +47,7 @@ class MasterPDFScan:
  @property
  def page_count(self):return len(self.page_texts)
  def to_dict(self):return {'path':self.path,'side':self.side,'page_count':self.page_count,'project':self.project.to_dict(),'equipment':self.equipment.to_dict(),'pdf1_motors':[x.to_dict() for x in self.pdf1_motors],'pdf2_motors':[x.to_dict() for x in self.pdf2_motors],'pdf1_ebm_pages':list(self.pdf1_ebm_pages)}
+
 def _read_pages_once(path):return tuple(p.extract_text(extraction_mode='layout') or '' for p in PdfReader(str(path)).pages)
 def _filename_equipment(path):
  stem=re.sub(r'\s+','_',Path(path).stem.strip());m=re.fullmatch(r'([A-Z0-9]+)[_ -]+AHU[_ -]?([A-Z]?\d+(?:\.\d+)?)',stem,re.I)
@@ -54,16 +82,7 @@ def _pdf2_unit_number_equipment(pages,path=None):
    n=_valid_equipment(m.group(0))
    if n:return EquipmentOccurrence(m.group(0),n,pn,'equipment_token')
  return None
-def _safe_pdf2_project(pages,d):
- if d.project_name and not re.search(r'\bkw\b|m[³3]\s*/?\s*h|\bstage\b|\b(?:fan|motor|power)\b|^www\.|\bsystemair\b',d.project_name,re.I):return d
- c=[]
- for pn,text in enumerate(pages[:3],1):
-  for raw in (text or '').splitlines():
-   v=re.sub(r'\s+',' ',raw).strip(' :-\t');n=normalize_project_name(v)
-   if len(n.split())<2 or re.search(r'\bkw\b|m[³3]\s*/?\s*h|\bstage\b|\b(?:fan|motor|power|air volume)\b|^www\.|\bsystemair\b|\b(?:address|adres|telefon|fax)\b',v,re.I):continue
-   c.append((len(v)+sum(x.isalpha() for x in v),v,pn))
- if not c:return d
- _,v,pn=max(c);q=ProjectCandidate(v,normalize_project_name(v),'project_name_field',pn,'HIGH');return ProjectDiscovery(v,q.normalized,q.source,pn,'HIGH',tuple(list(d.candidates)+[q]))
+
 def _scan_pdf1_motors(pages,equipment_id=None,path=None,document=None):
  rows=[];coord={}
  try:
@@ -82,11 +101,10 @@ def _scan_pdf2_motors(pages,equipment_id=None):
  rows=_dedupe(rows)
  if not rows and summary:rows=_summary_only_results(equipment_id,summary,page_number=1)
  return tuple(_apply_summary_quantities(rows,summary))
+
 def _scan_single_pdf(path,side):
  side=side.upper().strip();resolved=Path(path).expanduser().resolve()
  if side=='PDF1':
-  # PDF1 is intentionally single-open: one shared PyMuPDF document supplies
-  # Project, Unit Reference, Plug-fan coordinates, motor type and rated power.
   doc=fitz.open(str(resolved))
   try:
    pages=tuple(page.get_text('text') or '' for page in doc)
@@ -96,13 +114,23 @@ def _scan_single_pdf(path,side):
    motors=_scan_pdf1_motors(pages,eid,document=doc)
    ebm=tuple(sorted({r.page_number for r in motors if (r.model_brand or '').strip().casefold()=='ebm-papst'}))
    return MasterPDFScan(str(resolved),side,pages,project,equipment,pdf1_motors=motors,pdf1_ebm_pages=ebm)
-  finally:
-   doc.close()
- pages=_read_pages_once(resolved)
- project=_safe_pdf2_project(pages,discover_project_from_text(list(pages)));f=_filename_equipment(resolved);unit=_pdf2_unit_number_equipment(pages,resolved)
- if f and re.fullmatch(r'[A-Z0-9]+-AHU-[A-Z]?\d+(?:\.\d+)?',f.normalized):unit=f
- equipment=AHUDiscovery((unit,)) if unit else (AHUDiscovery((f,)) if f else discover_equipment_from_text(list(pages)));eid=equipment.unique_ids()[0] if equipment.unique_ids() else None
- return MasterPDFScan(str(resolved),side,pages,project,equipment,pdf2_motors=_scan_pdf2_motors(pages,eid))
+  finally:doc.close()
+
+ # PDF2 now uses one shared PyMuPDF document for page text and coordinate fields.
+ doc=fitz.open(str(resolved))
+ try:
+  pages=tuple(page.get_text('text') or '' for page in doc)
+  project=_pdf2_coordinate_project(doc)
+  # The supplied AHU coordinate is currently identical to the project rectangle.
+  # Do not turn the project value into an AHU ID; a correct AHU coordinate is needed.
+  unit=_pdf2_unit_number_equipment(pages,resolved)
+  f=_filename_equipment(resolved)
+  if f and re.fullmatch(r'[A-Z0-9]+-AHU-[A-Z]?\d+(?:\.\d+)?',f.normalized):unit=f
+  equipment=AHUDiscovery((unit,)) if unit else (AHUDiscovery((f,)) if f else discover_equipment_from_text(list(pages)))
+  eid=equipment.unique_ids()[0] if equipment.unique_ids() else None
+  return MasterPDFScan(str(resolved),side,pages,project,equipment,pdf2_motors=_scan_pdf2_motors(pages,eid))
+ finally:doc.close()
+
 @lru_cache(maxsize=128)
 def scan_pdf(path,side):return _scan_single_pdf(path,side)
 def scan_pdfs(items,progress_callback=None):
