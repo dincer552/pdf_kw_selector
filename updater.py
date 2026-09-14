@@ -470,27 +470,21 @@ try {
     }
     for ($i = 0; $i -lt 60; $i++) {
         try {
-            if (-not $installed) {
-                Move-Item -LiteralPath $Source -Destination $Target -Force -ErrorAction Stop
-                $installed = $true
-            }
-            Start-Sleep -Seconds 2
-            $workingDirectory = Split-Path -Parent $Target
-            $process = Start-Process -FilePath $Target -WorkingDirectory $workingDirectory -PassThru -ErrorAction Stop
-            Start-Sleep -Seconds 5
-            if ($process.HasExited) {
-                if ($i -eq 59) {
-                    throw "Yeni program başlatıldıktan sonra beklenmedik şekilde kapandı."
-                }
-                Start-Sleep -Seconds 2
-                continue
-            }
+            Move-Item -LiteralPath $Source -Destination $Target -Force -ErrorAction Stop
+            $installed = $true
             break
         } catch {
             if ($i -eq 59) { throw }
             Start-Sleep -Seconds 1
         }
     }
+    Add-Type -AssemblyName PresentationFramework
+    [System.Windows.MessageBox]::Show(
+        "Güncelleme tamamlandı.`n`nProgram otomatik olarak yeniden başlatılmayacaktır. Lütfen Tamam'a bastıktan sonra programı kendiniz yeniden başlatın.",
+        "PDF kW Selector güncellemesi",
+        [System.Windows.MessageBoxButton]::OK,
+        [System.Windows.MessageBoxImage]::Information
+    ) | Out-Null
 } catch {
     Add-Type -AssemblyName PresentationFramework
     $message = if ($installed) {
