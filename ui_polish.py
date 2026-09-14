@@ -33,52 +33,45 @@ def _polish(app):
         style.configure("Treeview", background="#ffffff", fieldbackground="#ffffff", foreground="#183b4c", rowheight=28, font=("Segoe UI", 9))
         style.configure("Treeview.Heading", background="#c9e8f5", foreground="#16445c", font=("Segoe UI", 9, "bold"), padding=7)
         style.map("Treeview", background=[("selected", "#c8eafa")], foreground=[("selected", "#10384b")])
-        style.configure("Horizontal.TProgressbar", troughcolor="#d7eaf3", background="#39a7d8")
 
         app.configure(background="#eef7fc")
-
-        # Give the top/header and PDF selection boxes a cleaner card-like look.
         children = app.winfo_children()
         if children:
             children[0].configure(style="TFrame")
 
-        # Move the technical JSON/detail area into the error/log tab.
-        detail_frame = getattr(app, "detail", None)
-        log_tab = None
-        for child in app.tabs.winfo_children():
-            if child is not app.tree.master and child is not app.unmatched_tree.master:
-                log_tab = child
-                break
-        if detail_frame is not None and log_tab is not None:
-            detail_frame = detail_frame.master
+        # Move JSON/technical detail from SONUÇLAR to HATA / İŞLEM LOGLARI.
+        detail = getattr(app, "detail", None)
+        result_tab = app.tree.master
+        unmatched_tab = app.unmatched_tree.master
+        log_tab = next((child for child in app.tabs.winfo_children() if child not in (result_tab, unmatched_tab)), None)
+        if detail is not None and log_tab is not None:
+            detail_frame = detail.master
             log_text = getattr(app, "log_text", None)
-            log_buttons = None
+            log_buttons = next((child for child in log_tab.winfo_children() if isinstance(child, ttk.Frame) and child is not log_text), None)
             if log_text is not None:
-                log_buttons = log_text.master
                 log_text.pack_forget()
+            if log_buttons is not None:
                 log_buttons.pack_forget()
             detail_frame.pack_forget()
             detail_frame.configure(text="JSON / TEKNİK DETAY")
-            detail_frame.pack(in_=log_tab, fill="both", expand=False, padx=8, pady=(6, 4), before=log_text if log_text else None)
+            detail_frame.pack(in_=log_tab, fill="both", expand=False, padx=8, pady=(6, 4))
             if log_text is not None:
                 log_text.pack(in_=log_tab, fill="both", expand=True, padx=8, pady=4)
             if log_buttons is not None:
                 log_buttons.pack(in_=log_tab, fill="x", padx=3, pady=(2, 5))
+                for widget in list(log_buttons.winfo_children()):
+                    if isinstance(widget, ttk.Button) and widget.cget("text") == "JSON KAYDET":
+                        widget.destroy()
+                ttk.Button(log_buttons, text="JSON KAYDET", command=app.save_json).pack(side="left", padx=3)
 
-            # Replace the old bottom JSON button with one in the log tab.
-            for widget in list(_walk(app)):
-                if isinstance(widget, ttk.Button) and widget.cget("text") == "JSON KAYDET":
-                    widget.destroy()
-            ttk.Button(log_buttons, text="JSON KAYDET", command=app.save_json).pack(side="left", padx=3)
-
-        # Make the main action visually prominent.
+        # Make the main action prominent.
+        style.configure("Accent.TButton", background="#62b8df", foreground="#ffffff", padding=(16, 7), font=("Segoe UI", 10, "bold"), borderwidth=0)
+        style.map("Accent.TButton", background=[("active", "#3da2d2"), ("pressed", "#258dbd")])
         for widget in _walk(app):
             if isinstance(widget, ttk.Button) and widget.cget("text") == "ANALİZ":
                 widget.configure(style="Accent.TButton")
-        style.configure("Accent.TButton", background="#62b8df", foreground="#ffffff", padding=(16, 7), font=("Segoe UI", 10, "bold"), borderwidth=0)
-        style.map("Accent.TButton", background=[("active", "#3da2d2"), ("pressed", "#258dbd")])
     except Exception:
-        # UI polish must never prevent the application from starting.
+        # Visual polish must never prevent the application from starting.
         pass
 
 
