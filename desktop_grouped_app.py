@@ -40,7 +40,34 @@ class GroupedApp(BaseApp):
         for row in rows:self.ebm_tree.insert("","end",values=row)
         self.tabs.tab(self.ebm_tab,text=f"EBM-PAPST ({len(rows)})")
     def _render_unmatched(self):
-        super()._render_unmatched(); self.tabs.tab(self.unmatched_tab_index(),text=f"EŞLEŞMEYEN PDF'LER ({len(self.unmatched_tree.get_children())})")
+        for item in self.unmatched_tree.get_children(): self.unmatched_tree.delete(item)
+
+        # A PDF is matched only when it participates in a real AHU pair.
+        # ONLY_IN_PDF1 / ONLY_IN_PDF2 records are explicitly unmatched and must
+        # never be used to hide the source PDF from this tab.
+        matched_paths=set()
+        accepted_statuses={"EXACT","NORMALIZED_MATCH","USER_APPROVED"}
+        for ahu in self.analysis.ahu_matches:
+            if getattr(ahu.match,"status","") not in accepted_statuses:
+                continue
+            matched_paths.update(str(path).casefold() for path in ahu.pdf1_files)
+            matched_paths.update(str(path).casefold() for path in ahu.pdf2_files)
+
+        rows=[]
+        for side,documents in (("PDF1",self.analysis.pdf1_documents),("PDF2",self.analysis.pdf2_documents)):
+            for document in documents:
+                if str(document.path).casefold() in matched_paths: continue
+                project=document.project.project_name or "-"
+                # Show the actual AHU/equipment discovery result for every
+                # unmatched PDF. Never invent an AHU from the filename here.
+                ahus=", ".join(str(value) for value in document.equipment if str(value).strip()) if document.equipment else "-"
+                reason="AHU eşleşmesine giremedi" if document.equipment else "Ekipman/AHU tespit edilemedi"
+                rows.append((side,Path(document.path).name,project,ahus,reason,str(document.path)))
+
+        rows.sort(key=lambda row:(row[0],row[1].casefold()))
+        for side,pdf,project,ahus,reason,path in rows:self.unmatched_tree.insert("","end",values=(side,pdf,project,ahus,reason),tags=(path,))
+        self.tabs.tab(self.unmatched_tab_index(),text=f"EŞLEŞMEYEN PDF'LER ({len(rows)})")
+        info("Eşleşmeyen PDF listesi oluşturuldu",unmatched_count=len(rows),matched_ahu_pdf_count=len(matched_paths),unmatched=[{"side":r[0],"path":r[5],"project":r[2],"ahu":r[3],"reason":r[4]} for r in rows])
     def _clear_grouped_results(self):
         for item in self.ebm_tree.get_children(): self.ebm_tree.delete(item)
         self.tabs.tab(0,text="DANFOS (0)")
@@ -63,7 +90,8 @@ class GroupedApp(BaseApp):
             self.refresh_logs()
         except Exception as exc:exception("Project/AHU sonuç gruplama hatası",exc);self.refresh_logs()
     def compare(self):
-        self._analysis_started_at=time.perf_counter(); super().compare()
+        self._analysis_started_at=time.perf_counter()
+        super().compare()
 
 if __name__=="__main__":
     startup(VERSION)
