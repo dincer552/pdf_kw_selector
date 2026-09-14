@@ -28,7 +28,7 @@ class App(tk.Tk):
         self.pdf1_inputs: list[PdfInput] = []; self.pdf2_inputs: list[PdfInput] = []; self.analysis = None; self._analysis_running = False; self._update_check_running = False; self._available_update = None; self._build_ui(); self.after(5000, self._schedule_update_check)
 
     def _build_ui(self):
-        top=ttk.Frame(self,padding=8); top.pack(fill="x"); ttk.Label(top,text="PDF kW SELECTOR",font=("Segoe UI",18,"bold")).pack(side="left"); ttk.Label(top,text=f"{VERSION} • Project → AHU → Motor").pack(side="right",pady=8)
+        top=ttk.Frame(self,padding=8); top.pack(fill="x"); ttk.Label(top,text="PDF kW SELECTOR",font=("Segoe UI",18,"bold")).pack(side="left"); ttk.Label(top,text=f"{VERSION} • Project → AHU → Motor").pack(side="right",pady=8); ttk.Button(top,text="⚙",width=3,command=self.open_settings).pack(side="right",padx=(0,8))
         boxes=ttk.Frame(self,padding=(8,0)); boxes.pack(fill="x"); self.pdf1_label,self.pdf1_box=self._file_box(boxes,"Seçim çıktısı","PDF1"); self.pdf2_label,self.pdf2_box=self._file_box(boxes,"Elektrik projesi","PDF2"); self.pdf1_box.pack(side="left",fill="x",expand=True,padx=(0,5)); self.pdf2_box.pack(side="left",fill="x",expand=True,padx=(5,0))
         tabs=ttk.Notebook(self); tabs.pack(fill="both",expand=True,padx=8,pady=(6,0)); self.tabs=tabs; result_tab=ttk.Frame(tabs); unmatched_tab=ttk.Frame(tabs); log_tab=ttk.Frame(tabs); tabs.add(result_tab,text="SONUÇLAR"); tabs.add(unmatched_tab,text="EŞLEŞMEYEN PDF'LER (0)"); tabs.add(log_tab,text="HATA / İŞLEM LOGLARI")
         cols=("Proje","AHU","Motor","Seçim kW","Elektrik P. kW","Durum"); self.tree=ttk.Treeview(result_tab,columns=cols,show="headings")
@@ -45,6 +45,29 @@ class App(tk.Tk):
         self.update_notice=ttk.Frame(buttons); self.update_notice.pack(side="right",padx=8); self.update_notice_label=ttk.Label(self.update_notice,text="Yeni sürüm mevcut",foreground="#16803d"); self.update_notice_label.pack(side="left",padx=(0,6)); ttk.Button(self.update_notice,text="İNDİR",command=self.download_available_update).pack(side="left"); self.update_notice.pack_forget()
         self.status=ttk.Label(buttons,text="Hazır",anchor="e"); self.status.pack(side="right")
         self.log_text=tk.Text(log_tab,wrap="none"); self.log_text.pack(fill="both",expand=True,padx=5,pady=5); log_buttons=ttk.Frame(log_tab,padding=5); log_buttons.pack(fill="x"); ttk.Button(log_buttons,text="LOGLARI YENİLE",command=self.refresh_logs).pack(side="left",padx=3); ttk.Button(log_buttons,text="LOG DOSYASINI AÇ",command=self.open_log_file).pack(side="left",padx=3); ttk.Button(log_buttons,text="LOG KLASÖRÜNÜ AÇ",command=self.open_log_directory).pack(side="left",padx=3); ttk.Button(log_buttons,text="LOGLARI TEMİZLE",command=self.clear_logs).pack(side="left",padx=3); self.refresh_logs()
+
+    def open_settings(self):
+        settings = tk.Toplevel(self)
+        settings.title("Settings")
+        settings.geometry("260x120")
+        settings.resizable(False, False)
+        settings.transient(self)
+        settings.grab_set()
+        frame = ttk.Frame(settings, padding=16)
+        frame.pack(fill="both", expand=True)
+        ttk.Button(frame, text="Check Update", command=lambda: self._manual_update_check(settings)).pack(fill="x")
+
+    def _manual_update_check(self, settings):
+        settings.grab_release()
+        settings.destroy()
+        if self._update_check_running or getattr(self, "_download_running", False):
+            return
+        self._update_check_running = True
+        self.status.configure(text="Güncellemeler kontrol ediliyor...")
+        self.update_detail.set("Güncel sürüm kontrol ediliyor...")
+        self.update_panel.pack(fill="x")
+        self.update_idletasks()
+        threading.Thread(target=self._check_updates_background, daemon=True).start()
 
     def _file_box(self,parent,title,side):
         frame=ttk.LabelFrame(parent,text=title,padding=6); label=ttk.Label(frame,text="0 PDF seçildi"); label.pack(side="left",fill="x",expand=True); ttk.Button(frame,text="PDF EKLE",command=lambda:self.add_files(side)).pack(side="right",padx=2); ttk.Button(frame,text="KLASÖR EKLE",command=lambda:self.add_folder(side)).pack(side="right",padx=2); return label,frame
