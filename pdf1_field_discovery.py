@@ -10,13 +10,13 @@ from project_discovery import ProjectCandidate, ProjectDiscovery, normalize_proj
 # PDF1 coordinates are supplied in the PDF viewer coordinate system (origin bottom-left).
 # PyMuPDF uses origin top-left, so every rectangle is converted before reading.
 _PROJECT_BOX = (256.0, 763.0, 115.0, 18.0)
-_UNIT_REFERENCE_BOX = (258.0, 739.0, 107.0, 16.0)
+_UNIT_REFERENCE_BOX = (257.0, 738.0, 134.0, 20.0)
 
+# Unit Reference is a labelled coordinate field, so do not restrict it to AHU/HKS/etc.
+# Project-specific equipment names such as PEF-01A, AD-AHU-01, PR-AHU-01, KS-00.02, etc.
+# must all be accepted. The coordinate box itself is the source of truth.
 _EQUIPMENT_RE = re.compile(
-    r"\b(?:[A-Z0-9]+[_ -]+AHU[_ -]?[A-Z]?\d+(?:\.\d+)?|"
-    r"HKS[_ -]?\d+|KS[_ -]?[A-Z]?\d+(?:\.\d+)?|"
-    r"SS[_ -]?[A-Z]?\d+(?:\.\d+)?|PW[_ -]?\d+(?:\.\d+)?|"
-    r"AHU(?:[_ -]+[A-Z0-9_.-]+|\d[A-Z0-9_.-]*))\b",
+    r"(?<![A-Z0-9])([A-Z0-9]+(?:[-_][A-Z0-9.]+)+)(?![A-Z0-9])",
     re.I,
 )
 
@@ -57,7 +57,7 @@ def _read_coordinate_fields(path=None, document=None):
             unit_value = _rect_text(page, _UNIT_REFERENCE_BOX)
             match = _EQUIPMENT_RE.search(unit_value)
             if match:
-                raw = match.group(0).strip(" .,:;)]}")
+                raw = match.group(1).strip(" .,:;)]}")
                 normalized = normalize_equipment_id(raw)
                 if normalized:
                     units.append(
