@@ -155,9 +155,50 @@ class App(tk.Tk):
         self._available_update=info_data; self.update_notice_label.configure(text=f"Yeni sürüm mevcut: {info_data['version']}"); self.update_notice.pack(side="right",padx=8); info("Yeni sürüm bulundu",version=info_data["version"],build_sha=info_data.get("build_sha"))
 
     def download_available_update(self):
-        if self._available_update:
-            info_data=self._available_update; self._available_update=None; self.update_notice.pack_forget()
-            self.status.configure(text="Yeni sürüm indiriliyor..."); self.update_progress.set(0); self.update_detail.set("İndirme başlıyor..."); self.update_panel.pack(fill="x"); self.update_idletasks(); threading.Thread(target=self._download_update_background,args=(info_data,),daemon=True).start()
+        if self._update_check_running or getattr(self, "_download_running", False):
+            return
+        self._update_check_running=True
+        self._download_running=True
+        self.status.configure(text="Güncel sürüm kontrol ediliyor...")
+        self.update_detail.set("En güncel sürüm kontrol ediliyor...")
+        self.update_panel.pack(fill="x")
+        self.update_idletasks()
+        threading.Thread(target=self._refresh_update_before_download,daemon=True).start()
+
+    def _refresh_update_before_download(self):
+        try:
+            info_data=check_for_update(Path(sys.executable), VERSION, BUILD_SHA)
+            self.after(0,self._download_check_finished,info_data,None)
+        except Exception as exc:
+            self.after(0,self._download_check_finished,None,exc)
+
+    def _download_check_finished(self, info_data, exc):
+        self._update_check_running=False
+        if exc:
+            self._download_running=False
+            self._available_update=None
+            self.update_panel.pack_forget()
+            exception("İndirme öncesi güncelleme kontrolü hatası",exc)
+            messagebox.showerror("Güncelleme",f"Güncel sürüm kontrol edilemedi:\n{type(exc).__name__}: {exc}")
+            self.status.configure(text="Güncelleme kontrolü başarısız")
+            return
+        if not info_data["available"]:
+            self._download_running=False
+            self._available_update=None
+            self.update_notice.pack_forget()
+            self.update_panel.pack_forget()
+            self.status.configure(text="Program güncel")
+            self.update_detail.set("Program güncel")
+            info("İndirme öncesi kontrolde yeni güncelleme bulunamadı")
+            return
+        self._available_update=info_data
+        self.update_notice_label.configure(text=f"Yeni sürüm mevcut: {info_data['version']}")
+        self.update_notice.pack_forget()
+        self.status.configure(text="Yeni sürüm indiriliyor...")
+        self.update_progress.set(0)
+        self.update_detail.set("İndirme başlıyor...")
+        threading.Thread(target=self._download_update_background,args=(info_data,),daemon=True).start()
+
     def _download_update_background(self, info_data):
         try:
             temp_exe=download_update(info_data["download_url"],expected_digest=info_data.get("digest"),asset_id=info_data.get("asset_id"),browser_download_url=info_data.get("browser_download_url"),expected_size=info_data.get("asset_size"),asset_name=info_data.get("asset_name"),chunks=info_data.get("chunks"),progress_callback=lambda stage,done,total,speed:self.after(0,self._update_progress,stage,done,total,speed))
@@ -169,8 +210,10 @@ class App(tk.Tk):
         self.update_progress.set(percent); total_mb=f"{total / 1048576:.1f}" if total else "?"; done_mb=f"{done / 1048576:.1f}"; speed_mb=speed / 1048576
         text=f"İndirme %{percent:.1f} • {done_mb}/{total_mb} MB • {speed_mb:.2f} MB/sn"; self.update_detail.set(text); info("Güncelleme indirme ilerlemesi",percent=round(percent,1),downloaded_mb=round(done/1048576,2),total_mb=round(total/1048576,2) if total else None,speed_mb_s=round(speed_mb,2)); self.refresh_logs()
     def _update_install(self, temp_exe, info_data):
+        self._download_running=False
         self.update_progress.set(100); self.update_detail.set("Kurulum hazırlanıyor..."); self.status.configure(text="Güncelleme kuruluyor..."); info("Güncelleme kurulumu başlıyor",temp=str(temp_exe)); self.refresh_logs(); restart_with_update(temp_exe,Path(sys.executable))
     def _update_failed(self, exc, info_data):
+        self._download_running=False
         exception("GUI güncelleme uygulama hatası",exc,version=info_data.get("version"),asset_id=info_data.get("asset_id"),asset_name=info_data.get("asset_name")); messagebox.showerror("Güncelleme",f"Güncelleme başarısız:\n{type(exc).__name__}: {exc}\n\nDetay HATA / İŞLEM LOGLARI sekmesinde."); self.status.configure(text="Güncelleme başarısız"); self.update_detail.set("Güncelleme başarısız"); self.refresh_logs()
     @staticmethod
     def _fmt(value): return "-" if value is None else f"{value:g}"
