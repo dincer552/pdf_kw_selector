@@ -277,11 +277,17 @@ def download_update(download_url: str, *, expected_digest: str | None = None, as
                 if final_url:
                     request_url = final_url
                 if offset and status == 200:
-                    raise RuntimeError(
-                        "GitHub CDN devam indirmesini kabul etmedi; eksik güncelleme dosyası korunmadı."
+                    # Some HTTP servers (including the VM's nginx path) do
+                    # not honor Range on a retry. Restart safely from zero
+                    # instead of treating a valid full response as an error.
+                    warning(
+                        "Sunucu devam indirmesini desteklemedi; indirme baştan başlatılıyor",
+                        url=request_url,
+                        previous_bytes=offset,
                     )
+                    offset = 0
                 if offset and status != 206:
-                    raise RuntimeError(f"GitHub devam indirmesi için beklenmeyen HTTP durumu: {status}")
+                    raise RuntimeError(f"Güncelleme devam indirmesi için beklenmeyen HTTP durumu: {status}")
                 with target.open("ab" if offset else "wb") as output:
                     while True:
                         chunk = response.read(1024 * 1024)

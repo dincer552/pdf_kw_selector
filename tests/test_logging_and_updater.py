@@ -106,7 +106,7 @@ def test_download_update_logs_and_verifies_expected_digest(monkeypatch, tmp_path
         target.unlink(missing_ok=True)
 
 
-def test_download_update_accepts_asset_without_sha_validation(monkeypatch, tmp_path):
+def test_download_update_validates_sha256_when_manifest_provides_it(monkeypatch, tmp_path):
     payload = b"MZ" + b"wrong-payload"
 
     def fake_urlopen(request, timeout=0):
@@ -117,7 +117,7 @@ def test_download_update_accepts_asset_without_sha_validation(monkeypatch, tmp_p
 
     target = updater.download_update(
         "https://api.github.com/repos/dincer552/pdf_kw_selector/releases/assets/123",
-        expected_digest="0" * 64,
+        expected_digest="c3549225af88b600c2ac89f9b468b0412eee11cdd0341dad79095b604198e754",
         asset_id=123,
     )
     try:
