@@ -32,8 +32,10 @@ jobs:
           pip install pyinstaller
       - name: Embed build metadata
         shell: pwsh
+        env:
+          APP_VERSION: v0.5.4.${{ github.run_number }}
         run: |
-          Set-Content -Path build_info.py -Value '"""Build metadata embedded in packaged applications."""', 'BUILD_SHA = "$env:GITHUB_SHA"'
+          Set-Content -Path build_info.py -Value '"""Build metadata embedded in packaged applications."""', 'BUILD_SHA = "$env:GITHUB_SHA"', 'BUILD_VERSION = "$env:APP_VERSION"'
       - name: Build EXE
         run: pyinstaller --noconfirm --clean --onefile --windowed --additional-hooks-dir=. --collect-all pypdf --name PDF_KW_Selector_v0.5.4 desktop_grouped_app.py
       - name: Prepare release assets
@@ -47,15 +49,16 @@ jobs:
         if: github.ref == 'refs/heads/dincer552-fix-github-updates'
         env:
           GH_TOKEN: ${{ github.token }}
+          APP_VERSION: v0.5.4.${{ github.run_number }}
         shell: bash
         run: |
           if gh release view latest >/dev/null 2>&1; then
             gh release upload latest dist/PDF_KW_Selector_latest.exe --clobber
             gh release upload latest "dist/PDF_KW_Selector_${GITHUB_SHA}.exe" --clobber
             gh release upload latest "dist/PDF_KW_Selector_${GITHUB_SHA}.zip" --clobber
-            gh release edit latest --title "PDF kW Selector v0.5.4 - Latest" --notes "Version: v0.5.4; Build: $GITHUB_SHA; Latest Windows build from dincer552-fix-github-updates."
+            gh release edit latest --title "PDF kW Selector $APP_VERSION - Latest" --notes "Version: $APP_VERSION; Build: $GITHUB_SHA; Latest Windows build from dincer552-fix-github-updates."
           else
-            gh release create latest dist/PDF_KW_Selector_latest.exe "dist/PDF_KW_Selector_${GITHUB_SHA}.exe" "dist/PDF_KW_Selector_${GITHUB_SHA}.zip" --target "$GITHUB_SHA" --title "PDF kW Selector v0.5.4 - Latest" --notes "Version: v0.5.4; Build: $GITHUB_SHA; Latest Windows build from dincer552-fix-github-updates."
+            gh release create latest dist/PDF_KW_Selector_latest.exe "dist/PDF_KW_Selector_${GITHUB_SHA}.exe" "dist/PDF_KW_Selector_${GITHUB_SHA}.zip" --target "$GITHUB_SHA" --title "PDF kW Selector $APP_VERSION - Latest" --notes "Version: $APP_VERSION; Build: $GITHUB_SHA; Latest Windows build from dincer552-fix-github-updates."
           fi
       - uses: actions/upload-artifact@v4
         with:
@@ -74,7 +77,7 @@ jobs:
         env:
           UPDATE_ROOT: /var/www/pdf-selector-updates
           BUILD_SHA: ${{ github.sha }}
-          VERSION: v0.5.4
+          VERSION: v0.5.4.${{ github.run_number }}
         run: |
           set -euo pipefail
           exe="update-dist/PDF_KW_Selector_v0.5.4.exe"

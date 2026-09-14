@@ -16,9 +16,9 @@ from desktop_inputs import PdfInput, discover_pdfs
 from pdf_master_scan import scan_pdfs
 from updater import check_for_update, download_update, restart_with_update
 from ahu_matching import normalize_equipment_id
-from build_info import BUILD_SHA
+from build_info import BUILD_SHA, BUILD_VERSION
 
-VERSION = "v0.5.4"
+VERSION = BUILD_VERSION
 UPDATE_CHECK_INTERVAL_MS = 15 * 60 * 1000
 
 
