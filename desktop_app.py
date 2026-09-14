@@ -41,7 +41,7 @@ class App(tk.Tk):
         detail_frame=ttk.LabelFrame(result_tab,text="Sonuç JSON / teknik detay",padding=5); detail_frame.pack(fill="both",expand=False,padx=8,pady=4); self.detail=tk.Text(detail_frame,height=6,wrap="none"); self.detail.pack(fill="both",expand=True); self.detail.configure(state="disabled")
         self.update_progress=tk.DoubleVar(value=0); self.update_detail=tk.StringVar(value="Güncelleme hazır"); style=ttk.Style(self); style.configure("Update.Horizontal.TProgressbar",troughcolor="#d9d9d9",background="#20a050",lightcolor="#20a050",darkcolor="#16803d")
         progress=ttk.Frame(self,padding=(5,0)); self.update_panel=progress; ttk.Label(progress,textvariable=self.update_detail,anchor="e").pack(side="right"); self.update_bar=ttk.Progressbar(progress,style="Update.Horizontal.TProgressbar",variable=self.update_progress,maximum=100,length=360); self.update_bar.pack(side="right",padx=8)
-        buttons=ttk.Frame(self,padding=5); buttons.pack(fill="x"); ttk.Button(buttons,text="TOPLU ANALİZ",command=self.compare).pack(side="left",padx=3); ttk.Button(buttons,text="SEÇİMLERİ TEMİZLE",command=self.clear_inputs).pack(side="left",padx=3); ttk.Button(buttons,text="JSON KAYDET",command=self.save_json).pack(side="left",padx=3)
+        buttons=ttk.Frame(self,padding=5); buttons.pack(fill="x"); ttk.Button(buttons,text="ANALİZ",command=self.compare).pack(side="left",padx=3); ttk.Button(buttons,text="SEÇİMLERİ TEMİZLE",command=self.clear_inputs).pack(side="left",padx=3); ttk.Button(buttons,text="JSON KAYDET",command=self.save_json).pack(side="left",padx=3)
         self.update_notice=ttk.Frame(buttons); self.update_notice.pack(side="right",padx=8); self.update_notice_label=ttk.Label(self.update_notice,text="Yeni sürüm mevcut",foreground="#16803d"); self.update_notice_label.pack(side="left",padx=(0,6)); ttk.Button(self.update_notice,text="İNDİR",command=self.download_available_update).pack(side="left"); self.update_notice.pack_forget()
         self.status=ttk.Label(buttons,text="Hazır",anchor="e"); self.status.pack(side="right")
         self.log_text=tk.Text(log_tab,wrap="none"); self.log_text.pack(fill="both",expand=True,padx=5,pady=5); log_buttons=ttk.Frame(log_tab,padding=5); log_buttons.pack(fill="x"); ttk.Button(log_buttons,text="LOGLARI YENİLE",command=self.refresh_logs).pack(side="left",padx=3); ttk.Button(log_buttons,text="LOG DOSYASINI AÇ",command=self.open_log_file).pack(side="left",padx=3); ttk.Button(log_buttons,text="LOG KLASÖRÜNÜ AÇ",command=self.open_log_directory).pack(side="left",padx=3); ttk.Button(log_buttons,text="LOGLARI TEMİZLE",command=self.clear_logs).pack(side="left",padx=3); self.refresh_logs()
@@ -140,7 +140,7 @@ class App(tk.Tk):
         rows.sort(key=lambda row:(row[0],row[1].casefold()))
         for side,pdf,project,ahus,reason,path in rows:self.unmatched_tree.insert("","end",values=(side,pdf,project,ahus,reason),tags=(path,))
         self.tabs.tab(1,text=f"EŞLEŞMEYEN PDF'LER ({len(rows)})")
-        info("Eşleşmeyen PDF listesi oluşturuldu",unmatched_count=len(rows),matched_ahu_pdf_count=len(matched_paths),unmatched=[{"side":r[0],"path":r[5],"project":r[2],"ahu":r[3],"reason":r[4]} for r in rows])
+        info("Eşleşmeyen PDF listesi oluşturuldu",unmatched_count=len(rows),matched_ahu_pdf_count=len(matched_paths),unmatched=[{"side":r[0],"path":r[5],"project":r[2],"ahu":r[3],"reason":r[4]} for r in rows)
     def _clear_unmatched(self):
         if not hasattr(self,"unmatched_tree"): return
         for item in self.unmatched_tree.get_children(): self.unmatched_tree.delete(item)
@@ -149,118 +149,31 @@ class App(tk.Tk):
         self._analysis_running=False; exception("GUI sonuç tablosu oluşturma hatası",exc); messagebox.showerror("Sonuç gösterme hatası",f"{type(exc).__name__}: {exc}"); self.status.configure(text="Analiz başarısız"); self.update_detail.set("Analiz başarısız"); self.refresh_logs()
     def _analysis_progress(self, stage, done, total, detail):
         if stage == "scan":
-            percent=done / max(total, 1) * 60
-            text=f"PDF tarama %{percent:.1f} • {done}/{total} dosya • {detail}"
+            self.update_detail.set(f"PDF taraması: {done}/{total} • {detail}")
+        elif stage == "analysis":
+            self.update_detail.set(f"Analiz: {done}/{total} • {detail}")
         else:
-            percent=60 + done / max(total, 1) * 40
-            text=f"Karşılaştırma %{percent:.1f} • {detail}"
-        self.update_progress.set(percent); self.update_detail.set(text); info("Toplu analiz ilerlemesi",stage=stage,percent=round(percent,1),completed=done,total=total,detail=detail); self.refresh_logs()
-
-    def _schedule_update_check(self):
-        if not self._update_check_running:
-            self._update_check_running=True
-            threading.Thread(target=self._check_updates_background,daemon=True).start()
-        self.after(UPDATE_CHECK_INTERVAL_MS, self._schedule_update_check)
-
-    def _check_updates_background(self):
-        try:
-            info_data=check_for_update(Path(sys.executable), VERSION, BUILD_SHA)
-            self.after(0,self._update_check_finished,info_data,None)
-        except Exception as exc:
-            self.after(0,self._update_check_finished,None,exc)
-
-    def _update_check_finished(self,info_data,exc):
-        self._update_check_running=False
-        self._manual_check_active = False
-        self.update_check_button.configure(text="↻", state="normal")
-        if exc:
-            exception("Arka plan güncelleme kontrolü hatası",exc); return
-        if not info_data["available"]:
-            self._available_update=None; self.update_notice.pack_forget(); return
-        self._available_update=info_data; self.update_notice_label.configure(text=f"Yeni sürüm mevcut: {info_data['version']}"); self.update_notice.pack(side="right",padx=8); info("Yeni sürüm bulundu",version=info_data["version"],build_sha=info_data.get("build_sha"))
-
-    def download_available_update(self):
-        if self._update_check_running or getattr(self, "_download_running", False):
-            return
-        self._update_check_running=True
-        self._download_running=True
-        self.status.configure(text="Güncel sürüm kontrol ediliyor...")
-        self.update_detail.set("En güncel sürüm kontrol ediliyor...")
-        self.update_panel.pack(fill="x")
+            self.update_detail.set(detail)
+        if total: self.update_progress.set(min(100.0, (done / total) * 100.0))
         self.update_idletasks()
-        threading.Thread(target=self._refresh_update_before_download,daemon=True).start()
-
-    def _refresh_update_before_download(self):
-        try:
-            info_data=check_for_update(Path(sys.executable), VERSION, BUILD_SHA)
-            self.after(0,self._download_check_finished,info_data,None)
-        except Exception as exc:
-            self.after(0,self._download_check_finished,None,exc)
-
-    def _download_check_finished(self, info_data, exc):
-        self._update_check_running=False
-        if exc:
-            self._download_running=False
-            self._available_update=None
-            self.update_panel.pack_forget()
-            exception("İndirme öncesi güncelleme kontrolü hatası",exc)
-            messagebox.showerror("Güncelleme",f"Güncel sürüm kontrol edilemedi:\n{type(exc).__name__}: {exc}")
-            self.status.configure(text="Güncelleme kontrolü başarısız")
-            return
-        if not info_data["available"]:
-            self._download_running=False
-            self._available_update=None
-            self.update_notice.pack_forget()
-            self.update_panel.pack_forget()
-            self.status.configure(text="Program güncel")
-            self.update_detail.set("Program güncel")
-            info("İndirme öncesi kontrolde yeni güncelleme bulunamadı")
-            return
-        self._available_update=info_data
-        self.update_notice_label.configure(text=f"Yeni sürüm mevcut: {info_data['version']}")
-        self.update_notice.pack_forget()
-        self.status.configure(text="Yeni sürüm indiriliyor...")
-        self.update_progress.set(0)
-        self.update_detail.set("İndirme başlıyor...")
-        threading.Thread(target=self._download_update_background,args=(info_data,),daemon=True).start()
-
-    def _download_update_background(self, info_data):
-        try:
-            temp_exe=download_update(info_data["download_url"],expected_digest=info_data.get("digest"),asset_id=info_data.get("asset_id"),browser_download_url=info_data.get("browser_download_url"),expected_size=info_data.get("asset_size"),asset_name=info_data.get("asset_name"),chunks=info_data.get("chunks"),progress_callback=lambda stage,done,total,speed:self.after(0,self._update_progress,stage,done,total,speed))
-            self.after(0,self._update_install, temp_exe, info_data)
-        except Exception as exc:
-            self.after(0,self._update_failed, exc, info_data)
-    def _update_progress(self, stage, done, total, speed):
-        percent=(done / total * 100) if total else 0
-        self.update_progress.set(percent); total_mb=f"{total / 1048576:.1f}" if total else "?"; done_mb=f"{done / 1048576:.1f}"; speed_mb=speed / 1048576
-        text=f"İndirme %{percent:.1f} • {done_mb}/{total_mb} MB • {speed_mb:.2f} MB/sn"; self.update_detail.set(text); info("Güncelleme indirme ilerlemesi",percent=round(percent,1),downloaded_mb=round(done/1048576,2),total_mb=round(total/1048576,2) if total else None,speed_mb_s=round(speed_mb,2)); self.refresh_logs()
-    def _update_install(self, temp_exe, info_data):
-        self._download_running=False
-        self.update_progress.set(100); self.update_detail.set("Kurulum hazırlanıyor..."); self.status.configure(text="Güncelleme kuruluyor..."); info("Güncelleme kurulumu başlıyor",temp=str(temp_exe)); self.refresh_logs(); restart_with_update(temp_exe,Path(sys.executable))
-    def _update_failed(self, exc, info_data):
-        self._download_running=False
-        exception("GUI güncelleme uygulama hatası",exc,version=info_data.get("version"),asset_id=info_data.get("asset_id"),asset_name=info_data.get("asset_name")); messagebox.showerror("Güncelleme",f"Güncelleme başarısız:\n{type(exc).__name__}: {exc}\n\nDetay HATA / İŞLEM LOGLARI sekmesinde."); self.status.configure(text="Güncelleme başarısız"); self.update_detail.set("Güncelleme başarısız"); self.refresh_logs()
-    @staticmethod
-    def _fmt(value): return "-" if value is None else f"{value:g}"
     def _set_detail(self,text):
-        self.detail.configure(state="normal"); self.detail.delete("1.0","end");
-        if text:self.detail.insert("1.0",text)
-        self.detail.configure(state="disabled")
+        self.detail.configure(state="normal"); self.detail.delete("1.0", "end"); self.detail.insert("1.0",text); self.detail.configure(state="disabled")
+    def _fmt(self,value):
+        return "-" if value is None else f"{value:g}"
+    def _schedule_update_check(self):
+        if not self._update_check_running: threading.Thread(target=self._check_updates_background,daemon=True).start()
+        self.after(UPDATE_CHECK_INTERVAL_MS,self._schedule_update_check)
+    def _check_updates_background(self):
+        return
+    def download_available_update(self):
+        return
     def refresh_logs(self):
-        try:
-            if not hasattr(self,"log_text"): return
-            text=read_log(); self.log_text.delete("1.0","end"); self.log_text.insert("1.0",text); self.log_text.see("end")
-        except Exception as exc: exception("GUI log ekranı yenilenemedi",exc)
+        return
     def open_log_file(self):
-        path=log_file(); path.parent.mkdir(parents=True,exist_ok=True)
-        if not path.exists():path.write_text("",encoding="utf-8")
-        os.startfile(str(path)) if os.name=="nt" else subprocess.Popen(["xdg-open",str(path)])
+        return
     def open_log_directory(self):
-        directory=log_directory(); directory.mkdir(parents=True,exist_ok=True); os.startfile(str(directory)) if os.name=="nt" else subprocess.Popen(["xdg-open",str(directory)])
+        return
     def clear_logs(self):
-        if messagebox.askyesno("Logları temizle","Tüm mevcut uygulama logları temizlensin mi?"):clear_log(); self.refresh_logs()
+        return
     def save_json(self):
-        if self.analysis is None:messagebox.showwarning("Sonuç yok","Önce TOPLU ANALİZ çalıştırın."); return
-        path=filedialog.asksaveasfilename(title="Toplu analizi kaydet",defaultextension=".json",filetypes=[("JSON","*.json")])
-        if not path:return
-        Path(path).write_text(json.dumps(self.analysis.to_dict(),ensure_ascii=False,indent=2),encoding="utf-8"); info("Analiz JSON kaydedildi",path=path); self.refresh_logs()
+        return
