@@ -40,6 +40,10 @@ class GroupedApp(BaseApp):
         self.tabs.tab(self.ebm_tab,text=f"EBM-PAPST ({len(rows)})")
     def _render_unmatched(self):
         super()._render_unmatched(); self.tabs.tab(self.unmatched_tab_index(),text=f"EŞLEŞMEYEN PDF'LER ({len(self.unmatched_tree.get_children())})")
+    def _clear_grouped_results(self):
+        for item in self.ebm_tree.get_children(): self.ebm_tree.delete(item)
+        self.tabs.tab(0,text="DANFOS (0)")
+        self.tabs.tab(self.ebm_tab,text="EBM-PAPST (0)")
     def _post_analysis(self):
         try:
             self._render_ebm(); rows=[self.tree.item(i,"values") for i in self.tree.get_children()]; grouped=group_result_rows(rows)

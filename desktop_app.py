@@ -59,7 +59,24 @@ class App(tk.Tk):
         label=self.pdf1_label if side=="PDF1" else self.pdf2_label; names=", ".join(Path(x.path).name for x in target[:3]); label.configure(text=f"{len(target)} PDF: {names}{' ...' if len(target)>3 else ''}"); info("PDF girişleri güncellendi",side=side,count=len(target),paths=[str(x.path) for x in target])
     def clear_inputs(self):
         if self._analysis_running:return
-        self.pdf1_inputs.clear(); self.pdf2_inputs.clear(); self.pdf1_label.configure(text="0 PDF seçildi"); self.pdf2_label.configure(text="0 PDF seçildi"); self._clear_unmatched(); info("PDF seçimleri temizlendi")
+        self.pdf1_inputs.clear(); self.pdf2_inputs.clear(); self.pdf1_label.configure(text="0 PDF seçildi"); self.pdf2_label.configure(text="0 PDF seçildi")
+        self.analysis = None
+        for item in self.tree.get_children(): self.tree.delete(item)
+        self._clear_unmatched()
+        self._clear_analysis_detail()
+        self.status.configure(text="Hazır")
+        self.update_progress.set(0)
+        self.update_detail.set("Güncelleme hazır")
+        self.update_panel.pack_forget()
+        self._clear_grouped_results()
+        info("PDF seçimleri ve analiz sonuçları temizlendi")
+
+    def _clear_analysis_detail(self):
+        self._set_detail("")
+
+    def _clear_grouped_results(self):
+        """Hook for grouped result tabs; the log tab must remain untouched."""
+        return
 
     def compare(self):
         if self._analysis_running:return
