@@ -10,6 +10,15 @@ from project_discovery import ProjectDiscovery, ProjectCandidate, normalize_proj
 
 _CONTEXT_TOKENS = {"proje", "project", "name", "faz", "phase", "ahu", "unit", "g", "grup", "group", "rev", "revision", "revizyon", "drawing", "elektrik", "uretim", "üretim"}
 
+# Known project-name aliases where the engineering PDF title and AIRWARE
+# project field refer to the same real project with different wording.
+_PROJECT_NAME_ALIASES = {
+    frozenset({
+        "eker sut urunleri yeni fabrika yatirim",
+        "eker balikesir",
+    }),
+}
+
 def _tokens(value: str | None) -> list[str]: return [t for t in normalize_project_name(value or "").split() if t]
 def _core_tokens(value: str | None) -> set[str]: return {t for t in _tokens(value) if t not in _CONTEXT_TOKENS}
 def _compact(value: str | None) -> str: return "".join(_tokens(value))
@@ -26,6 +35,13 @@ def _extract_id_from_text(value: str | None) -> set[str]:
     if not value:return set()
     return set(re.findall(r"(?<![A-Z])\d{5,}(?!\d)", value.upper()))
 
+def _is_project_alias(left: str | None, right: str | None) -> bool:
+    left_n = normalize_project_name(left or "")
+    right_n = normalize_project_name(right or "")
+    if not left_n or not right_n or left_n == right_n:
+        return False
+    return frozenset({left_n, right_n}) in _PROJECT_NAME_ALIASES
+
 @dataclass(frozen=True)
 class ProjectMatch:
     left_name: str | None; right_name: str | None; left_normalized: str | None; right_normalized: str | None; score: float; status: str; reason: str; left_source: str | None=None; right_source: str | None=None
@@ -36,6 +52,8 @@ def score_project_names(left: str | None, right: str | None)->tuple[float,str,st
         left_n=normalize_project_name(left or "");right_n=normalize_project_name(right or "")
         if not left_n or not right_n:return 0.0,"NO_MATCH","missing project name"
         if left_n==right_n:return 1.0,"EXACT","normalized project names are identical"
+        if _is_project_alias(left_n, right_n):
+            return 1.0,"ALIAS_MATCH","configured project-name aliases refer to the same project"
         left_core=_core_tokens(left_n);right_core=_core_tokens(right_n)
         if not left_core or not right_core:return 0.0,"NO_MATCH","no usable core project tokens"
         intersection=left_core&right_core;union=left_core|right_core
