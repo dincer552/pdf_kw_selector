@@ -45,14 +45,12 @@ class GroupedApp(BaseApp):
             if scan.pdf1_ebm_pages: ebm.add(key)
             if any(self._is_voclean_text(text) for text in scan.page_texts): voc.add(key)
             if self._is_sysreco_text("\n".join(scan.page_texts)): sysr.add(key)
-        # EBM owns the accepted PDF2 files belonging to an EBM PDF1 AHU match.
         for ahu in self.analysis.ahu_matches:
             if getattr(ahu.match,"status","") not in accepted: continue
             pdf1_keys={("PDF1",str(p).casefold()) for p in ahu.pdf1_files}
             if pdf1_keys & ebm: ebm.update(("PDF2",str(p).casefold()) for p in ahu.pdf2_files)
         for document in self.analysis.pdf2_documents:
             if self._is_voclean_document(document,"PDF2"): voc.add(("PDF2",str(document.path).casefold()))
-        # A PDF belongs to exactly one special tab. Priority: EBM -> VOCLEAN -> SYSRECO.
         voc-=ebm; sysr-=ebm; sysr-=voc
         self._ebm_pdf_keys=ebm; self._vocclean_pdf_keys=voc; self._sysreco_pdf_keys=sysr
         return ebm,voc,sysr
@@ -61,7 +59,7 @@ class GroupedApp(BaseApp):
     @staticmethod
     def _is_voclean_text(text): return bool(re.search(r"\bVOC\s*LEAN\b",text or "",re.I))
     def _is_voclean_document(self,document,side=None):
-        if side == "PDF2": return "vocclean" in str(getattr(getattr(document,"project",None),"project_name","") or "").casefold()
+        if side == "PDF2": return "voclean" in str(getattr(getattr(document,"project",None),"project_name","") or "").casefold()
         return ("PDF1",str(document.path).casefold()) in self._vocclean_pdf_keys
     @staticmethod
     def _is_sysreco_text(text): return bool(re.search(r"\bSysReco\b",text or "",re.I))
@@ -134,39 +132,31 @@ class GroupedApp(BaseApp):
         danfos=matched-special; unmatched=all_keys-special-matched; categories={"DANFOS":danfos,"EBM-PAPST":ebm,"VOCLEAN":voc,"SYSRECO":sysr,"EŞLEŞMEYEN":unmatched}
         return all_keys,categories
     def _validate_pdf_accounting(self):
-        all_keys,categories=self._pdf_classification(); sets=list(categories.values()); overlaps=[]
-        names=list(categories)
+        all_keys,categories=self._pdf_classification(); sets=list(categories.values()); overlaps=[]; names=list(categories)
         for i in range(len(sets)):
             for j in range(i+1,len(sets)):
                 overlap=sets[i]&sets[j]
                 if overlap: overlaps.append(f"{names[i]} ∩ {names[j]} = {len(overlap)}")
-        classified=set().union(*sets) if sets else set(); missing=all_keys-classified; extra=classified-all_keys; total=sum(len(s) for s in sets)
-        ok=(not overlaps and not missing and not extra and total==len(all_keys))
+        classified=set().union(*sets) if sets else set(); missing=all_keys-classified; extra=classified-all_keys; total=sum(len(s) for s in sets); ok=(not overlaps and not missing and not extra and total==len(all_keys))
         if not ok:
             detail=f"Eklenen PDF: {len(all_keys)} | Sekmeler toplamı: {total} | Eksik: {len(missing)} | Fazla: {len(extra)}"
             if overlaps: detail += " | Çakışma: " + ", ".join(overlaps)
-            self.status.configure(text="PDF HESAP HATASI: " + detail)
-            info("PDF HESAP HATASI",selected_pdf_count=len(all_keys),classified_total=total,missing=list(missing),extra=list(extra),overlaps=overlaps)
-            if not self._pdf_accounting_error_shown:
-                self._pdf_accounting_error_shown=True; messagebox.showerror("PDF sınıflandırma hatası",detail)
-        else:
-            self._pdf_accounting_error_shown=False
+            self.status.configure(text="PDF HESAP HATASI: " + detail); info("PDF HESAP HATASI",selected_pdf_count=len(all_keys),classified_total=total,missing=list(missing),extra=list(extra),overlaps=overlaps)
+            if not self._pdf_accounting_error_shown: self._pdf_accounting_error_shown=True; messagebox.showerror("PDF sınıflandırma hatası",detail)
+        else: self._pdf_accounting_error_shown=False
         return ok,categories
     def _refresh_grouped_tab_counts(self):
-        _,categories=self._validate_pdf_accounting(); counts={name:len(values) for name,values in categories.items()}
-        self._unmatched_pdf_keys=categories["EŞLEŞMEYEN"]
+        _,categories=self._validate_pdf_accounting(); counts={name:len(values) for name,values in categories.items()}; self._unmatched_pdf_keys=categories["EŞLEŞMEYEN"]
         self.tabs.tab(0,text=f"DANFOS ({counts['DANFOS']})"); self.tabs.tab(self.ebm_tab,text=f"EBM-PAPST ({counts['EBM-PAPST']})"); self.tabs.tab(self.voclean_tab,text=f"VOCLEAN ({counts['VOCLEAN']})"); self.tabs.tab(self.sysreco_tab,text=f"SYSRECO ({counts['SYSRECO']})"); self.tabs.tab(self.unmatched_tab_index(),text=f"EŞLEŞMEYEN PDF'LER ({counts['EŞLEŞMEYEN']})")
         info("PDF sekme sınıflandırması tamamlandı",selected_pdf_count=sum(counts.values()),**{f"{k.lower().replace('-','_').replace(' ','_')}_pdf_count":v for k,v in counts.items()})
     def _render_unmatched(self):
         for item in self.unmatched_tree.get_children(): self.unmatched_tree.delete(item)
-        _,categories=self._validate_pdf_accounting(); unmatched=categories["EŞLEŞMEYEN"]; documents={("PDF1",str(d.path).casefold()):(d,"PDF1") for d in self.analysis.pdf1_documents}; documents.update({("PDF2",str(d.path).casefold()):(d,"PDF2") for d in self.analysis.pdf2_documents})
-        rows=[]
+        _,categories=self._validate_pdf_accounting(); unmatched=categories["EŞLEŞMEYEN"]; documents={("PDF1",str(d.path).casefold()):(d,"PDF1") for d in self.analysis.pdf1_documents}; documents.update({("PDF2",str(d.path).casefold()):(d,"PDF2") for d in self.analysis.pdf2_documents}); rows=[]
         for key in sorted(unmatched):
             item=documents.get(key)
             if item:
                 document,side=item; project=document.project.project_name or "-"; ahus=", ".join(str(value) for value in document.equipment if str(value).strip()) if document.equipment else "-"; reason="AHU eşleşmesine giremedi" if document.equipment else "Ekipman/AHU tespit edilemedi"
-            else:
-                side,path=key; project=ahus="-"; reason="PDF analiz dışında kaldı"
+            else: side,path=key; project=ahus="-"; reason="PDF analiz dışında kaldı"
             rows.append((side,Path(key[1]).name,project,ahus,reason,key[1]))
         for side,pdf,project,ahus,reason,path in rows:self.unmatched_tree.insert("","end",values=(side,pdf,project,ahus,reason),tags=(path,))
         self._unmatched_pdf_keys=unmatched
