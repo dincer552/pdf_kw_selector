@@ -46,6 +46,9 @@ class GroupedApp(BaseApp):
             if scan.pdf1_ebm_pages: ebm.add(key)
             if any(self._is_voclean_text(text) for text in scan.page_texts): voc.add(key)
             if self._is_sysreco_text("\n".join(scan.page_texts)): sysr.add(key)
+        # PDF2 VOCLEAN project records are also special and must not become unmatched.
+        for document in self.analysis.pdf2_documents:
+            if self._is_voclean_document(document,"PDF2"): voc.add(("PDF2",str(document.path).casefold()))
         # One PDF can appear in only one special tab. Priority: EBM -> VOCLEAN -> SYSRECO.
         voc-=ebm; sysr-=ebm; sysr-=voc
         self._ebm_pdf_keys=ebm; self._vocclean_pdf_keys=voc; self._sysreco_pdf_keys=sysr
@@ -73,9 +76,7 @@ class GroupedApp(BaseApp):
         for document in self.analysis.pdf1_documents:
             key=("PDF1",str(document.path).casefold())
             if key not in self._vocclean_pdf_keys: continue
-            scan=self._grouped_scan_pdf1(document)
-            voc_pages=[n for n,text in enumerate(scan.page_texts,1) if self._is_voclean_text(text)]
-            motor_results=list(scan.pdf1_motors)
+            scan=self._grouped_scan_pdf1(document); motor_results=list(scan.pdf1_motors)
             if not motor_results:
                 rows.append((document.project.project_name or "-",Path(document.path).name,"-","-","-","-","VOClean bulundu; Plug fan kW bulunamadı")); continue
             for motor in motor_results:
@@ -93,7 +94,7 @@ class GroupedApp(BaseApp):
         for row in rows:self.voclean_tree.insert("","end",values=row)
         self.tabs.tab(self.voclean_tab,text=f"VOCLEAN ({len(self._vocclean_pdf_keys)})"); info("VOClean sonuçları oluşturuldu",row_count=len(rows),pdf_count=len(self._vocclean_pdf_keys))
     def _render_sysreco(self):
-        for item in self.sysreco_tree.get_children(): self.sysreco_tree.delete(item)
+        for item in self.sysreco_tree.get_children():self.sysreco_tree.delete(item)
         self._special_pdf_sets(); rows=[]
         for document,full_text in self._sysreco_documents():
             models=self._sysreco_models(full_text) or ["SysReco modeli bulunamadı"]
@@ -115,7 +116,6 @@ class GroupedApp(BaseApp):
             for ahu_id in tuple(document.equipment) or ("-",):rows.append((document.project.project_name or "-",ahu_id or "-",Path(document.path).name,pdf2,status))
         rows.sort(key=lambda r:(str(r[1]).casefold(),str(r[2]).casefold(),str(r[0]).casefold()))
         for row in rows:self.ebm_tree.insert("","end",values=row)
-        # EBM tab count is the number of EBM PDF1 files only; paired PDF2 remains in DANFOS.
         self.tabs.tab(self.ebm_tab,text=f"EBM-PAPST ({len(self._ebm_pdf_keys)})")
     def _selected_pdf_keys(self):
         result=set()
@@ -129,15 +129,9 @@ class GroupedApp(BaseApp):
             result.update(("PDF1",str(path).casefold()) for path in ahu.pdf1_files); result.update(("PDF2",str(path).casefold()) for path in ahu.pdf2_files)
         return result
     def _refresh_grouped_tab_counts(self):
-        all_keys=self._selected_pdf_keys(); special=self._ebm_pdf_keys|self._vocclean_pdf_keys|self._sysreco_pdf_keys; matched=self._matched_pdf_keys()
-        unmatched=all_keys-special-matched
-        danfos=all_keys-special-unmatched
+        all_keys=self._selected_pdf_keys(); special=self._ebm_pdf_keys|self._vocclean_pdf_keys|self._sysreco_pdf_keys; matched=self._matched_pdf_keys(); unmatched=all_keys-special-matched; danfos=all_keys-special-unmatched
         self._unmatched_pdf_keys=unmatched
-        self.tabs.tab(0,text=f"DANFOS ({len(danfos)})")
-        self.tabs.tab(self.ebm_tab,text=f"EBM-PAPST ({len(self._ebm_pdf_keys)})")
-        self.tabs.tab(self.voclean_tab,text=f"VOCLEAN ({len(self._vocclean_pdf_keys)})")
-        self.tabs.tab(self.sysreco_tab,text=f"SYSRECO ({len(self._sysreco_pdf_keys)})")
-        self.tabs.tab(self.unmatched_tab_index(),text=f"EŞLEŞMEYEN PDF'LER ({len(unmatched)})")
+        self.tabs.tab(0,text=f"DANFOS ({len(danfos)})"); self.tabs.tab(self.ebm_tab,text=f"EBM-PAPST ({len(self._ebm_pdf_keys)})"); self.tabs.tab(self.vocclean_tab,text=f"VOCLEAN ({len(self._vocclean_pdf_keys)})"); self.tabs.tab(self.sysreco_tab,text=f"SYSRECO ({len(self._sysreco_pdf_keys)})"); self.tabs.tab(self.unmatched_tab_index(),text=f"EŞLEŞMEYEN PDF'LER ({len(unmatched)})")
         total=len(danfos)+len(self._ebm_pdf_keys)+len(self._vocclean_pdf_keys)+len(self._sysreco_pdf_keys)+len(unmatched)
         info("PDF sekme sınıflandırması tamamlandı",selected_pdf_count=len(all_keys),danfos_pdf_count=len(danfos),ebm_pdf_count=len(self._ebm_pdf_keys),vocclean_pdf_count=len(self._vocclean_pdf_keys),sysreco_pdf_count=len(self._sysreco_pdf_keys),unmatched_pdf_count=len(unmatched),classified_total=total)
     def _render_unmatched(self):
