@@ -31,7 +31,7 @@ class App(tk.Tk):
         top=ttk.Frame(self,padding=8); top.pack(fill="x"); ttk.Label(top,text="PDF kW SELECTOR",font=("Segoe UI",18,"bold")).pack(side="left"); ttk.Label(top,text=f"{VERSION} • Project → AHU → Motor").pack(side="right",pady=8)
         boxes=ttk.Frame(self,padding=(8,0)); boxes.pack(fill="x"); self.pdf1_label,self.pdf1_box=self._file_box(boxes,"PDF 1 — Seçim / Referans","PDF1"); self.pdf2_label,self.pdf2_box=self._file_box(boxes,"PDF 2 — Elektrik / Üretim","PDF2"); self.pdf1_box.pack(side="left",fill="x",expand=True,padx=(0,5)); self.pdf2_box.pack(side="left",fill="x",expand=True,padx=(5,0))
         tabs=ttk.Notebook(self); tabs.pack(fill="both",expand=True,padx=8,pady=(6,0)); self.tabs=tabs; result_tab=ttk.Frame(tabs); unmatched_tab=ttk.Frame(tabs); log_tab=ttk.Frame(tabs); tabs.add(result_tab,text="SONUÇLAR"); tabs.add(unmatched_tab,text="EŞLEŞMEYEN PDF'LER (0)"); tabs.add(log_tab,text="HATA / İŞLEM LOGLARI")
-        cols=("Proje","AHU","Motor","Tip","PDF1 kW","PDF2 kW","Fark","Durum","PDF1","PDF2"); self.tree=ttk.Treeview(result_tab,columns=cols,show="headings")
+        cols=("Proje","AHU","Motor","Seçim kW","Elektrik P. kW","Durum"); self.tree=ttk.Treeview(result_tab,columns=cols,show="headings")
         for col in cols: self.tree.heading(col,text=col); self.tree.column(col,width=100,anchor="center")
         self.tree.pack(fill="both",expand=True,padx=5,pady=5)
         unmatched_cols=("Taraf","PDF","Proje","AHU","Neden"); self.unmatched_tree=ttk.Treeview(unmatched_tab,columns=unmatched_cols,show="headings")
@@ -102,7 +102,7 @@ class App(tk.Tk):
         for comparison in comparisons:
             counts[comparison.status]=counts.get(comparison.status,0)+1; ahu=normalize_equipment_id(comparison.equipment_id); project=ahu_context.get(ahu,"-"); group_key=(project.casefold(),ahu.casefold())
             if group_key!=previous_group: group_number+=1; previous_group=group_key
-            tag="group_a" if group_number%2 else "group_b"; self.tree.insert("","end",tags=(tag,),values=(project,ahu,comparison.component_label,comparison.component_type,self._fmt(comparison.pdf1_kw),self._fmt(comparison.pdf2_kw),self._fmt(comparison.difference_kw),comparison.status,comparison.pdf1_page or "-",comparison.pdf2_page or "-"))
+            tag="group_a" if group_number%2 else "group_b"; self.tree.insert("","end",tags=(tag,),values=(project,ahu,comparison.component_label,self._fmt(comparison.pdf1_kw),self._fmt(comparison.pdf2_kw),comparison.status))
         info("GUI sonuç tablosu oluşturuldu",comparisons=len(comparisons),counts=counts,grouped_ahu_count=group_number); self.status.configure(text=f"✓ Proje {len(self.analysis.project_matches)} | AHU {len(self.analysis.ahu_matches)} | Motor {len(self.analysis.motor_comparisons)} | MATCH {counts['MATCH']} | MISMATCH {counts['MISMATCH']} | PDF1 {counts['ONLY_IN_PDF1']} | PDF2 {counts['ONLY_IN_PDF2']}"); self._set_detail(json.dumps(self.analysis.to_dict(),ensure_ascii=False,indent=2)); self.refresh_logs()
     def _render_unmatched(self):
         for item in self.unmatched_tree.get_children(): self.unmatched_tree.delete(item)

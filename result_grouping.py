@@ -5,7 +5,7 @@ from collections.abc import Iterable, Sequence
 from ahu_matching import normalize_equipment_id
 
 
-SPACER_ROW = ("", "", "", "", "", "", "", "", "", "")
+SPACER_ROW = ("", "", "", "", "", "")
 
 
 def _key(value: object) -> str:

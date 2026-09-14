@@ -48,7 +48,7 @@ class GroupedApp(BaseApp):
         try:
             self._render_ebm(); rows=[self.tree.item(i,"values") for i in self.tree.get_children()]; grouped=group_result_rows(rows)
             for i in self.tree.get_children():self.tree.delete(i)
-            for row in grouped:self.tree.insert("","end",values=row,tags=("mismatch",) if len(row)>7 and str(row[7]).strip()=="MISMATCH" else ())
+            for row in grouped:self.tree.insert("","end",values=row,tags=("mismatch",) if len(row)>5 and str(row[5]).strip()=="MISMATCH" else ())
             matched=set()
             for ahu in self.analysis.ahu_matches:
                 if getattr(ahu.match,"status","") in {"EXACT","NORMALIZED_MATCH","USER_APPROVED"}:
