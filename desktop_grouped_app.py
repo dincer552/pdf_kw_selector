@@ -39,8 +39,6 @@ class GroupedApp(BaseApp):
     @staticmethod
     def _is_voclean_text(text): return bool(re.search(r"\bVOC\s*LEAN\b",text or "",re.I))
     def _is_voclean_document(self,document,side=None):
-        # PDF1 VOCLEAN must be identified from the actual PDF content.
-        # PDF2 keeps the project-name fallback for known VOCLEAN records.
         if side == "PDF2": return "voclean" in str(getattr(getattr(document,"project",None),"project_name","") or "").casefold()
         scan=scan_pdf(document.path,"PDF1")
         return any(self._is_voclean_text(text) for text in scan.page_texts)
@@ -51,16 +49,16 @@ class GroupedApp(BaseApp):
     def _sysreco_documents(self):
         result=[]
         for document in self.analysis.pdf1_documents:
-            scan=scan_pdf(document.path,"PDF1")
-            full_text="\n".join(scan.page_texts)
+            scan=scan_pdf(document.path,"PDF1"); full_text="\n".join(scan.page_texts)
             if self._is_sysreco_text(full_text): result.append((document,full_text))
         return result
     def _render_voclean(self):
         for item in self.voclean_tree.get_children(): self.voclean_tree.delete(item)
-        rows=[]
+        rows=[]; category_paths=set()
         for document in self.analysis.pdf1_documents:
             scan=scan_pdf(document.path,"PDF1"); voc_pages=[n for n,text in enumerate(scan.page_texts,1) if self._is_voclean_text(text)]
             if not voc_pages: continue
+            category_paths.add(str(document.path).casefold())
             motor_results=list(scan.pdf1_motors)
             if not motor_results:
                 rows.append((document.project.project_name or "-",Path(document.path).name,"-","-","-","-","VOClean bulundu; Plug fan kW bulunamadı")); continue
@@ -72,36 +70,38 @@ class GroupedApp(BaseApp):
                         ahu_text=str(ahu).strip()
                         if ahu_text.upper().startswith(prefix): matches.append((pdf2_document,ahu_text))
                 if matches:
-                    for pdf2_document,ahu_text in matches: rows.append((document.project.project_name or "-",Path(document.path).name,f"{motor.value_kw:g}",str(motor.page_number),Path(pdf2_document.path).name,ahu_text,f"BA kodu eşleşti ({prefix[:-1]})"))
+                    for pdf2_document,ahu_text in matches:
+                        category_paths.add(str(pdf2_document.path).casefold()); rows.append((document.project.project_name or "-",Path(document.path).name,f"{motor.value_kw:g}",str(motor.page_number),Path(pdf2_document.path).name,ahu_text,f"BA kodu eşleşti ({prefix[:-1]})"))
                 else:
                     rows.append((document.project.project_name or "-",Path(document.path).name,f"{motor.value_kw:g}",str(motor.page_number),"-","-",f"PDF2 AHU eşleşmesi yok; beklenen {prefix[:-1]}-xxxxx"))
         rows.sort(key=lambda r:(str(r[0]).casefold(),str(r[1]).casefold(),str(r[3]),str(r[5]).casefold()))
         for row in rows:self.voclean_tree.insert("","end",values=row)
-        self.tabs.tab(self.voclean_tab,text=f"VOCLEAN ({len(rows)})"); info("VOClean sonuçları oluşturuldu",row_count=len(rows))
+        self.tabs.tab(self.voclean_tab,text=f"VOCLEAN ({len(category_paths)})"); info("VOClean sonuçları oluşturuldu",row_count=len(rows),pdf_count=len(category_paths))
     def _render_sysreco(self):
         for item in self.sysreco_tree.get_children(): self.sysreco_tree.delete(item)
-        rows=[]
+        rows=[]; category_paths=set()
         for document,full_text in self._sysreco_documents():
-            models=self._sysreco_models(full_text) or ["SysReco modeli bulunamadı"]
-            for model in models:
-                rows.append((document.project.project_name or "-", ", ".join(str(value) for value in document.equipment) if document.equipment else "-", Path(document.path).name, model))
+            category_paths.add(str(document.path).casefold()); models=self._sysreco_models(full_text) or ["SysReco modeli bulunamadı"]
+            for model in models: rows.append((document.project.project_name or "-",", ".join(str(value) for value in document.equipment) if document.equipment else "-",Path(document.path).name,model))
         rows.sort(key=lambda r:(str(r[0]).casefold(),str(r[1]).casefold(),str(r[2]).casefold(),str(r[3]).casefold()))
         for row in rows:self.sysreco_tree.insert("","end",values=row)
-        self.tabs.tab(self.sysreco_tab,text=f"SYSRECO ({len(rows)})"); info("SysReco sonuçları oluşturuldu",row_count=len(rows))
+        self.tabs.tab(self.sysreco_tab,text=f"SYSRECO ({len(category_paths)})"); info("SysReco sonuçları oluşturuldu",row_count=len(rows),pdf_count=len(category_paths))
     def _render_ebm(self):
         for item in self.ebm_tree.get_children():self.ebm_tree.delete(item)
-        rows=[]
+        rows=[]; category_paths=set()
         for document in self.analysis.pdf1_documents:
             scan=scan_pdf(document.path,"PDF1")
             if not scan.pdf1_ebm_pages:continue
+            category_paths.add(str(document.path).casefold())
             matching=[]
             for ahu in self.analysis.ahu_matches:
-                if str(document.path).casefold() in {str(p).casefold() for p in ahu.pdf1_files}:matching.extend(ahu.pdf2_files)
+                if str(document.path).casefold() in {str(p).casefold() for p in ahu.pdf1_files}: matching.extend(ahu.pdf2_files)
+            for p in matching: category_paths.add(str(p).casefold())
             pdf2=", ".join(Path(p).name for p in dict.fromkeys(matching)) or "-"; status="PDF2 AHU eşleşti; motor kW karşılaştırması yapılmadı" if matching else "PDF2 AHU eşleşmesi yok"
-            for ahu_id in tuple(document.equipment) or ("-",):rows.append((document.project.project_name or "-",ahu_id or "-",Path(document.path).name,pdf2,status))
+            for ahu_id in tuple(document.equipment) or ("-",): rows.append((document.project.project_name or "-",ahu_id or "-",Path(document.path).name,pdf2,status))
         rows.sort(key=lambda r:(str(r[1]).casefold(),str(r[2]).casefold(),str(r[0]).casefold()))
         for row in rows:self.ebm_tree.insert("","end",values=row)
-        self.tabs.tab(self.ebm_tab,text=f"EBM-PAPST ({len(rows)})")
+        self.tabs.tab(self.ebm_tab,text=f"EBM-PAPST ({len(category_paths)})")
     def _render_unmatched(self):
         for item in self.unmatched_tree.get_children():self.unmatched_tree.delete(item)
         matched_paths=set(); accepted_statuses={"EXACT","NORMALIZED_MATCH","USER_APPROVED"}; sysreco_paths={str(document.path).casefold() for document,_ in self._sysreco_documents()}; vocclean_paths={str(document.path).casefold() for document in self.analysis.pdf1_documents if self._is_voclean_document(document,"PDF1")}
@@ -130,8 +130,12 @@ class GroupedApp(BaseApp):
             for i in self.tree.get_children():self.tree.delete(i)
             for row in grouped:self.tree.insert("","end",values=row,tags=("mismatch",) if len(row)>5 and str(row[5]).strip()=="MISMATCH" else ())
             elapsed=time.perf_counter()-self._analysis_started_at if self._analysis_started_at is not None else None
-            danfos_count=len(self.tree.get_children()); self.tabs.tab(0,text=f"DANFOS ({danfos_count})")
-            if elapsed is not None:self.status.configure(text=f"Analiz süresi: {elapsed:.2f} sn | AHU {len(self.analysis.ahu_matches)} | Motor {len(self.analysis.motor_comparisons)} | MATCH/MISMATCH sonuçları hazır"); info("Toplu analiz tamamlandı",elapsed_seconds=round(elapsed,3),ahu_count=len(self.analysis.ahu_matches),motor_count=len(self.analysis.motor_comparisons),danfos_row_count=danfos_count)
+            accepted_statuses={"EXACT","NORMALIZED_MATCH","USER_APPROVED"}; danfos_paths=set()
+            for ahu in self.analysis.ahu_matches:
+                if getattr(ahu.match,"status","") not in accepted_statuses: continue
+                danfos_paths.update(str(path).casefold() for path in ahu.pdf1_files); danfos_paths.update(str(path).casefold() for path in ahu.pdf2_files)
+            danfos_count=len(danfos_paths); self.tabs.tab(0,text=f"DANFOS ({danfos_count})")
+            if elapsed is not None:self.status.configure(text=f"Analiz süresi: {elapsed:.2f} sn | AHU {len(self.analysis.ahu_matches)} | Motor {len(self.analysis.motor_comparisons)} | MATCH/MISMATCH sonuçları hazır"); info("Toplu analiz tamamlandı",elapsed_seconds=round(elapsed,3),ahu_count=len(self.analysis.ahu_matches),motor_count=len(self.analysis.motor_comparisons),danfos_pdf_count=danfos_count)
             self.refresh_logs()
         except Exception as exc:exception("Project/AHU sonuç gruplama hatası",exc);self.refresh_logs()
     def compare(self):
