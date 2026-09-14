@@ -1,4 +1,4 @@
-"""Coordinate-aware discovery for PDF fan sections and rated power cells."""
+"""Strict coordinate-based PDF1 fan motor discovery."""
 from __future__ import annotations
 
 import re
@@ -9,97 +9,86 @@ import fitz
 from pdf_kw_selector import normalize_power
 from stage1_page_discovery import MotorPowerResult, extract_equipment_id, extract_model_brand
 
-_NUM_RE = re.compile(r"^\d+(?:[.,]\d+)?$")
-_QTY_RE = re.compile(r"^\(\s*(\d+)\s*[x×]\s*(\d+)\s*\)$", re.I)
+# PDF1 Plug fan template coordinates supplied from the real selection PDF.
+# Direction cell: x=197, y=695, w=68, h=15
+# Rated Power cell: x=429, y=634, w=131, h=13
+_DIRECTION_RECT = (197.0, 695.0, 265.0, 710.0)
+_RATED_POWER_RECT = (429.0, 634.0, 560.0, 647.0)
+_QTY_RE = re.compile(r"\(\s*(\d+)\s*[x×]\s*(\d+)\s*\)", re.I)
+_POWER_QTY_RE = re.compile(r"^\s*([0-9]+(?:[.,][0-9]+)?)\s*[x×]\s*\(\s*(\d+)\s*[x×]\s*(\d+)\s*\)\s*$", re.I)
+_POWER_ONLY_RE = re.compile(r"^\s*([0-9]+(?:[.,][0-9]+)?)\s*$")
 
 
-def _same_line(a, b, tolerance=2.5):
-    return abs(((a[1] + a[3]) / 2) - ((b[1] + b[3]) / 2)) <= tolerance
+def _rect_text(page: fitz.Page, rect_values) -> str:
+    """Return text physically rendered inside the exact supplied PDF rectangle."""
+    rect = fitz.Rect(*rect_values)
+    words = page.get_text("words", clip=rect)
+    words.sort(key=lambda w: (w[1], w[0]))
+    return " ".join(w[4].strip() for w in words if w[4].strip()).strip()
 
 
-def _words_on_lines(words):
-    lines = {}
-    for word in words:
-        lines.setdefault((word[6], word[7]), []).append(word)
-    for key in lines:
-        lines[key].sort(key=lambda w: w[0])
-    return list(lines.values())
+def _is_plug_fan_page(page: fitz.Page) -> bool:
+    # The page is first identified as a Plug fan page. All fan direction and
+    # rated-power decisions are then made only from the two fixed rectangles.
+    text = page.get_text("text") or ""
+    return bool(re.search(r"\bplug\s+fan\b", text, re.I))
 
 
-def _header_direction(line):
-    texts = [w[4].strip().lower() for w in line]
-    for i in range(len(texts) - 1):
-        if texts[i] in {"supply", "exhaust", "return"} and texts[i + 1] == "air":
-            # This must be a component header, not an arbitrary mention elsewhere.
-            prior = texts[:i]
-            if "plug" in prior and "fan" in prior:
-                return texts[i]
-    return None
-
-
-def _rated_value(line):
-    for i in range(len(line) - 1):
-        if line[i][4].strip().lower() != "rated":
-            continue
-        if line[i + 1][4].strip().lower() != "power":
-            continue
-        label_end = line[i + 1][2]
-        value_index = None
-        for j in range(i + 2, len(line)):
-            token = line[j][4].strip()
-            if line[j][0] < label_end:
-                continue
-            if _NUM_RE.fullmatch(token):
-                value_index = j
-                break
-        if value_index is None:
-            continue
-        raw = line[value_index][4]
-        quantity = None
-        if value_index + 2 < len(line) and line[value_index + 1][4].strip().lower() in {"x", "×"}:
-            qm = _QTY_RE.fullmatch(line[value_index + 2][4].strip())
-            if qm:
-                quantity = f"{qm.group(1)}x{qm.group(2)}"
-        return raw, quantity, line[i][0], line[i + 1][2], line[value_index][0], line[value_index][2]
+def _parse_rated_power(raw: str):
+    compact = re.sub(r"\s+", " ", raw.strip())
+    m = _POWER_QTY_RE.match(compact)
+    if m:
+        value = normalize_power(float(m.group(1).replace(",", ".")), "kw")
+        quantity = f"{m.group(2)}x{m.group(3)}"
+        return value, m.group(1), quantity
+    m = _POWER_ONLY_RE.match(compact)
+    if m:
+        value = normalize_power(float(m.group(1).replace(",", ".")), "kw")
+        return value, m.group(1), None
+    # Some PDFs split the quantity into separate word objects; reconstruct it.
+    number = re.search(r"([0-9]+(?:[.,][0-9]+)?)", compact)
+    qty = _QTY_RE.search(compact)
+    if number:
+        value = normalize_power(float(number.group(1).replace(",", ".")), "kw")
+        quantity = f"{qty.group(1)}x{qty.group(2)}" if qty else None
+        return value, number.group(1), quantity
     return None
 
 
 def discover_coordinate_motor_powers(path: str | Path):
-    """Return coordinate-confirmed fan motor powers keyed by PDF page number."""
+    """Discover PDF1 fan motors using only the fixed template rectangles."""
     result = {}
     doc = fitz.open(str(path))
     try:
         for page_number, page in enumerate(doc, 1):
-            words = page.get_text("words")
-            lines = _words_on_lines(words)
-            direction = None
-            rated = None
-            for line in lines:
-                d = _header_direction(line)
-                if d:
-                    direction = d
-                r = _rated_value(line)
-                if r:
-                    rated = r
-            if not direction or not rated:
+            if not _is_plug_fan_page(page):
                 continue
-            raw, quantity, label_x0, label_x1, value_x0, value_x1 = rated
+
+            direction = re.sub(r"\s+", " ", _rect_text(page, _DIRECTION_RECT)).strip().casefold()
+            if direction not in {"supply air", "exhaust air"}:
+                continue
+
+            rated_raw = _rect_text(page, _RATED_POWER_RECT)
+            parsed = _parse_rated_power(rated_raw)
+            if not parsed:
+                continue
+            value_kw, raw_value, quantity = parsed
+
             page_text = page.get_text("text") or ""
-            role_map = {
-                "supply": ("Vantilatör", "supply_fan"),
-                "exhaust": ("Aspiratör", "exhaust_fan"),
-                "return": ("Aspiratör", "return_fan"),
-            }
-            component_type, component_role = role_map[direction]
+            if direction == "supply air":
+                component_type, component_role = "Vantilatör", "supply_fan"
+            else:
+                component_type, component_role = "Aspiratör", "exhaust_fan"
+
             result.setdefault(page_number, []).append(
                 MotorPowerResult(
                     page_number=page_number,
-                    value_kw=normalize_power(float(raw.replace(",", ".")), "kw"),
-                    raw_value=raw,
+                    value_kw=value_kw,
+                    raw_value=raw_value,
                     quantity=quantity,
-                    field="fan_motor_power",
+                    field="fan_motor_power_coordinates",
                     confidence="high",
-                    source_text=f"Rated Power [kW] {raw} x ({quantity})" if quantity else f"Rated Power [kW] {raw}",
+                    source_text=f"{direction.title()} | {rated_raw}",
                     component_type=component_type,
                     component_role=component_role,
                     equipment_id=extract_equipment_id(page_text),
