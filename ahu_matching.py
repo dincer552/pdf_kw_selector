@@ -35,10 +35,6 @@ def normalize_equipment_id(value: str | None) -> str:
     if value.startswith("KS"):
         tail = value[2:].lstrip("-")
         return "KS-" + tail if tail else "KS"
-    match = re.search(r"(?:^|-)AHU(?:-|$)(.*)$", value)
-    if match:
-        tail = _normalize_numeric_zeros(match.group(1).lstrip("-"))
-        return "AHU-" + tail if tail else "AHU"
     if value.startswith("AHU"):
         tail = _normalize_numeric_zeros(value[3:].lstrip("-"))
         return "AHU-" + tail if tail else "AHU"
@@ -48,6 +44,7 @@ def normalize_equipment_id(value: str | None) -> str:
 def _is_supported_equipment_id(normalized: str) -> bool:
     return (
         normalized.startswith("AHU-")
+        or bool(re.fullmatch(r"[A-Z0-9]+-AHU-[A-Z]?\d+(?:\.\d+)?", normalized))
         or bool(re.fullmatch(r"HKS-\d+", normalized))
         or bool(re.fullmatch(r"KS-[A-Z]?\d+(?:\.\d+)?", normalized))
         or bool(re.fullmatch(r"SS-[A-Z]?\d+(?:\.\d+)?", normalized))
@@ -92,7 +89,6 @@ def _unit_reference_occurrences(pages: list[str]) -> list[EquipmentOccurrence]:
                     if value:
                         candidates.append(value)
                         break
-            # Some PDF exporters place the visible value before the label.
             if not candidates:
                 for look in range(index - 1, max(-1, index - 8), -1):
                     value = lines[look].strip(" :=" + "\t")
@@ -121,7 +117,6 @@ def discover_equipment_from_text(pages: list[str], *, unit_reference_only: bool 
             if not result.unique_ids():
                 warning("PDF1'de Unit Reference değeri bulunamadı", page_count=len(pages))
             return result
-
         occurrences = []
         labelled_occurrences = []
         seen_page = set()
@@ -154,6 +149,12 @@ def discover_equipment_from_text(pages: list[str], *, unit_reference_only: bool 
 
 def _equipment_from_filename(path: Path) -> EquipmentOccurrence | None:
     stem = re.sub(r"\s+", "_", path.stem.strip())
+    # Prefixed AHU filenames (AD_AHU_01, PR-AHU-01, U1-AHU-01) are distinct equipment.
+    match = re.fullmatch(r"([A-Z0-9]+)[_ -]+(AHU)[_ -]?([A-Z]?\d+(?:\.\d+)?)", stem, re.I)
+    if match:
+        raw = f"{match.group(1).upper()}-AHU-{match.group(3).upper()}"
+        normalized = normalize_equipment_id(raw)
+        return EquipmentOccurrence(raw, normalized, 1, "filename")
     match = re.fullmatch(r"(HKS|KS|SS|PW)[_ -]?([A-Z]?\d+(?:\.\d+)?)", stem, re.I)
     if not match:
         return None
@@ -233,14 +234,12 @@ def match_ahu_lists(left: list[EquipmentOccurrence], right: list[EquipmentOccurr
     left_unique = {}; right_unique = {}
     for item in left: left_unique.setdefault(item.normalized, item)
     for item in right: right_unique.setdefault(item.normalized, item)
-
     output = []
     used_l = set(); used_r = set()
     for normalized in left_unique.keys() & right_unique.keys():
         lo = left_unique[normalized]; ro = right_unique[normalized]
         output.append(match_ahu_ids(normalized, normalized, left_page=lo.page, right_page=ro.page))
         used_l.add(normalized); used_r.add(normalized)
-
     pairs = []
     remaining_left = [(lid, lo) for lid, lo in left_unique.items() if lid not in used_l]
     remaining_right = [(rid, ro) for rid, ro in right_unique.items() if rid not in used_r]
@@ -253,7 +252,6 @@ def match_ahu_lists(left: list[EquipmentOccurrence], right: list[EquipmentOccurr
             elif (lid, rid) in approved_variants and m.status in {"NO_MATCH", "REVIEW_REQUIRED"}:
                 m = AHUMatch(m.left_id, m.right_id, m.left_normalized, m.right_normalized, max(m.score, 0.80), "APPROVED_FLEXIBLE", "user-approved AHU variant", m.left_page, m.right_page)
             pairs.append((m.score, lid, rid, m))
-
     for _, lid, rid, m in sorted(pairs, key=lambda x: x[0], reverse=True):
         if lid in used_l or rid in used_r or m.status == "NO_MATCH": continue
         output.append(m); used_l.add(lid); used_r.add(rid)
