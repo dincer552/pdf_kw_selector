@@ -2,6 +2,7 @@
 from __future__ import annotations
 from pathlib import Path
 import sys
+import time
 from tkinter import ttk
 import desktop_app as desktop_module
 from app_logger import exception, info, startup
@@ -19,7 +20,7 @@ desktop_module.analyze_batch=_confirmed_analyze
 
 class GroupedApp(BaseApp):
     def __init__(self):
-        super().__init__(); self._build_ebm_tab(); self.tabs.tab(0,text="DANFOS"); self.tabs.insert(1,self.ebm_tab); self.unmatched_tab_index=lambda:2; self.tree.tag_configure("mismatch",background="#ffb3b3",foreground="#000000"); install_pdf_drop_targets(self,self.pdf1_label.master,self.pdf2_label.master)
+        super().__init__(); self._analysis_started_at=None; self._build_ebm_tab(); self.tabs.tab(0,text="DANFOS"); self.tabs.insert(1,self.ebm_tab); self.unmatched_tab_index=lambda:2; self.tree.tag_configure("mismatch",background="#ffb3b3",foreground="#000000"); install_pdf_drop_targets(self,self.pdf1_label.master,self.pdf2_label.master)
     def _build_ebm_tab(self):
         tab=ttk.Frame(self.tabs); self.tabs.add(tab,text="EBM-PAPST (0)"); cols=("Proje","AHU","Seçim çıktısı","Elektrik p.","Durum"); self.ebm_tree=ttk.Treeview(tab,columns=cols,show="headings"); widths={"Proje":300,"AHU":120,"Seçim çıktısı":300,"Elektrik p.":420,"Durum":260}
         for col in cols:self.ebm_tree.heading(col,text=col);self.ebm_tree.column(col,width=widths[col],anchor="w")
@@ -54,9 +55,15 @@ class GroupedApp(BaseApp):
                 if getattr(ahu.match,"status","") in {"EXACT","NORMALIZED_MATCH","USER_APPROVED"}:
                     for value in (ahu.match.left_normalized,ahu.match.right_normalized):
                         if value:matched.add(value)
-            self.tabs.tab(0,text=f"DANFOS ({len(matched)})"); self.refresh_logs()
+            elapsed=time.perf_counter()-self._analysis_started_at if self._analysis_started_at is not None else None
+            self.tabs.tab(0,text=f"DANFOS ({len(matched)})")
+            if elapsed is not None:
+                self.status.configure(text=f"Analiz süresi: {elapsed:.2f} sn | AHU {len(self.analysis.ahu_matches)} | Motor {len(self.analysis.motor_comparisons)} | MATCH/MISMATCH sonuçları hazır")
+                info("Toplu analiz tamamlandı",elapsed_seconds=round(elapsed,3),ahu_count=len(self.analysis.ahu_matches),motor_count=len(self.analysis.motor_comparisons))
+            self.refresh_logs()
         except Exception as exc:exception("Project/AHU sonuç gruplama hatası",exc);self.refresh_logs()
-    def compare(self):super().compare()
+    def compare(self):
+        self._analysis_started_at=time.perf_counter(); super().compare()
 
 if __name__=="__main__":
     startup(VERSION)
