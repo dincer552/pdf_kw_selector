@@ -11,7 +11,7 @@ _FIELD_STOP_RE = re.compile(
     re.I,
 )
 _SUPPORTED_UNIT_RE = re.compile(
-    r"\b(?:HKS[_ -]?\d+|KS[_ -]?[A-Z]?\d+(?:\.\d+)?|SS[_ -]?[A-Z]?\d+(?:\.\d+)?|PW[_ -]?[A-Z]?\d+(?:\.\d+)?|AHU(?:[_ -]+[A-Z0-9_.-]+|\d[A-Z0-9_.-]*))\b",
+    r"\b(?:[A-Z0-9]+[_ -]+AHU[_ -]?[A-Z]?\d+(?:\.\d+)?|HKS[_ -]?\d+|KS[_ -]?[A-Z]?\d+(?:\.\d+)?|SS[_ -]?[A-Z]?\d+(?:\.\d+)?|PW[_ -]?[A-Z]?\d+(?:\.\d+)?|AHU(?:[_ -]+[A-Z0-9_.-]+|\d[A-Z0-9_.-]*))\b",
     re.I,
 )
 
@@ -29,7 +29,6 @@ def _value_after_label(lines: list[str], index: int, label: str) -> str:
         if re.match(r"^(?:project|unit\s+reference|creation\s+date|revision\s+date|revision\s+no)\b", candidate, re.I):
             break
         return candidate
-    # Handle exporters that place the field value before its label.
     for candidate in reversed(lines[max(0, index - 8):index]):
         candidate = candidate.strip(" :-\t")
         if not candidate:
