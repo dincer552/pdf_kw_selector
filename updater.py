@@ -151,6 +151,13 @@ def check_for_update(current_exe: Path | None = None, current_version: str | Non
             "asset_name": Path(str(release["file"])).name,
             "asset_size": release.get("size"),
             "digest": remote_digest,
+            "chunks": [
+                {
+                    "url": urllib.parse.urljoin(UPDATE_MANIFEST_URL, str(chunk["file"])),
+                    "size": chunk["size"],
+                }
+                for chunk in (release.get("chunks") or [])
+            ],
             "current_digest": current_digest,
             "available": not same,
         }
@@ -250,7 +257,31 @@ def _extract_verified_zip(zip_path: Path, asset_name: str | None) -> Path:
         raise
 
 
-def download_update(download_url: str, *, expected_digest: str | None = None, asset_id: int | None = None, browser_download_url: str | None = None, expected_size: int | None = None, asset_name: str | None = None, progress_callback: ProgressCallback | None = None) -> Path:
+def _download_manifest_chunks(chunks: list[dict], target: Path, expected_size: int | None, progress_callback: ProgressCallback | None) -> None:
+    downloaded = 0
+    started_at = time.monotonic()
+    with target.open("wb") as output:
+        for chunk in chunks:
+            url = str(chunk["url"])
+            expected_chunk_size = int(chunk["size"])
+            with _open_download(url) as response:
+                data = response.read()
+            if len(data) != expected_chunk_size:
+                raise RuntimeError(
+                    f"Güncelleme parçası eksik indirildi: {len(data)}/{expected_chunk_size} bayt."
+                )
+            output.write(data)
+            downloaded += len(data)
+            if progress_callback:
+                progress_callback(
+                    "download",
+                    downloaded,
+                    expected_size,
+                    downloaded / max(time.monotonic() - started_at, 0.001),
+                )
+
+
+def download_update(download_url: str, *, expected_digest: str | None = None, asset_id: int | None = None, browser_download_url: str | None = None, expected_size: int | None = None, asset_name: str | None = None, progress_callback: ProgressCallback | None = None, chunks: list[dict] | None = None) -> Path:
     """Download an EXE/ZIP release asset and return it for installation."""
     suffix = ".zip" if str(asset_name or "").lower().endswith(".zip") else ".exe"
     fd, raw_path = tempfile.mkstemp(prefix="pdf_kw_selector_update_", suffix=suffix)
@@ -260,6 +291,21 @@ def download_update(download_url: str, *, expected_digest: str | None = None, as
     total_expected = int(expected_size) if expected_size is not None else None
     info("EXE indirme başladı", url=download_url, browser_download_url=browser_download_url, asset_id=asset_id, asset_name=asset_name, expected_sha256=expected or None, expected_size=total_expected, target=str(target))
     try:
+        if chunks:
+            info("Güncelleme parça indirmesi başladı", chunk_count=len(chunks), expected_size=total_expected)
+            _download_manifest_chunks(chunks, target, total_expected, progress_callback)
+            if total_expected is not None and target.stat().st_size != total_expected:
+                raise RuntimeError(
+                    f"Güncelleme parçaları tamamlanamadı: {target.stat().st_size}/{total_expected} bayt."
+                )
+            actual_digest = _sha256(target).lower()
+            if expected and actual_digest != expected:
+                raise RuntimeError(
+                    "Güncelleme asset'inin SHA-256 doğrulaması başarısız oldu: "
+                    f"beklenen {expected}, alınan {actual_digest}."
+                )
+            info("Güncelleme parça dosyaları birleştirildi", bytes=target.stat().st_size, sha256=actual_digest)
+            return target
         offset = 0
         started_at = time.monotonic()
         last_progress_at = 0.0
