@@ -472,7 +472,10 @@ try {
         try {
             Move-Item -LiteralPath $Source -Destination $Target -Force -ErrorAction Stop
             $installed = $true
-            Start-Process -FilePath $Target -WorkingDirectory (Split-Path -Parent $Target) -ErrorAction Stop
+            Start-Sleep -Seconds 2
+            $workingDirectory = Split-Path -Parent $Target
+            $process = Start-Process -FilePath $Target -WorkingDirectory $workingDirectory -PassThru -ErrorAction Stop
+            Start-Sleep -Seconds 8
             break
         } catch {
             if ($i -eq 59) { throw }
