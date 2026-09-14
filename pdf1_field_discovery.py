@@ -10,7 +10,7 @@ from project_discovery import ProjectCandidate, ProjectDiscovery, normalize_proj
 # PDF1 coordinates are supplied in the PDF viewer coordinate system (origin bottom-left).
 # PyMuPDF uses origin top-left, so every rectangle is converted before reading.
 _PROJECT_BOX = (256.0, 763.0, 115.0, 18.0)
-_UNIT_REFERENCE_BOX = (257.0, 738.0, 134.0, 20.0)
+_UNIT_REFERENCE_BOX = (258.0, 739.0, 107.0, 16.0)
 
 _EQUIPMENT_RE = re.compile(
     r"\b(?:[A-Z0-9]+[_ -]+AHU[_ -]?[A-Z]?\d+(?:\.\d+)?|"
