@@ -34,6 +34,9 @@ class GroupedApp(BaseApp):
     def _voclean_power_prefix(value_kw): return f"BA{int(round(float(value_kw)*100)):03d}-"
     @staticmethod
     def _is_voclean_text(text): return bool(re.search(r"\bVOC\s*LEAN\b",text or "",re.I))
+    @staticmethod
+    def _is_voclean_document(document):
+        return "voclean" in str(getattr(getattr(document,"project",None),"project_name","") or "").casefold()
     def _render_voclean(self):
         for item in self.voclean_tree.get_children(): self.voclean_tree.delete(item)
         rows=[]
@@ -81,6 +84,9 @@ class GroupedApp(BaseApp):
         for side,documents in (("PDF1",self.analysis.pdf1_documents),("PDF2",self.analysis.pdf2_documents)):
             for document in documents:
                 if str(document.path).casefold() in matched_paths:continue
+                # PDF2 VOCLEAN documents are consumed by the dedicated VOCLEAN
+                # BA-code matching and must not also appear as unmatched PDFs.
+                if side == "PDF2" and self._is_voclean_document(document):continue
                 project=document.project.project_name or "-"; ahus=", ".join(str(value) for value in document.equipment if str(value).strip()) if document.equipment else "-"; reason="AHU eşleşmesine giremedi" if document.equipment else "Ekipman/AHU tespit edilemedi"; rows.append((side,Path(document.path).name,project,ahus,reason,str(document.path)))
         rows.sort(key=lambda row:(row[0],row[1].casefold()))
         for side,pdf,project,ahus,reason,path in rows:self.unmatched_tree.insert("","end",values=(side,pdf,project,ahus,reason),tags=(path,))
@@ -94,13 +100,13 @@ class GroupedApp(BaseApp):
             self._render_ebm(); self._render_voclean(); rows=[self.tree.item(i,"values") for i in self.tree.get_children()]; grouped=group_result_rows(rows)
             for i in self.tree.get_children():self.tree.delete(i)
             for row in grouped:self.tree.insert("","end",values=row,tags=("mismatch",) if len(row)>5 and str(row[5]).strip()=="MISMATCH" else ())
-            matched=set()
-            for ahu in self.analysis.ahu_matches:
-                if getattr(ahu.match,"status","") in {"EXACT","NORMALIZED_MATCH","USER_APPROVED"}:
-                    for value in (ahu.match.left_normalized,ahu.match.right_normalized):
-                        if value:matched.add(value)
-            elapsed=time.perf_counter()-self._analysis_started_at if self._analysis_started_at is not None else None; self.tabs.tab(0,text=f"DANFOS ({len(matched)})")
-            if elapsed is not None:self.status.configure(text=f"Analiz süresi: {elapsed:.2f} sn | AHU {len(self.analysis.ahu_matches)} | Motor {len(self.analysis.motor_comparisons)} | MATCH/MISMATCH sonuçları hazır"); info("Toplu analiz tamamlandı",elapsed_seconds=round(elapsed,3),ahu_count=len(self.analysis.ahu_matches),motor_count=len(self.analysis.motor_comparisons))
+            elapsed=time.perf_counter()-self._analysis_started_at if self._analysis_started_at is not None else None
+            # DANFOS count is the number of rows actually displayed in the tab,
+            # not the number of AHU matches. An AHU with no motor comparison
+            # must not inflate the DANFOS counter.
+            danfos_count=len(self.tree.get_children())
+            self.tabs.tab(0,text=f"DANFOS ({danfos_count})")
+            if elapsed is not None:self.status.configure(text=f"Analiz süresi: {elapsed:.2f} sn | AHU {len(self.analysis.ahu_matches)} | Motor {len(self.analysis.motor_comparisons)} | MATCH/MISMATCH sonuçları hazır"); info("Toplu analiz tamamlandı",elapsed_seconds=round(elapsed,3),ahu_count=len(self.analysis.ahu_matches),motor_count=len(self.analysis.motor_comparisons),danfos_row_count=danfos_count)
             self.refresh_logs()
         except Exception as exc:exception("Project/AHU sonuç gruplama hatası",exc);self.refresh_logs()
     def compare(self):
