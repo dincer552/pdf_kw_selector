@@ -264,8 +264,19 @@ def _download_manifest_chunks(chunks: list[dict], target: Path, expected_size: i
         for chunk in chunks:
             url = str(chunk["url"])
             expected_chunk_size = int(chunk["size"])
-            with _open_download(url) as response:
-                data = response.read()
+            data = b""
+            for attempt in range(1, 6):
+                with _open_download(_cache_busted(url)) as response:
+                    data = response.read()
+                if len(data) == expected_chunk_size:
+                    break
+                warning(
+                    "Güncelleme parçası eksik indirildi; yeniden denenecek",
+                    chunk=url,
+                    attempt=attempt,
+                    bytes=len(data),
+                    expected_bytes=expected_chunk_size,
+                )
             if len(data) != expected_chunk_size:
                 raise RuntimeError(
                     f"Güncelleme parçası eksik indirildi: {len(data)}/{expected_chunk_size} bayt."
