@@ -21,11 +21,15 @@ class MasterPDFScan:
     def page_count(self): return len(self.page_texts)
     def to_dict(self): return {"path":self.path,"side":self.side,"page_count":self.page_count,"project":self.project.to_dict(),"equipment":self.equipment.to_dict(),"pdf1_motors":[x.to_dict() for x in self.pdf1_motors],"pdf2_motors":[x.to_dict() for x in self.pdf2_motors],"pdf1_ebm_pages":list(self.pdf1_ebm_pages)}
 
-def _read_pages_once(path): return tuple(p.extract_text() or "" for p in PdfReader(str(path)).pages)
+def _read_pages_once(path):
+    # Preserve the visual horizontal relationship between field labels and values.
+    return tuple(page.extract_text(extraction_mode="layout") or "" for page in PdfReader(str(path)).pages)
+
 def _scan_pdf1_motors(pages):
     rows=[]
     for n,text in enumerate(pages,1): rows.extend(extract_rated_motor_powers_from_page(text,n))
     return tuple(_dedupe_motor_results(rows))
+
 def _filename_equipment(path):
     m=re.fullmatch(r"(HKS|KS|SS|PW)[_ -]?([A-Z]?\d+(?:\.\d+)?)",Path(path).stem.strip(),re.I)
     if not m:return None
@@ -41,10 +45,8 @@ def _valid_equipment(value):
     return None
 
 def _pdf2_unit_number_equipment(pages,path=None):
-    # Never trust arbitrary nearby text. Filename -> labelled value -> supported token.
-    if path is not None:
-        f=_filename_equipment(Path(path))
-        if f:return f
+    # Prefer the Unit Number field. Layout extraction keeps its value on the same visual row.
+    # Filename and generic token discovery are controlled fallbacks only.
     for page_no,text in enumerate(pages,1):
         m=re.search(r"\bunit\s+number\s*[:=]?\s*([A-Z0-9][A-Z0-9_.-]*)",text or "",re.I)
         if m:
@@ -52,6 +54,9 @@ def _pdf2_unit_number_equipment(pages,path=None):
             if n:return EquipmentOccurrence(m.group(1),n,page_no,"unit_number")
         v=_unit_number_from_lines(text or ""); n=_valid_equipment(v)
         if n:return EquipmentOccurrence(v,n,page_no,"unit_number")
+    if path is not None:
+        f=_filename_equipment(Path(path))
+        if f:return f
     for page_no,text in enumerate(pages[:3],1):
         m=_TOKEN_RE.search(text or "")
         if m:
