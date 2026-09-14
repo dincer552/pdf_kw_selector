@@ -84,7 +84,7 @@ jobs:
           chunk_prefix="${name}.part"
           install -m 0644 "$exe" "$UPDATE_ROOT/.${name}.tmp"
           rm -f "$UPDATE_ROOT/${chunk_prefix}"*
-          split -b 512k -d -a 3 "$exe" "$UPDATE_ROOT/.${chunk_prefix}"
+          split -b 256k -d -a 3 "$exe" "$UPDATE_ROOT/.${chunk_prefix}"
           chunks_json="["
           index=0
           for chunk in "$UPDATE_ROOT"/.${chunk_prefix}*; do
