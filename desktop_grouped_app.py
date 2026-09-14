@@ -38,9 +38,12 @@ class GroupedApp(BaseApp):
     def _voclean_power_prefix(value_kw): return f"BA{int(round(float(value_kw)*100)):03d}-"
     @staticmethod
     def _is_voclean_text(text): return bool(re.search(r"\bVOC\s*LEAN\b",text or "",re.I))
-    @staticmethod
-    def _is_voclean_document(document):
-        return "voclean" in str(getattr(getattr(document,"project",None),"project_name","") or "").casefold()
+    def _is_voclean_document(self,document,side=None):
+        # PDF1 VOCLEAN must be identified from the actual PDF content.
+        # PDF2 keeps the project-name fallback for known VOCLEAN records.
+        if side == "PDF2": return "voclean" in str(getattr(getattr(document,"project",None),"project_name","") or "").casefold()
+        scan=scan_pdf(document.path,"PDF1")
+        return any(self._is_voclean_text(text) for text in scan.page_texts)
     @staticmethod
     def _is_sysreco_text(text): return bool(re.search(r"\bSysReco\b",text or "",re.I))
     @staticmethod
@@ -101,7 +104,7 @@ class GroupedApp(BaseApp):
         self.tabs.tab(self.ebm_tab,text=f"EBM-PAPST ({len(rows)})")
     def _render_unmatched(self):
         for item in self.unmatched_tree.get_children():self.unmatched_tree.delete(item)
-        matched_paths=set(); accepted_statuses={"EXACT","NORMALIZED_MATCH","USER_APPROVED"}; sysreco_paths={str(document.path).casefold() for document,_ in self._sysreco_documents()}
+        matched_paths=set(); accepted_statuses={"EXACT","NORMALIZED_MATCH","USER_APPROVED"}; sysreco_paths={str(document.path).casefold() for document,_ in self._sysreco_documents()}; vocclean_paths={str(document.path).casefold() for document in self.analysis.pdf1_documents if self._is_voclean_document(document,"PDF1")}
         for ahu in self.analysis.ahu_matches:
             if getattr(ahu.match,"status","") not in accepted_statuses:continue
             matched_paths.update(str(path).casefold() for path in ahu.pdf1_files); matched_paths.update(str(path).casefold() for path in ahu.pdf2_files)
@@ -110,9 +113,8 @@ class GroupedApp(BaseApp):
             for document in documents:
                 document_path=str(document.path).casefold()
                 if document_path in matched_paths or document_path in sysreco_paths:continue
-                # PDF2 VOCLEAN documents are consumed by the dedicated VOCLEAN
-                # BA-code matching and must not also appear as unmatched PDFs.
-                if side == "PDF2" and self._is_voclean_document(document):continue
+                if side == "PDF1" and document_path in vocclean_paths:continue
+                if side == "PDF2" and self._is_voclean_document(document,"PDF2"):continue
                 project=document.project.project_name or "-"; ahus=", ".join(str(value) for value in document.equipment if str(value).strip()) if document.equipment else "-"; reason="AHU eşleşmesine giremedi" if document.equipment else "Ekipman/AHU tespit edilemedi"; rows.append((side,Path(document.path).name,project,ahus,reason,str(document.path)))
         rows.sort(key=lambda row:(row[0],row[1].casefold()))
         for side,pdf,project,ahus,reason,path in rows:self.unmatched_tree.insert("","end",values=(side,pdf,project,ahus,reason),tags=(path,))
@@ -128,11 +130,7 @@ class GroupedApp(BaseApp):
             for i in self.tree.get_children():self.tree.delete(i)
             for row in grouped:self.tree.insert("","end",values=row,tags=("mismatch",) if len(row)>5 and str(row[5]).strip()=="MISMATCH" else ())
             elapsed=time.perf_counter()-self._analysis_started_at if self._analysis_started_at is not None else None
-            # DANFOS count is the number of rows actually displayed in the tab,
-            # not the number of AHU matches. An AHU with no motor comparison
-            # must not inflate the DANFOS counter.
-            danfos_count=len(self.tree.get_children())
-            self.tabs.tab(0,text=f"DANFOS ({danfos_count})")
+            danfos_count=len(self.tree.get_children()); self.tabs.tab(0,text=f"DANFOS ({danfos_count})")
             if elapsed is not None:self.status.configure(text=f"Analiz süresi: {elapsed:.2f} sn | AHU {len(self.analysis.ahu_matches)} | Motor {len(self.analysis.motor_comparisons)} | MATCH/MISMATCH sonuçları hazır"); info("Toplu analiz tamamlandı",elapsed_seconds=round(elapsed,3),ahu_count=len(self.analysis.ahu_matches),motor_count=len(self.analysis.motor_comparisons),danfos_row_count=danfos_count)
             self.refresh_logs()
         except Exception as exc:exception("Project/AHU sonuç gruplama hatası",exc);self.refresh_logs()
