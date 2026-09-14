@@ -73,6 +73,12 @@ def _scan_pdf1_motors(pages, equipment_id=None, path=None):
     return tuple(_dedupe_motor_results(rows))
 
 def _filename_equipment(path):
+    stem = re.sub(r"\s+", "_", Path(path).stem.strip())
+    # Prefixed AHU filenames (AD_AHU_01, PR-AHU-01, U1-AHU-01) are distinct equipment.
+    m = re.fullmatch(r"([A-Z0-9]+)[_ -]+AHU[_ -]?([A-Z]?\d+(?:\.\d+)?)", stem, re.I)
+    if m:
+        raw = f"{m.group(1).upper()}-AHU-{m.group(2).upper()}"
+        return EquipmentOccurrence(raw, normalize_equipment_id(raw), 1, "filename")
     m=re.fullmatch(r"(HKS|KS|SS|PW)[_ -]?([A-Z]?\d+(?:\.\d+)?)",Path(path).stem.strip(),re.I)
     if not m:return None
     raw=f"{m.group(1).upper()}-{m.group(2).upper()}"; return EquipmentOccurrence(raw,normalize_equipment_id(raw),1,"filename")
@@ -84,6 +90,7 @@ def _valid_equipment(value):
     if not n or not re.search(r"\d",n):return None
     if re.fullmatch(r"(?:HKS|KS|SS|PW)-[A-Z]?\d+(?:\.\d+)?",n):return n
     if n.startswith("AHU-") or n.startswith("VE.A.D."):return n
+    if re.fullmatch(r"[A-Z0-9]+-AHU-[A-Z]?\d+(?:\.\d+)?",n):return n
     return None
 
 def _pdf2_unit_number_equipment(pages,path=None):
@@ -135,10 +142,17 @@ def _scan_single_pdf(path,side):
     side=side.upper().strip(); resolved=Path(path).expanduser().resolve()
     if side not in {"PDF1","PDF2"}:raise ValueError("side must be PDF1 or PDF2")
     info("Master PDF scan başladı",path=str(resolved),side=side); pages=_read_pages_once(resolved)
+    filename_equipment=_filename_equipment(resolved)
     if side=="PDF1":
-        project=discover_pdf1_project(list(pages)); equipment=discover_pdf1_unit_reference(list(pages))
+        project=discover_pdf1_project(list(pages)); discovered_equipment=discover_pdf1_unit_reference(list(pages))
+        # A filename prefix is authoritative when the document itself only says generic AHU-1.
+        # AD-AHU-01 and PR-AHU-01 are different physical units and must never collapse to AHU-1.
+        if filename_equipment and re.fullmatch(r"[A-Z0-9]+-AHU-[A-Z]?\d+(?:\.\d+)?", filename_equipment.normalized):
+            equipment=AHUDiscovery((filename_equipment,))
+        else:
+            equipment=discovered_equipment
         if not equipment.unique_ids():
-            f=_filename_equipment(resolved) or _equipment_from_filename(resolved)
+            f=filename_equipment or _equipment_from_filename(resolved)
             if f:equipment=AHUDiscovery((f,))
         equipment_id=equipment.unique_ids()[0] if equipment.unique_ids() else None
         motors=_scan_pdf1_motors(pages,equipment_id,path=resolved)
@@ -147,7 +161,10 @@ def _scan_single_pdf(path,side):
         return MasterPDFScan(str(resolved),side,pages,project,equipment,pdf1_motors=motors,pdf1_ebm_pages=ebm)
     project=_safe_pdf2_project(pages,discover_project_from_text(list(pages)))
     unit=_pdf2_unit_number_equipment(pages,resolved)
-    filename_equipment=_filename_equipment(resolved) or _equipment_from_filename(resolved)
+    # Same rule on PDF2: when the electrical drawing filename carries AD/PR/U1/U2,
+    # preserve that family instead of collapsing every AHU-1 Unit Number together.
+    if filename_equipment and re.fullmatch(r"[A-Z0-9]+-AHU-[A-Z]?\d+(?:\.\d+)?", filename_equipment.normalized):
+        unit=filename_equipment
     equipment=AHUDiscovery((unit,)) if unit else (AHUDiscovery((filename_equipment,)) if filename_equipment else discover_equipment_from_text(list(pages)))
     if not equipment.unique_ids() and filename_equipment:equipment=AHUDiscovery((filename_equipment,))
     equipment_id=equipment.unique_ids()[0] if equipment.unique_ids() else None
