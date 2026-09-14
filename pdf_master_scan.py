@@ -4,6 +4,7 @@ from dataclasses import dataclass
 from functools import lru_cache
 from pathlib import Path
 import re
+import fitz
 from pypdf import PdfReader
 from ahu_matching import AHUDiscovery,EquipmentOccurrence,_equipment_from_filename,discover_equipment_from_text,normalize_equipment_id
 from app_logger import exception,info,warning
@@ -63,11 +64,11 @@ def _safe_pdf2_project(pages,d):
    c.append((len(v)+sum(x.isalpha() for x in v),v,pn))
  if not c:return d
  _,v,pn=max(c);q=ProjectCandidate(v,normalize_project_name(v),'project_name_field',pn,'HIGH');return ProjectDiscovery(v,q.normalized,q.source,pn,'HIGH',tuple(list(d.candidates)+[q]))
-def _scan_pdf1_motors(pages,equipment_id=None,path=None):
+def _scan_pdf1_motors(pages,equipment_id=None,path=None,document=None):
  rows=[];coord={}
- if path:
-  try:coord=discover_coordinate_motor_powers(path)
-  except Exception as e:warning('PDF1 koordinat motor taraması başarısız',path=str(path),error=str(e))
+ try:
+  coord=discover_coordinate_motor_powers(path=path,document=document)
+ except Exception as e:warning('PDF1 koordinat motor taraması başarısız',path=str(path) if path else None,error=str(e))
  for n,text in enumerate(pages,1):
   for r in (coord.get(n) or ()):
    if not r.equipment_id and equipment_id:r=r.__class__(page_number=r.page_number,value_kw=r.value_kw,raw_value=r.raw_value,quantity=r.quantity,field=r.field,confidence=r.confidence,source_text=r.source_text,component_type=r.component_type,component_role=r.component_role,equipment_id=equipment_id,model_brand=r.model_brand)
@@ -82,17 +83,22 @@ def _scan_pdf2_motors(pages,equipment_id=None):
  if not rows and summary:rows=_summary_only_results(equipment_id,summary,page_number=1)
  return tuple(_apply_summary_quantities(rows,summary))
 def _scan_single_pdf(path,side):
- side=side.upper().strip();resolved=Path(path).expanduser().resolve();pages=_read_pages_once(resolved)
+ side=side.upper().strip();resolved=Path(path).expanduser().resolve()
  if side=='PDF1':
-  # PDF1 authoritative fields: Project/Unit Reference and all motor/EBM data come
-  # from the fixed coordinate readers. Plug-fan page identification itself may
-  # still use the page title text to decide which pages are eligible.
-  project=discover_pdf1_project(list(pages),path=resolved)
-  equipment=discover_pdf1_unit_reference(list(pages),path=resolved)
-  eid=equipment.unique_ids()[0] if equipment.unique_ids() else None
-  motors=_scan_pdf1_motors(pages,eid,resolved)
-  ebm=tuple(sorted({r.page_number for r in motors if (r.model_brand or '').strip().casefold()=='ebm-papst'}))
-  return MasterPDFScan(str(resolved),side,pages,project,equipment,pdf1_motors=motors,pdf1_ebm_pages=ebm)
+  # PDF1 is intentionally single-open: one shared PyMuPDF document supplies
+  # Project, Unit Reference, Plug-fan coordinates, motor type and rated power.
+  doc=fitz.open(str(resolved))
+  try:
+   pages=tuple(page.get_text('text') or '' for page in doc)
+   project=discover_pdf1_project(list(pages),document=doc)
+   equipment=discover_pdf1_unit_reference(list(pages),document=doc)
+   eid=equipment.unique_ids()[0] if equipment.unique_ids() else None
+   motors=_scan_pdf1_motors(pages,eid,document=doc)
+   ebm=tuple(sorted({r.page_number for r in motors if (r.model_brand or '').strip().casefold()=='ebm-papst'}))
+   return MasterPDFScan(str(resolved),side,pages,project,equipment,pdf1_motors=motors,pdf1_ebm_pages=ebm)
+  finally:
+   doc.close()
+ pages=_read_pages_once(resolved)
  project=_safe_pdf2_project(pages,discover_project_from_text(list(pages)));f=_filename_equipment(resolved);unit=_pdf2_unit_number_equipment(pages,resolved)
  if f and re.fullmatch(r'[A-Z0-9]+-AHU-[A-Z]?\d+(?:\.\d+)?',f.normalized):unit=f
  equipment=AHUDiscovery((unit,)) if unit else (AHUDiscovery((f,)) if f else discover_equipment_from_text(list(pages)));eid=equipment.unique_ids()[0] if equipment.unique_ids() else None
