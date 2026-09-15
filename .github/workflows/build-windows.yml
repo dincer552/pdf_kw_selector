@@ -41,23 +41,13 @@ jobs:
         run: |
           $path = 'desktop_app.py'
           $text = Get-Content -Path $path -Raw -Encoding UTF8
-          $old = @'
-    def _run_analysis_after_scan(self,pdf1_paths,pdf2_paths):
-        self.status.configure(text="Eşleştirme ve motor analizi yapılıyor..."); self.update_detail.set("Eşleştirme ve motor analizi başlıyor..."); self.update_idletasks(); threading.Thread(target=self._analyze_background,args=(pdf1_paths,pdf2_paths),daemon=True).start()
-'@
-          $new = @'
-    def _run_analysis_after_scan(self,pdf1_paths,pdf2_paths):
-        self.status.configure(text="Eşleştirme ve motor analizi yapılıyor...")
-        self.update_detail.set("Eşleştirme ve motor analizi başlıyor...")
-        self.update_idletasks()
-        # Confirmation dialogs must run on Tk's main thread.
-        self._analyze_background(pdf1_paths,pdf2_paths)
-'@
-          if (-not $text.Contains($old)) { throw 'Tk thread patch could not find exact _run_analysis_after_scan block.' }
-          $newText = $text.Replace($old,$new)
-          Set-Content -Path $path -Value $newText -Encoding UTF8
+          $old = 'threading.Thread(target=self._analyze_background,args=(pdf1_paths,pdf2_paths),daemon=True).start()'
+          $new = 'self._analyze_background(pdf1_paths,pdf2_paths)'
+          if (-not $text.Contains($old)) { throw 'Tk thread fix target was not found.' }
+          $text = $text.Replace($old,$new)
+          Set-Content -Path $path -Value $text -Encoding UTF8
           python -m py_compile desktop_app.py
-          Write-Host 'Tk interactive confirmation patch applied and syntax checked.'
+          Write-Host 'Tk interactive confirmation thread fix applied and syntax checked.'
       - name: Verify GUI source before packaging
         shell: pwsh
         run: |
