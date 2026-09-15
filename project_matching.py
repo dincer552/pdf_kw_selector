@@ -1,4 +1,4 @@
-"""Robust project-name matching for inconsistent engineering PDF labels."""
+"""Project-name matching for inconsistent engineering PDF labels."""
 from __future__ import annotations
 
 from dataclasses import dataclass, asdict
@@ -8,32 +8,15 @@ import re
 from app_logger import debug, exception, info
 from project_discovery import ProjectDiscovery, normalize_project_name
 
-# Words that commonly describe document metadata rather than project identity.
-# These are deliberately generic so new projects do not require hard-coded
-# aliases.  Distinctive customer/project words are kept as identity tokens.
-_CONTEXT_TOKENS = {
-    "proje", "project", "name", "projectname", "prj", "projectno",
-    "ordernumber", "orderno", "order", "unitnumber", "unitreference",
-    "revision", "revizyon", "revisionno", "revisiondate", "creationdate",
-    "date", "faz", "phase", "ahu", "unit", "grup", "group", "drawing",
-    "elektrik", "electric", "production", "uretim", "engineering",
-    "yeni", "new", "fabrika", "factory", "yatirim", "investment",
-    "yatirimi", "urun", "urunleri", "products", "product", "series", "seri",
-}
-
-_MIN_DISTINCTIVE_TOKEN_LEN = 4
+# No project/customer whitelist is used here. Every word in the discovered
+# project name is eligible to participate in matching. This is intentional:
+# a future project may contain any new customer/site/project word and must not
+# require a code change just because that word was never seen before.
 _TOKEN_FUZZY_THRESHOLD = 0.86
 
 
 def _tokens(value: str | None) -> list[str]:
     return [token for token in normalize_project_name(value or "").split() if token]
-
-
-def _core_tokens(value: str | None) -> set[str]:
-    return {
-        token for token in _tokens(value)
-        if token not in _CONTEXT_TOKENS and len(token) >= _MIN_DISTINCTIVE_TOKEN_LEN
-    }
 
 
 def _compact(value: str | None) -> str:
@@ -47,22 +30,21 @@ def _numeric_tokens(value: str | None) -> set[str]:
 def _token_similarity(left: str, right: str) -> float:
     if left == right:
         return 1.0
-    # Handles common Turkish/English inflection or truncation such as
-    # yatirim/yatirimi after generic-word filtering, and minor OCR variants.
     shorter, longer = sorted((left, right), key=len)
     if len(shorter) >= 5 and longer.startswith(shorter):
         return 0.94
     return SequenceMatcher(None, left, right).ratio()
 
 
-def _match_core_tokens(left_tokens: set[str], right_tokens: set[str]) -> tuple[list[float], set[str]]:
-    """Greedily pair each distinctive token at most once."""
+def _match_tokens(left_tokens: list[str], right_tokens: list[str]) -> tuple[list[float], set[str]]:
+    """Pair words once; exact equality is preferred over fuzzy similarity."""
     candidates = []
     for left in left_tokens:
         for right in right_tokens:
             similarity = _token_similarity(left, right)
             if similarity >= _TOKEN_FUZZY_THRESHOLD:
                 candidates.append((similarity, left, right))
+
     used_left: set[str] = set()
     used_right: set[str] = set()
     similarities: list[float] = []
@@ -92,13 +74,12 @@ class ProjectMatch:
 
 
 def score_project_names(left: str | None, right: str | None) -> tuple[float, str, str]:
-    """Score project names without maintaining a per-project alias list.
+    """Compare project names using all words; one shared word is sufficient.
 
-    Matching is based on distinctive words, fuzzy word similarity, whole-name
-    similarity, and numeric consistency.  A single distinctive shared word is
-    enough to keep a pair alive for project/AHU matching, while multiple shared
-    words raise confidence.  Generic words such as FABRIKA/YENI/YATIRIM are not
-    allowed to establish identity on their own.
+    There is deliberately no whitelist/blacklist of project words. Exact or
+    fuzzy matching is performed against every word discovered in both names.
+    Therefore a completely new customer, city, site, person, or project word
+    can establish a match without modifying this module.
     """
     try:
         left_n = normalize_project_name(left or "")
@@ -108,61 +89,54 @@ def score_project_names(left: str | None, right: str | None) -> tuple[float, str
         if left_n == right_n:
             return 1.0, "EXACT", "normalized project names are identical"
 
-        left_core = _core_tokens(left_n)
-        right_core = _core_tokens(right_n)
-        if not left_core or not right_core:
-            # Fall back to the whole-name similarity only when both names are
-            # short; otherwise generic metadata words are too weak to identify
-            # a project safely.
-            sequence = SequenceMatcher(None, _compact(left_n), _compact(right_n)).ratio()
-            if sequence >= 0.90:
-                return round(sequence, 4), "HIGH_CONFIDENCE", "very similar project labels"
-            return 0.0, "NO_MATCH", "no distinctive project tokens"
+        left_tokens = _tokens(left_n)
+        right_tokens = _tokens(right_n)
+        if not left_tokens or not right_tokens:
+            return 0.0, "NO_MATCH", "no project words"
 
-        similarities, matched_left = _match_core_tokens(left_core, right_core)
+        similarities, matched_left = _match_tokens(left_tokens, right_tokens)
         matched_count = len(similarities)
-        min_core = min(len(left_core), len(right_core))
-        max_core = max(len(left_core), len(right_core))
-        token_coverage = matched_count / min_core if min_core else 0.0
-        jaccard_like = matched_count / (len(left_core) + len(right_core) - matched_count)
-        token_quality = sum(similarities) / matched_count if matched_count else 0.0
+        if matched_count == 0:
+            sequence = SequenceMatcher(None, _compact(left_n), _compact(right_n)).ratio()
+            if sequence >= 0.94:
+                return round(sequence, 4), "HIGH_CONFIDENCE", "very similar project labels"
+            return 0.0, "NO_MATCH", "no matching project words"
+
+        min_word_count = min(len(left_tokens), len(right_tokens))
+        max_word_count = max(len(left_tokens), len(right_tokens))
+        coverage = matched_count / min_word_count if min_word_count else 0.0
+        jaccard_like = matched_count / (len(left_tokens) + len(right_tokens) - matched_count)
+        token_quality = sum(similarities) / matched_count
         sequence = SequenceMatcher(None, _compact(left_n), _compact(right_n)).ratio()
 
         left_nums = _numeric_tokens(left_n)
         right_nums = _numeric_tokens(right_n)
         numeric_conflict = bool(left_nums and right_nums and left_nums.isdisjoint(right_nums))
 
-        # Exact/fuzzy distinctive words carry the most weight.  Whole-name
-        # sequence similarity helps with reordered/truncated labels but cannot
-        # override a lack of meaningful common words.
+        # Shared words are the primary signal. Whole-name similarity is only a
+        # secondary signal and cannot turn a zero-word match into a match.
         score = min(
             1.0,
-            0.50 * jaccard_like
-            + 0.25 * token_coverage
+            0.55 * jaccard_like
+            + 0.20 * coverage
             + 0.10 * token_quality
             + 0.15 * sequence,
         )
 
-        if matched_count == 0:
-            # No common identity token: only a very strong complete-name match
-            # may survive, otherwise it is genuinely a different project.
-            if sequence >= 0.90 and not numeric_conflict:
-                return round(sequence, 4), "HIGH_CONFIDENCE", "very similar project labels"
-            return round(score, 4), "NO_MATCH", "no matching distinctive project words"
+        # User requirement: even ONE shared word is enough to put the pair in
+        # the same project-matching pipeline. Numeric conflicts do not cancel
+        # the shared-word match; they only lower its confidence score.
+        if matched_count == 1:
+            if numeric_conflict:
+                return max(round(score * 0.75, 4), 0.35), "MATCH", "one shared project word; numeric values differ"
+            return max(round(score, 4), 0.50), "MATCH", "one shared project word"
 
-        if numeric_conflict and matched_count < 2:
-            return min(round(score, 4), 0.55), "REVIEW_REQUIRED", "shared project word but conflicting numeric identifiers"
+        if numeric_conflict:
+            return max(round(score * 0.85, 4), 0.55), "MATCH", "multiple shared project words; numeric values differ"
 
-        if matched_count >= 2 and token_coverage >= 0.80 and jaccard_like >= 0.60:
-            return max(round(score, 4), 0.85), "HIGH_CONFIDENCE", "multiple matching distinctive project words"
-
-        if matched_count >= 2 or token_coverage >= 0.80:
-            return max(round(score, 4), 0.60), "MEDIUM_CONFIDENCE", "matching distinctive project words"
-
-        # One distinctive word is intentionally enough to keep the pair as a
-        # candidate.  The caller can combine this with AHU overlap; interactive
-        # confirmation can also ask the user when the project label is weak.
-        return max(round(score, 4), 0.50), "REVIEW_REQUIRED", "shared distinctive project word"
+        if matched_count >= 2 and coverage >= 0.80:
+            return max(round(score, 4), 0.85), "HIGH_CONFIDENCE", "multiple shared project words"
+        return max(round(score, 4), 0.65), "MATCH", "shared project words"
     except Exception as exc:
         exception("Proje eşleşme skoru hesaplama hatası", exc, left=left, right=right)
         raise
@@ -218,11 +192,29 @@ def match_discoveries(left: ProjectDiscovery, right: ProjectDiscovery) -> Projec
             left.project_source,
             candidate.source if candidate else right.project_source,
         )
-        debug("Discovery nesneleri proje eşleşti", left=left_raw, right=right_raw, score=result.score, status=status, reason=reason)
+        debug(
+            "Discovery nesneleri proje eşleşti",
+            left=left_raw,
+            right=right_raw,
+            score=result.score,
+            status=status,
+            reason=reason,
+        )
         return result
     except Exception as exc:
-        exception("Project discovery eşleştirme hesaplama hatası", exc, left=left.project_name, right=right.project_name)
+        exception(
+            "Project discovery eşleştirme hesaplama hatası",
+            exc,
+            left=left.project_name,
+            right=right.project_name,
+        )
         raise
+
+
+def _extract_id_from_text(value: str | None) -> set[str]:
+    if not value:
+        return set()
+    return set(re.findall(r"(?<![A-Z])\d{5,}(?!\d)", value.upper()))
 
 
 def match_discoveries_with_identifiers(left, right, left_text="", right_text="") -> ProjectMatch:
@@ -241,12 +233,6 @@ def match_discoveries_with_identifiers(left, right, left_text="", right_text="")
             base.right_source,
         )
     return base
-
-
-def _extract_id_from_text(value: str | None) -> set[str]:
-    if not value:
-        return set()
-    return set(re.findall(r"(?<![A-Z])\d{5,}(?!\d)", value.upper()))
 
 
 def match_discovery_lists(left_items, right_items):
