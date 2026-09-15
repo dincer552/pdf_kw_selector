@@ -28,6 +28,9 @@ def _move_json_and_detail_to_errors(app):
         return
 
     log_tab = tabs.nametowidget(tabs.tabs()[2])
+    if getattr(app, "detail", None) is not None and app.detail.master is log_tab:
+        app._ui_relocated = True
+        return
     widgets = list(_walk_widgets(app))
 
     # Hide the original JSON button and recreate it inside the HATA / İŞLEM LOGLARI tab.

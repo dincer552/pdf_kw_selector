@@ -109,7 +109,7 @@ def _polish(app):
         result_tab = app.tree.master
         unmatched_tab = app.unmatched_tree.master
         log_tab = next((child for child in app.tabs.winfo_children() if child not in (result_tab, unmatched_tab)), None)
-        if detail is not None and log_tab is not None:
+        if detail is not None and log_tab is not None and detail.master is not log_tab:
             detail_frame = detail.master
             log_text = getattr(app, "log_text", None)
             log_buttons = next((child for child in log_tab.winfo_children() if isinstance(child, ttk.Frame) and child is not log_text), None)

@@ -175,7 +175,9 @@ class App(tk.Tk):
         self.unmatched_tree.bind("<Leave>", lambda e: self.unmatched_tree.configure(cursor=""))
 
         detail_frame = ttk.LabelFrame(log_tab, text="Sonuç JSON / Teknik Detay", padding=6)
-        detail_frame.pack(fill="both", expand=False, padx=8, pady=(8, 0))
+        log_tab.grid_rowconfigure(1, weight=1)
+        log_tab.grid_columnconfigure(0, weight=1)
+        detail_frame.grid(row=0, column=0, sticky="ew", padx=8, pady=(8, 4))
         self.detail = tk.Text(detail_frame, height=6, wrap="none", bg="#f8fafc", fg="#0f172a", font=("Consolas", 9), relief="flat")
         self.detail.pack(fill="both", expand=True)
         self.detail.configure(state="disabled")
@@ -212,9 +214,9 @@ class App(tk.Tk):
         self.status.pack(side="right")
 
         self.log_text = tk.Text(log_tab, wrap="none", bg="#f8fafc", fg="#0f172a", font=("Consolas", 9), relief="flat")
-        self.log_text.pack(fill="both", expand=True, padx=8, pady=8)
+        self.log_text.grid(row=1, column=0, sticky="nsew", padx=8, pady=4)
         log_buttons = ttk.Frame(log_tab, padding=6)
-        log_buttons.pack(fill="x")
+        log_buttons.grid(row=2, column=0, sticky="ew", padx=5, pady=(4, 5))
         ttk.Button(log_buttons, text="JSON KAYDET", style="Secondary.TButton", command=self.save_json).pack(side="left", padx=3)
         ttk.Button(log_buttons, text="LOGLARI YENİLE", style="Secondary.TButton", command=self.refresh_logs).pack(side="left", padx=3)
         ttk.Button(log_buttons, text="LOG DOSYASINI AÇ", style="Secondary.TButton", command=self.open_log_file).pack(side="left", padx=3)
