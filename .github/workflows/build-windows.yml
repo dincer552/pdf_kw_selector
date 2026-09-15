@@ -48,6 +48,30 @@ jobs:
           Set-Content -Path $path -Value $text -Encoding UTF8
           python -m py_compile desktop_app.py
           Write-Host 'Tk interactive confirmation thread fix applied and syntax checked.'
+      - name: Fix VOCLEAN grouping so normal AHU PDFs remain matchable
+        shell: pwsh
+        run: |
+          $path = 'confirmation_workflow.py'
+          $text = Get-Content -Path $path -Raw -Encoding UTF8
+          $old = @'
+            used_left.add(left_key)
+            used_right.add(right_key)
+            info("Onaylı proje grupları birleştirildi", left=left_project.project_name, right=right_project.project_name, left_key=left_key, right_key=right_key)
+'@
+          $new = @'
+            # A VOCLEAN override is an additional PDF2 project label for the same
+            # PDF1 project. Keep the PDF1 group available so normal PDF2 AHU groups
+            # with the real project name can also be paired and compared.
+            if (left_key, right_key) not in voclean_approved:
+                used_left.add(left_key)
+            used_right.add(right_key)
+            info("Onaylı proje grupları birleştirildi", left=left_project.project_name, right=right_project.project_name, left_key=left_key, right_key=right_key, voclean_override=(left_key, right_key) in voclean_approved)
+'@
+          if (-not $text.Contains($old)) { throw 'VOCLEAN grouping patch target was not found.' }
+          $text = $text.Replace($old,$new)
+          Set-Content -Path $path -Value $text -Encoding UTF8
+          python -m py_compile confirmation_workflow.py
+          Write-Host 'VOCLEAN grouping patch applied and syntax checked.'
       - name: Verify GUI source before packaging
         shell: pwsh
         run: |
