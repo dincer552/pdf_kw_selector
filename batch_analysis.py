@@ -10,7 +10,7 @@ from motor_compare import MotorComparison, compare_motor_records
 from motor_database import MotorRecord, build_comparison_key
 from pdf_master_scan import build_physical_motor_records, scan_pdf, scan_pdfs
 from project_discovery import ProjectDiscovery, normalize_project_name
-from project_matching import ProjectMatch, match_discoveries
+from project_matching import ProjectMatch, match_discoveries, score_project_names
 
 @dataclass(frozen=True)
 class BatchDocument:
@@ -46,10 +46,79 @@ def _discover_documents(paths:list[str|Path],side:str)->list[BatchDocument]:
         except Exception as exc: exception("PDF keşfi başarısız; dosya analizin dışında bırakıldı",exc,side=side,path=path)
     return documents
 
+def _project_group_compatible(left: BatchDocument, right: BatchDocument) -> tuple[bool, float, str]:
+    """Decide whether two documents belong to the same project-name variant group.
+
+    Project names in engineering exports are often inconsistent: punctuation,
+    Turkish characters, singular/plural endings, truncated words and even a
+    completely different local project label may be used.  We only merge
+    strongly similar textual variants here.  Cross-label cases such as
+    "EKER BALIKESIR" are resolved later by AHU overlap / configured aliases.
+    """
+    left_name = left.project.project_name
+    right_name = right.project.project_name
+    if not left_name or not right_name:
+        return False, 0.0, "missing project name"
+    if normalize_project_name(left_name) == normalize_project_name(right_name):
+        return True, 1.0, "normalized project names are identical"
+    score, status, reason = score_project_names(left_name, right_name)
+    # 0.85 is deliberately conservative: it joins true wording variants such
+    # as YATIRIM/YATIRIMI without collapsing unrelated projects that merely
+    # contain common words like FABRİKA or PROJE.
+    return score >= 0.85 and status not in {"NO_MATCH", "REVIEW_REQUIRED"}, score, reason
+
+
 def _group_documents(documents):
-    grouped={}
+    """Group documents by project identity, not by one literal project string.
+
+    A single real project can contain several PDF title variants.  Build groups
+    incrementally and attach a document to an existing group when its project
+    name is a strong textual variant of any name already in that group.  This
+    keeps all AHUs from the same project together so later AHU-overlap matching
+    can resolve additional naming variants without requiring a hard-coded alias.
+    """
+    grouped = {}
+    variants = {}
+    unresolved_counter = 0
     for document in documents:
-        key=document.project.project_name_normalized or f"__UNRESOLVED__:{document.path}"; grouped.setdefault(key,[]).append(document)
+        name = document.project.project_name
+        normalized = document.project.project_name_normalized
+        if not normalized:
+            key = f"__UNRESOLVED__:{document.path}"
+            grouped.setdefault(key, []).append(document)
+            variants.setdefault(key, set()).add(name or "")
+            continue
+
+        target_key = None
+        best_score = -1.0
+        best_reason = ""
+        for key, group_docs in grouped.items():
+            if key.startswith("__UNRESOLVED__:"):
+                continue
+            for existing in group_docs:
+                compatible, score, reason = _project_group_compatible(existing, document)
+                if compatible and score > best_score:
+                    target_key = key
+                    best_score = score
+                    best_reason = reason
+                if score >= 0.9999:
+                    break
+        if target_key is None:
+            target_key = normalized
+            # Guard against a collision with an already-created group key.
+            if target_key in grouped:
+                unresolved_counter += 1
+                target_key = f"{normalized}__VARIANT_{unresolved_counter}"
+            grouped[target_key] = []
+            variants[target_key] = set()
+        grouped[target_key].append(document)
+        variants[target_key].add(name or "")
+        if best_score >= 0:
+            info("PROJECT GROUP DEBUG: proje adı varyantı aynı gruba alındı",group=target_key,project=name,score=round(best_score,4),reason=best_reason,variants=sorted(variants[target_key]))
+
+    for key, group_docs in grouped.items():
+        if len(variants.get(key, ())) > 1:
+            info("PROJECT GROUP DEBUG: çoklu proje adı varyantı",group=key,variants=sorted(variants[key]),documents=[d.path for d in group_docs])
     return grouped
 
 def _files_for_ahu(documents,normalized_ahu):
@@ -172,8 +241,6 @@ def analyze_batch(pdf1_paths,pdf2_paths,progress_callback=None):
             try:
                 pdf1_records = _extract_side_motors(lf,"PDF1",am.left_normalized)
                 pdf2_records = _extract_side_motors(rf,"PDF2",am.right_normalized)
-                # AHU matching is authoritative: compare the two sides under
-                # one canonical identity, even when the source spellings differ.
                 pdf1_records = _canonicalize_motor_records(pdf1_records, am.left_normalized)
                 pdf2_records = _canonicalize_motor_records(pdf2_records, am.left_normalized)
                 comps = compare_motor_records(pdf1_records, pdf2_records)
