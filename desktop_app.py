@@ -130,6 +130,12 @@ class App(tk.Tk):
         self.pdf1_box.pack(side="left", fill="x", expand=True, padx=(0, 5))
         self.pdf2_box.pack(side="left", fill="x", expand=True, padx=(5, 0))
 
+        # Reserve a dedicated bottom dock so actions stay visible when the
+        # window is vertically resized.
+        action_dock = ttk.Frame(self, style="White.TFrame", padding=(10, 6))
+        action_dock.pack(side="bottom", fill="x", padx=10, pady=(6, 0))
+        self.action_dock = action_dock
+
         # Notebook tabs
         tabs = ttk.Notebook(self)
         tabs.pack(fill="both", expand=True, padx=10, pady=(8, 0))
@@ -178,14 +184,14 @@ class App(tk.Tk):
         self.update_detail = tk.StringVar(value="Güncelleme hazır")
         style = ttk.Style(self)
         style.configure("Update.Horizontal.TProgressbar", troughcolor="#e2e8f0", background="#1a56db")
-        progress = ttk.Frame(self, padding=(8, 0))
+        progress = ttk.Frame(action_dock, padding=(8, 0))
         self.update_panel = progress
         ttk.Label(progress, textvariable=self.update_detail, anchor="e").pack(side="right")
         self.update_bar = ttk.Progressbar(progress, style="Update.Horizontal.TProgressbar", variable=self.update_progress, maximum=100, length=360)
         self.update_bar.pack(side="right", padx=8)
 
         # Action Buttons bar
-        buttons = ttk.Frame(self, padding=(10, 8))
+        buttons = ttk.Frame(action_dock, padding=(0, 2))
         buttons.pack(fill="x")
         ttk.Button(buttons, text="▶ ANALİZ BAŞLA", style="Primary.TButton", command=self.compare).pack(side="left", padx=(0, 6))
         ttk.Button(buttons, text="↺ TEMİZLE", style="Secondary.TButton", command=self.clear_inputs).pack(side="left", padx=3)
