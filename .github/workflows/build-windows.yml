@@ -36,6 +36,27 @@ jobs:
           cache-dependency-path: requirements.txt
       - name: Install dependencies
         run: python -m pip install -r requirements.txt pyinstaller
+      - name: Fix interactive confirmation Tk thread usage
+        shell: pwsh
+        run: |
+          $path = 'desktop_app.py'
+          $text = Get-Content -Path $path -Raw -Encoding UTF8
+          $pattern = '(?s)    def _run_analysis_after_scan\(self,pdf1_paths,pdf2_paths\):.*?    def _analysis_finished\(self,analysis\):'
+          $replacement = @'
+          def _run_analysis_after_scan(self,pdf1_paths,pdf2_paths):
+              self.status.configure(text="Eşleştirme ve motor analizi yapılıyor...")
+              self.update_detail.set("Eşleştirme ve motor analizi başlıyor...")
+              self.update_idletasks()
+              # Project/AHU/VOCLEAN confirmations create Tk dialogs. Tkinter dialogs
+              # must be created and waited on by the Tk main thread, not a worker thread.
+              self._analyze_background(pdf1_paths,pdf2_paths)
+
+          def _analysis_finished(self,analysis):
+          '@
+          $newText = [regex]::Replace($text,$pattern,$replacement,1)
+          if ($newText -eq $text) { throw 'Tk thread patch could not find _run_analysis_after_scan block.' }
+          Set-Content -Path $path -Value $newText -Encoding UTF8
+          Write-Host 'Tk interactive confirmation patch applied.'
       - name: Verify GUI source before packaging
         shell: pwsh
         run: |
