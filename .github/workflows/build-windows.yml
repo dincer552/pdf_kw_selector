@@ -29,7 +29,7 @@ jobs:
           cache-dependency-path: requirements.txt
       - name: Install dependencies
         run: python -m pip install -r requirements.txt pyinstaller
-      - name: Fix interactive confirmation Tk thread usage
+      - name: Fix Tk confirmation thread usage
         shell: pwsh
         run: |
           $path = 'desktop_app.py'
@@ -37,10 +37,9 @@ jobs:
           $old = 'threading.Thread(target=self._analyze_background,args=(pdf1_paths,pdf2_paths),daemon=True).start()'
           $new = 'self._analyze_background(pdf1_paths,pdf2_paths)'
           if (-not $text.Contains($old)) { throw 'Tk thread fix target was not found.' }
-          $text = $text.Replace($old,$new)
-          Set-Content -Path $path -Value $text -Encoding UTF8
+          Set-Content -Path $path -Value $text.Replace($old,$new) -Encoding UTF8
           python -m py_compile desktop_app.py
-      - name: Fix VOCLEAN grouping so normal AHU PDFs remain matchable
+      - name: Keep normal AHU group available after VOCLEAN selection
         shell: pwsh
         run: |
           $path = 'confirmation_workflow.py'
@@ -48,83 +47,23 @@ jobs:
           $nl = [Environment]::NewLine
           $old = '            used_left.add(left_key)' + $nl + '            used_right.add(right_key)' + $nl + '            info("Onaylı proje grupları birleştirildi", left=left_project.project_name, right=right_project.project_name, left_key=left_key, right_key=right_key)'
           $new = '            if (left_key, right_key) not in voclean_approved: used_left.add(left_key)' + $nl + '            used_right.add(right_key)' + $nl + '            info("Onaylı proje grupları birleştirildi", left=left_project.project_name, right=right_project.project_name, left_key=left_key, right_key=right_key, voclean_override=(left_key, right_key) in voclean_approved)'
-          if (-not $text.Contains($old)) { throw 'VOCLEAN grouping patch target was not found.' }
-          $text = $text.Replace($old,$new)
-          Set-Content -Path $path -Value $text -Encoding UTF8
+          if (-not $text.Contains($old)) { throw 'VOCLEAN grouping target was not found.' }
+          Set-Content -Path $path -Value $text.Replace($old,$new) -Encoding UTF8
           python -m py_compile confirmation_workflow.py
-      - name: Replace VOCLEAN numeric prompt with clickable project selector
+      - name: Enable clickable VOCLEAN project selector
         shell: pwsh
         run: |
-          $path = 'confirmation_workflow.py'
+          $path = 'desktop_grouped_app.py'
           $text = Get-Content -Path $path -Raw -Encoding UTF8
-          $oldImport = 'from tkinter import messagebox, simpledialog'
-          $newImport = 'import tkinter as tk' + [Environment]::NewLine + 'from tkinter import messagebox'
-          if (-not $text.Contains($oldImport)) { throw 'VOCLEAN import target was not found.' }
-          $text = $text.Replace($oldImport,$newImport)
-          $marker = 'def _ask_voclean_project_group(voclean_document, left_groups) -> str:'
-          $helper = @'
-def _ask_voclean_project_choice(title: str, prompt: str, candidates):
-    """Show a native Tk project picker instead of asking the user to type a number."""
-    parent = tk._get_default_root()
-    if parent is None:
-        raise RuntimeError("VOCLEAN proje seçimi için ana Tk penceresi bulunamadı.")
-    dialog = tk.Toplevel(parent)
-    dialog.title(title)
-    dialog.resizable(True, True)
-    dialog.transient(parent)
-    dialog.grab_set()
-    selected = [None]
-
-    frame = tk.Frame(dialog, padx=14, pady=12)
-    frame.pack(fill="both", expand=True)
-    tk.Label(frame, text=prompt, justify="left", anchor="w").pack(fill="x", pady=(0, 8))
-    listbox = tk.Listbox(frame, height=max(4, min(12, len(candidates))), exportselection=False)
-    listbox.pack(fill="both", expand=True)
-    for _, name in candidates:
-        listbox.insert(tk.END, name)
-    if candidates:
-        listbox.selection_set(0)
-        listbox.activate(0)
-        listbox.focus_set()
-
-    buttons = tk.Frame(frame)
-    buttons.pack(fill="x", pady=(10, 0))
-
-    def accept():
-        selection = listbox.curselection()
-        if not selection:
-            messagebox.showwarning("VOCLEAN proje grubu", "Lütfen bir proje grubu seçin.", parent=dialog)
-            return
-        selected[0] = selection[0] + 1
-        dialog.destroy()
-
-    def cancel():
-        dialog.destroy()
-
-    tk.Button(buttons, text="Seç", width=12, command=accept).pack(side="right", padx=(6, 0))
-    tk.Button(buttons, text="İptal", width=12, command=cancel).pack(side="right")
-    dialog.protocol("WM_DELETE_WINDOW", cancel)
-    dialog.bind("<Double-1>", lambda event: accept())
-    dialog.bind("<Return>", lambda event: accept())
-    dialog.bind("<Escape>", lambda event: cancel())
-    parent.wait_window(dialog)
-    return selected[0]
-
-
-'@
-          if (-not $text.Contains($marker)) { throw 'VOCLEAN function marker was not found.' }
-          $text = $text.Replace($marker,$helper + $marker)
-          $oldChoice = '    choice = simpledialog.askinteger("VOCLEAN proje grubu seçimi", prompt, minvalue=1, maxvalue=len(candidates))'
-          $newChoice = '    choice = _ask_voclean_project_choice("VOCLEAN proje grubu seçimi", prompt, candidates)'
-          if (-not $text.Contains($oldChoice)) { throw 'VOCLEAN numeric selector target was not found.' }
-          $text = $text.Replace($oldChoice,$newChoice)
-          Set-Content -Path $path -Value $text -Encoding UTF8
-          python -m py_compile confirmation_workflow.py
-          Write-Host 'VOCLEAN clickable project selector applied.'
-      - name: Verify GUI source before packaging
+          $old = 'from updater import apply_update' + [Environment]::NewLine + 'from confirmation_workflow import analyze_with_confirmations'
+          $new = 'from updater import apply_update' + [Environment]::NewLine + 'import voclean_project_selector' + [Environment]::NewLine + 'from confirmation_workflow import analyze_with_confirmations'
+          if (-not $text.Contains($old)) { throw 'Grouped app VOCLEAN import target was not found.' }
+          Set-Content -Path $path -Value $text.Replace($old,$new) -Encoding UTF8
+          python -m py_compile desktop_grouped_app.py voclean_project_selector.py
+      - name: Verify GUI source
         shell: pwsh
         run: |
-          python -c "import desktop_app; assert callable(desktop_app.App._file_box), 'desktop_app.App._file_box is missing'; import desktop_grouped_app; assert issubclass(desktop_grouped_app.GroupedApp, desktop_app.App), 'GroupedApp import failed'; print('GUI source verification OK:', desktop_app.__file__)"
+          python -c "import desktop_app; assert callable(desktop_app.App._file_box); import desktop_grouped_app; assert issubclass(desktop_grouped_app.GroupedApp, desktop_app.App); print('GUI source verification OK')"
       - name: Embed build metadata
         shell: pwsh
         env:
@@ -137,7 +76,6 @@ def _ask_voclean_project_choice(title: str, prompt: str, candidates):
           APP_VERSION: v0.5.4.${{ github.run_number }}
         run: pyinstaller --noconfirm --clean --onefile --windowed --additional-hooks-dir=. --collect-all pypdf --name "PDF_KW_Selector_$env:APP_VERSION" desktop_grouped_app.py
       - name: Prepare release assets
-        if: github.ref == 'refs/heads/dincer552-fix-github-updates'
         shell: pwsh
         env:
           APP_VERSION: v0.5.4.${{ github.run_number }}
@@ -147,7 +85,6 @@ def _ask_voclean_project_choice(title: str, prompt: str, candidates):
           Copy-Item $source "dist/PDF_KW_Selector_$env:GITHUB_SHA.exe"
           Compress-Archive -Path $source -DestinationPath "dist/PDF_KW_Selector_$env:GITHUB_SHA.zip" -CompressionLevel Optimal
       - name: Publish latest release
-        if: github.ref == 'refs/heads/dincer552-fix-github-updates'
         env:
           GH_TOKEN: ${{ github.token }}
           APP_VERSION: v0.5.4.${{ github.run_number }}
@@ -157,9 +94,9 @@ def _ask_voclean_project_choice(title: str, prompt: str, candidates):
             gh release upload latest dist/PDF_KW_Selector_latest.exe --clobber
             gh release upload latest "dist/PDF_KW_Selector_${GITHUB_SHA}.exe" --clobber
             gh release upload latest "dist/PDF_KW_Selector_${GITHUB_SHA}.zip" --clobber
-            gh release edit latest --title "PDF kW Selector $APP_VERSION - Latest" --notes "Version: $APP_VERSION; Build: $GITHUB_SHA; Latest Windows build from dincer552-fix-github-updates."
+            gh release edit latest --title "PDF kW Selector $APP_VERSION - Latest" --notes "Version: $APP_VERSION; Build: $GITHUB_SHA; Clickable VOCLEAN project selector."
           else
-            gh release create latest dist/PDF_KW_Selector_latest.exe "dist/PDF_KW_Selector_${GITHUB_SHA}.exe" "dist/PDF_KW_Selector_${GITHUB_SHA}.zip" --target "$GITHUB_SHA" --title "PDF kW Selector $APP_VERSION - Latest" --notes "Version: $APP_VERSION; Build: $GITHUB_SHA; Latest Windows build from dincer552-fix-github-updates."
+            gh release create latest dist/PDF_KW_Selector_latest.exe "dist/PDF_KW_Selector_${GITHUB_SHA}.exe" "dist/PDF_KW_Selector_${GITHUB_SHA}.zip" --target "$GITHUB_SHA" --title "PDF kW Selector $APP_VERSION - Latest" --notes "Version: $APP_VERSION; Build: $GITHUB_SHA; Clickable VOCLEAN project selector."
           fi
       - uses: actions/upload-artifact@v4
         with:
@@ -201,12 +138,9 @@ def _ask_voclean_project_choice(title: str, prompt: str, candidates):
             index=$((index + 1))
           done
           chunks_json+="]"
-          printf '{"version":"%s","build":"%s","file":"%s","size":%s,"sha256":"%s","chunks":%s}\n' \
-            "$VERSION" "$BUILD_SHA" "$name" "$size" "$sha" "$chunks_json" > "$UPDATE_ROOT/.manifest.json.tmp"
+          printf '{"version":"%s","build":"%s","file":"%s","size":%s,"sha256":"%s","chunks":%s}\n' "$VERSION" "$BUILD_SHA" "$name" "$size" "$sha" "$chunks_json" > "$UPDATE_ROOT/.manifest.json.tmp"
           mv -f "$UPDATE_ROOT/.${name}.tmp" "$UPDATE_ROOT/$name"
           mv -f "$UPDATE_ROOT/.manifest.json.tmp" "$UPDATE_ROOT/manifest.json"
-          find "$UPDATE_ROOT" -maxdepth 1 -type f -name 'PDF_KW_Selector_*.exe' \
-            ! -name "$name" ! -name 'PDF_KW_Selector_latest.exe' -delete
-          find "$UPDATE_ROOT" -maxdepth 1 -type f -name 'PDF_KW_Selector_*.exe.part*' \
-            ! -name "${name}.part*" -delete
+          find "$UPDATE_ROOT" -maxdepth 1 -type f -name 'PDF_KW_Selector_*.exe' ! -name "$name" ! -name 'PDF_KW_Selector_latest.exe' -delete
+          find "$UPDATE_ROOT" -maxdepth 1 -type f -name 'PDF_KW_Selector_*.exe.part*' ! -name "${name}.part*" -delete
           install -m 0644 "$UPDATE_ROOT/$name" "$UPDATE_ROOT/PDF_KW_Selector_latest.exe"
