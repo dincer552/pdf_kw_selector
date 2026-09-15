@@ -53,20 +53,8 @@ jobs:
         run: |
           $path = 'confirmation_workflow.py'
           $text = Get-Content -Path $path -Raw -Encoding UTF8
-          $old = @'
-            used_left.add(left_key)
-            used_right.add(right_key)
-            info("Onaylı proje grupları birleştirildi", left=left_project.project_name, right=right_project.project_name, left_key=left_key, right_key=right_key)
-'@
-          $new = @'
-            # A VOCLEAN override is an additional PDF2 project label for the same
-            # PDF1 project. Keep the PDF1 group available so normal PDF2 AHU groups
-            # with the real project name can also be paired and compared.
-            if (left_key, right_key) not in voclean_approved:
-                used_left.add(left_key)
-            used_right.add(right_key)
-            info("Onaylı proje grupları birleştirildi", left=left_project.project_name, right=right_project.project_name, left_key=left_key, right_key=right_key, voclean_override=(left_key, right_key) in voclean_approved)
-'@
+          $old = '            used_left.add(left_key)`n            used_right.add(right_key)`n            info("Onaylı proje grupları birleştirildi", left=left_project.project_name, right=right_project.project_name, left_key=left_key, right_key=right_key)'
+          $new = '            # VOCLEAN is an additional PDF2 label; keep the PDF1 group available for normal AHU PDFs.`n            if (left_key, right_key) not in voclean_approved:`n                used_left.add(left_key)`n            used_right.add(right_key)`n            info("Onaylı proje grupları birleştirildi", left=left_project.project_name, right=right_project.project_name, left_key=left_key, right_key=right_key, voclean_override=(left_key, right_key) in voclean_approved)'
           if (-not $text.Contains($old)) { throw 'VOCLEAN grouping patch target was not found.' }
           $text = $text.Replace($old,$new)
           Set-Content -Path $path -Value $text -Encoding UTF8
