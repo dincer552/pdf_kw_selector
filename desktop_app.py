@@ -24,29 +24,178 @@ UPDATE_CHECK_INTERVAL_MS = 15 * 60 * 1000
 
 class App(tk.Tk):
     def __init__(self):
-        super().__init__(); self.title(f"PDF kW Selector {VERSION} — Batch Motor Analysis"); self.geometry("1300x820"); self.minsize(1100, 700)
-        self.pdf1_inputs: list[PdfInput] = []; self.pdf2_inputs: list[PdfInput] = []; self.analysis = None; self._analysis_running = False; self._update_check_running = False; self._available_update = None
-        self._progress_lock = threading.Lock(); self._progress_pending = False; self._progress_latest = None
-        self._build_ui(); self.after(5000, self._schedule_update_check)
+        super().__init__()
+        self.title(f"PDF kW Selector {VERSION} — Batch Motor Analysis")
+        self.geometry("1300x820")
+        self.minsize(1100, 700)
+        self.pdf1_inputs: list[PdfInput] = []
+        self.pdf2_inputs: list[PdfInput] = []
+        self.analysis = None
+        self._analysis_running = False
+        self._update_check_running = False
+        self._available_update = None
+        self._progress_lock = threading.Lock()
+        self._progress_pending = False
+        self._progress_latest = None
+        self._init_modern_theme()
+        self._build_ui()
+        self.after(5000, self._schedule_update_check)
+
+    def _init_modern_theme(self):
+        try:
+            self.configure(bg="#f0f4f9")
+        except Exception:
+            pass
+        style = ttk.Style(self)
+        try:
+            if "clam" in style.theme_names():
+                style.theme_use("clam")
+        except Exception:
+            pass
+
+        bg_canvas = "#f0f4f9"
+        card_bg = "#ffffff"
+        border_color = "#e2e8f0"
+        primary_color = "#1a56db"
+        text_dark = "#0f172a"
+        text_muted = "#64748b"
+
+        style.configure(".", background=bg_canvas, foreground=text_dark, font=("Segoe UI", 9))
+        style.configure("TFrame", background=bg_canvas)
+        style.configure("White.TFrame", background=card_bg)
+        style.configure("TLabel", background=bg_canvas, foreground=text_dark, font=("Segoe UI", 9))
+        style.configure("White.TLabel", background=card_bg, foreground=text_dark, font=("Segoe UI", 9))
+        style.configure("Muted.TLabel", background=card_bg, foreground=text_muted, font=("Segoe UI", 8))
+        style.configure("Title.TLabel", background=card_bg, foreground=text_dark, font=("Segoe UI", 13, "bold"))
+        style.configure("Badge.TLabel", background="#eff6ff", foreground=primary_color, font=("Segoe UI", 8, "bold"), padding=(6, 2))
+
+        # Primary Button (ANALİZ BAŞLA)
+        style.configure("Primary.TButton", background=primary_color, foreground="#ffffff", font=("Segoe UI", 9, "bold"), borderwidth=0, padding=(12, 6))
+        style.map("Primary.TButton",
+            background=[("active", "#1e40af"), ("disabled", "#cbd5e1")],
+            foreground=[("disabled", "#94a3b8")]
+        )
+
+        # Secondary Button
+        style.configure("Secondary.TButton", background="#ffffff", foreground="#334155", font=("Segoe UI", 9), borderwidth=1, bordercolor="#cbd5e1", padding=(8, 4))
+        style.map("Secondary.TButton",
+            background=[("active", "#f1f5f9"), ("disabled", "#f8fafc")],
+            bordercolor=[("active", "#94a3b8")]
+        )
+
+        # Tabs / Notebook
+        style.configure("TNotebook", background=bg_canvas, borderwidth=0)
+        style.configure("TNotebook.Tab", background="#e2e8f0", foreground=text_muted, font=("Segoe UI", 9, "bold"), padding=(14, 7), borderwidth=0)
+        style.map("TNotebook.Tab",
+            background=[("selected", card_bg), ("active", "#e2e8f0")],
+            foreground=[("selected", text_dark), ("active", text_dark)]
+        )
+
+        # Treeview (Tables)
+        style.configure("Treeview", background="#ffffff", foreground=text_dark, fieldbackground="#ffffff", rowheight=26, font=("Segoe UI", 9), borderwidth=1, bordercolor=border_color)
+        style.configure("Treeview.Heading", background="#f8fafc", foreground=text_dark, font=("Segoe UI", 9, "bold"), borderwidth=1, bordercolor=border_color, padding=6)
+        style.map("Treeview.Heading", background=[("active", "#e2e8f0")])
+
+        # LabelFrame
+        style.configure("TLabelframe", background=card_bg, bordercolor=border_color, borderwidth=1, relief="solid")
+        style.configure("TLabelframe.Label", background=card_bg, foreground=text_dark, font=("Segoe UI", 9, "bold"))
 
     def _build_ui(self):
-        top=ttk.Frame(self,padding=8); top.pack(fill="x"); ttk.Label(top,text="PDF kW SELECTOR",font=("Segoe UI",18,"bold")).pack(side="left"); ttk.Label(top,text=f"{VERSION} • Project → AHU → Motor").pack(side="right",pady=8); self.update_check_button=ttk.Button(top,text="↻",width=3,command=self._manual_update_check); self.update_check_button.pack(side="right",padx=(0,8))
-        boxes=ttk.Frame(self,padding=(8,0)); boxes.pack(fill="x"); self.pdf1_label,self.pdf1_box=self._file_box(boxes,"Seçim çıktısı","PDF1"); self.pdf2_label,self.pdf2_box=self._file_box(boxes,"Elektrik projesi","PDF2"); self.pdf1_box.pack(side="left",fill="x",expand=True,padx=(0,5)); self.pdf2_box.pack(side="left",fill="x",expand=True,padx=(5,0))
-        tabs=ttk.Notebook(self); tabs.pack(fill="both",expand=True,padx=8,pady=(6,0)); self.tabs=tabs; result_tab=ttk.Frame(tabs); unmatched_tab=ttk.Frame(tabs); log_tab=ttk.Frame(tabs); tabs.add(result_tab,text="SONUÇLAR"); tabs.add(unmatched_tab,text="EŞLEŞMEYEN PDF'LER (0)"); tabs.add(log_tab,text="HATA / İŞLEM LOGLARI")
-        cols=("Proje","AHU","Motor","Seçim kW","Elektrik P. kW","Durum"); self.tree=ttk.Treeview(result_tab,columns=cols,show="headings")
-        for col in cols: self.tree.heading(col,text=col); self.tree.column(col,width=100,anchor="center")
-        self.tree.pack(fill="both",expand=True,padx=5,pady=5)
-        unmatched_cols=("Taraf","PDF","Proje","AHU","Neden"); self.unmatched_tree=ttk.Treeview(unmatched_tab,columns=unmatched_cols,show="headings")
-        widths={"Taraf":90,"PDF":420,"Proje":300,"AHU":260,"Neden":260}
-        for col in unmatched_cols: self.unmatched_tree.heading(col,text=col); self.unmatched_tree.column(col,width=widths[col],anchor="w")
-        unmatched_scroll=ttk.Scrollbar(unmatched_tab,orient="vertical",command=self.unmatched_tree.yview); self.unmatched_tree.configure(yscrollcommand=unmatched_scroll.set); self.unmatched_tree.pack(side="left",fill="both",expand=True,padx=(5,0),pady=5); unmatched_scroll.pack(side="right",fill="y",padx=(0,5),pady=5)
-        detail_frame=ttk.LabelFrame(log_tab,text="Sonuç JSON / teknik detay",padding=5); detail_frame.pack(fill="both",expand=False,padx=5,pady=(5,0)); self.detail=tk.Text(detail_frame,height=6,wrap="none"); self.detail.pack(fill="both",expand=True); self.detail.configure(state="disabled")
-        self.update_progress=tk.DoubleVar(value=0); self.update_detail=tk.StringVar(value="Güncelleme hazır"); style=ttk.Style(self); style.configure("Update.Horizontal.TProgressbar",troughcolor="#d9d9d9",background="#20a050",lightcolor="#20a050",darkcolor="#16803d")
-        progress=ttk.Frame(self,padding=(5,0)); self.update_panel=progress; ttk.Label(progress,textvariable=self.update_detail,anchor="e").pack(side="right"); self.update_bar=ttk.Progressbar(progress,style="Update.Horizontal.TProgressbar",variable=self.update_progress,maximum=100,length=360); self.update_bar.pack(side="right",padx=8)
-        buttons=ttk.Frame(self,padding=5); buttons.pack(fill="x"); ttk.Button(buttons,text="ANALİZ BAŞLA",command=self.compare).pack(side="left",padx=3); ttk.Button(buttons,text="SEÇİMLERİ TEMİZLE",command=self.clear_inputs).pack(side="left",padx=3)
-        self.update_notice=ttk.Frame(buttons); self.update_notice.pack(side="right",padx=8); self.update_notice_label=ttk.Label(self.update_notice,text="Yeni sürüm mevcut",foreground="#16803d"); self.update_notice_label.pack(side="left",padx=(0,6)); ttk.Button(self.update_notice,text="İNDİR",command=self.download_available_update).pack(side="left"); self.update_notice.pack_forget()
-        self.status=ttk.Label(buttons,text="Hazır",anchor="e"); self.status.pack(side="right")
-        self.log_text=tk.Text(log_tab,wrap="none"); self.log_text.pack(fill="both",expand=True,padx=5,pady=5); log_buttons=ttk.Frame(log_tab,padding=5); log_buttons.pack(fill="x"); ttk.Button(log_buttons,text="JSON KAYDET",command=self.save_json).pack(side="left",padx=3); ttk.Button(log_buttons,text="LOGLARI YENİLE",command=self.refresh_logs).pack(side="left",padx=3); ttk.Button(log_buttons,text="LOG DOSYASINI AÇ",command=self.open_log_file).pack(side="left",padx=3); ttk.Button(log_buttons,text="LOG KLASÖRÜNÜ AÇ",command=self.open_log_directory).pack(side="left",padx=3); ttk.Button(log_buttons,text="LOGLARI TEMİZLE",command=self.clear_logs).pack(side="left",padx=3); self.refresh_logs()
+        # Modern Header
+        header = ttk.Frame(self, style="White.TFrame", padding=(12, 8))
+        header.pack(fill="x", pady=(0, 8))
+        
+        kw_box = tk.Label(header, text="kW", bg="#1a56db", fg="#ffffff", font=("Segoe UI", 11, "bold"), width=3, height=1)
+        kw_box.pack(side="left", padx=(0, 10))
+        
+        title_box = ttk.Frame(header, style="White.TFrame")
+        title_box.pack(side="left")
+        ttk.Label(title_box, text="PDF kW SELECTOR", style="Title.TLabel").pack(anchor="w")
+        ttk.Label(title_box, text="Project → AHU → Motor Anma Gücü Karşılaştırma ve Doğrulama", style="Muted.TLabel").pack(anchor="w")
+
+        self.update_check_button = ttk.Button(header, text="↻", width=3, command=self._manual_update_check, style="Secondary.TButton")
+        self.update_check_button.pack(side="right", padx=(6, 0))
+        ttk.Label(header, text=f"{VERSION}", style="Badge.TLabel").pack(side="right", padx=(0, 6))
+
+        # PDF Drop / Selection Boxes
+        boxes = ttk.Frame(self, padding=(10, 0))
+        boxes.pack(fill="x")
+        self.pdf1_label, self.pdf1_box = self._file_box(boxes, "Seçim Çıktısı (PDF1)", "PDF1")
+        self.pdf2_label, self.pdf2_box = self._file_box(boxes, "Elektrik Projesi (PDF2)", "PDF2")
+        self.pdf1_box.pack(side="left", fill="x", expand=True, padx=(0, 5))
+        self.pdf2_box.pack(side="left", fill="x", expand=True, padx=(5, 0))
+
+        # Notebook tabs
+        tabs = ttk.Notebook(self)
+        tabs.pack(fill="both", expand=True, padx=10, pady=(8, 0))
+        self.tabs = tabs
+        result_tab = ttk.Frame(tabs, style="White.TFrame")
+        unmatched_tab = ttk.Frame(tabs, style="White.TFrame")
+        log_tab = ttk.Frame(tabs, style="White.TFrame")
+        tabs.add(result_tab, text="DANFOSS / MOTOR")
+        tabs.add(unmatched_tab, text="EŞLEŞMEYEN PDF'LER (0)")
+        tabs.add(log_tab, text=">_ LOGLAR")
+
+        cols = ("Proje", "AHU", "Motor", "Seçim kW", "Elektrik P. kW", "Durum")
+        self.tree = ttk.Treeview(result_tab, columns=cols, show="headings")
+        for col in cols:
+            self.tree.heading(col, text=col)
+            self.tree.column(col, width=100, anchor="center")
+        self.tree.pack(fill="both", expand=True, padx=8, pady=8)
+
+        unmatched_cols = ("Taraf", "PDF", "Proje", "AHU", "Neden")
+        self.unmatched_tree = ttk.Treeview(unmatched_tab, columns=unmatched_cols, show="headings")
+        widths = {"Taraf": 90, "PDF": 420, "Proje": 300, "AHU": 260, "Neden": 260}
+        for col in unmatched_cols:
+            self.unmatched_tree.heading(col, text=col)
+            self.unmatched_tree.column(col, width=widths[col], anchor="w")
+        unmatched_scroll = ttk.Scrollbar(unmatched_tab, orient="vertical", command=self.unmatched_tree.yview)
+        self.unmatched_tree.configure(yscrollcommand=unmatched_scroll.set)
+        self.unmatched_tree.pack(side="left", fill="both", expand=True, padx=(8, 0), pady=8)
+        unmatched_scroll.pack(side="right", fill="y", padx=(0, 8), pady=8)
+
+        detail_frame = ttk.LabelFrame(log_tab, text="Sonuç JSON / Teknik Detay", padding=6)
+        detail_frame.pack(fill="both", expand=False, padx=8, pady=(8, 0))
+        self.detail = tk.Text(detail_frame, height=6, wrap="none", bg="#f8fafc", fg="#0f172a", font=("Consolas", 9), relief="flat")
+        self.detail.pack(fill="both", expand=True)
+        self.detail.configure(state="disabled")
+
+        self.update_progress = tk.DoubleVar(value=0)
+        self.update_detail = tk.StringVar(value="Güncelleme hazır")
+        style = ttk.Style(self)
+        style.configure("Update.Horizontal.TProgressbar", troughcolor="#e2e8f0", background="#1a56db")
+        progress = ttk.Frame(self, padding=(8, 0))
+        self.update_panel = progress
+        ttk.Label(progress, textvariable=self.update_detail, anchor="e").pack(side="right")
+        self.update_bar = ttk.Progressbar(progress, style="Update.Horizontal.TProgressbar", variable=self.update_progress, maximum=100, length=360)
+        self.update_bar.pack(side="right", padx=8)
+
+        # Action Buttons bar
+        buttons = ttk.Frame(self, padding=(10, 8))
+        buttons.pack(fill="x")
+        ttk.Button(buttons, text="▶ ANALİZ BAŞLA", style="Primary.TButton", command=self.compare).pack(side="left", padx=(0, 6))
+        ttk.Button(buttons, text="↺ TEMİZLE", style="Secondary.TButton", command=self.clear_inputs).pack(side="left", padx=3)
+
+        self.update_notice = ttk.Frame(buttons)
+        self.update_notice.pack(side="right", padx=8)
+        self.update_notice_label = ttk.Label(self.update_notice, text="Yeni sürüm mevcut", foreground="#16803d")
+        self.update_notice_label.pack(side="left", padx=(0, 6))
+        ttk.Button(self.update_notice, text="İNDİR", style="Secondary.TButton", command=self.download_available_update).pack(side="left")
+        self.update_notice.pack_forget()
+
+        self.status = ttk.Label(buttons, text="Hazır", anchor="e")
+        self.status.pack(side="right")
+
+        self.log_text = tk.Text(log_tab, wrap="none", bg="#f8fafc", fg="#0f172a", font=("Consolas", 9), relief="flat")
+        self.log_text.pack(fill="both", expand=True, padx=8, pady=8)
+        log_buttons = ttk.Frame(log_tab, padding=6)
+        log_buttons.pack(fill="x")
+        ttk.Button(log_buttons, text="JSON KAYDET", style="Secondary.TButton", command=self.save_json).pack(side="left", padx=3)
+        ttk.Button(log_buttons, text="LOGLARI YENİLE", style="Secondary.TButton", command=self.refresh_logs).pack(side="left", padx=3)
+        ttk.Button(log_buttons, text="LOG DOSYASINI AÇ", style="Secondary.TButton", command=self.open_log_file).pack(side="left", padx=3)
+        ttk.Button(log_buttons, text="LOG KLASÖRÜNÜ AÇ", style="Secondary.TButton", command=self.open_log_directory).pack(side="left", padx=3)
+        ttk.Button(log_buttons, text="LOGLARI TEMİZLE", style="Secondary.TButton", command=self.clear_logs).pack(side="left", padx=3)
+        self.refresh_logs()
 
     def _manual_update_check(self):
         if self._update_check_running or getattr(self, "_download_running", False): return
