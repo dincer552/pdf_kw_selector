@@ -50,10 +50,21 @@ jobs:
           if (-not $text.Contains($old)) { throw 'Grouped app VOCLEAN import target was not found.' }
           Set-Content -Path $path -Value $text.Replace($old,$new) -Encoding UTF8
           python -m py_compile desktop_grouped_app.py voclean_project_selector.py
+      - name: Keep special PDFs out of unmatched list
+        shell: pwsh
+        run: |
+          $path = 'desktop_app.py'
+          $text = Get-Content -Path $path -Raw -Encoding UTF8
+          $nl = [Environment]::NewLine
+          $old = '        rows=[]' + $nl + '        for side,documents in (("PDF1",self.analysis.pdf1_documents),("PDF2",self.analysis.pdf2_documents)):' + $nl + '            for document in documents:' + $nl + '                if str(document.path).casefold() in matched_paths: continue'
+          $new = '        rows=[]' + $nl + '        special_pdf_keys=set()' + $nl + '        special_sets=getattr(self,"_special_pdf_sets",None)' + $nl + '        if special_sets:' + $nl + '            try:' + $nl + '                ebm_keys,voc_keys,sysreco_keys=special_sets()' + $nl + '                special_pdf_keys=set(ebm_keys)|set(voc_keys)|set(sysreco_keys)' + $nl + '            except Exception as exc:' + $nl + '                warning("Özel PDF grupları eşleşmeyen listesinden ayrıştırılamadı",error=str(exc))' + $nl + '        for side,documents in (("PDF1",self.analysis.pdf1_documents),("PDF2",self.analysis.pdf2_documents)):' + $nl + '            for document in documents:' + $nl + '                document_key=(side,str(document.path).casefold())' + $nl + '                if document_key in special_pdf_keys: continue' + $nl + '                if document_key in matched_paths: continue'
+          if (-not $text.Contains($old)) { throw 'Unmatched list patch target was not found.' }
+          Set-Content -Path $path -Value $text.Replace($old,$new) -Encoding UTF8
+          python -m py_compile desktop_app.py
       - name: Verify GUI source
         shell: pwsh
         run: |
-          python -c "import desktop_app; assert callable(desktop_app.App._file_box); import desktop_grouped_app; assert issubclass(desktop_grouped_app.GroupedApp, desktop_app.App); print('GUI source verification OK')"
+          python -c "import desktop_app; assert callable(desktop_app.App._file_box); import desktop_grouped_app; assert issubclass(desktop_grouped_app.GroupedApp, desktop_app.App); import voclean_project_selector; assert callable(voclean_project_selector.is_voclean_pdf2_path); print('GUI source verification OK')"
       - name: Embed build metadata
         shell: pwsh
         env:
