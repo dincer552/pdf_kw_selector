@@ -154,7 +154,7 @@ def _build_ahu_confirmations(project_pair_docs):
                 raw_right = ro.equipment_id
                 if lid != rid:
                     continue
-                if raw_left == raw_right:
+                if raw_left == raw_right or _flexible_ahu_key(raw_left) == _flexible_ahu_key(raw_right):
                     unmatched_left.discard(lid)
                     unmatched_right.discard(rid)
                     continue

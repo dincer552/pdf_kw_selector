@@ -60,7 +60,7 @@ def normalize_project_name(value: str) -> str:
     value = re.sub(r"^(?:project|proje)\s+", "", value)
 
     # Project alias: these are the same Eker Balıkesir project.
-    if value == "eker balikesir":
+    if value in ("eker balikesir", "eker sut urunleri yeni fabrika yatirim", "eker sut urunleri yeni fabrika yatirimi"):
         return "eker sut urunleri yeni fabrika yatirimi"
 
     return value

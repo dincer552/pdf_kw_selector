@@ -9,3 +9,21 @@
     -moz-osx-font-smoothing: grayscale;
   }
 }
+
+/* PDF Açılabilir Hücrelerde Yeşil Kutu (Hover Indicator) */
+.pdf-openable-cell {
+  position: relative;
+  outline: 2px solid transparent;
+  outline-offset: -1px;
+  border-radius: 4px;
+  transition: all 0.15s ease-in-out;
+  cursor: pointer;
+}
+
+.pdf-openable-cell:hover,
+.pdf-openable-cell:focus-visible {
+  outline: 2px solid #84cc16 !important; /* lime-500 */
+  box-shadow: 0 0 0 2px rgba(132, 204, 22, 0.35), inset 0 0 0 1px #84cc16 !important;
+  background-color: rgba(132, 204, 22, 0.14) !important;
+}
+

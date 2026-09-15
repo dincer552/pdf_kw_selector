@@ -4,9 +4,10 @@ import { Fan, CheckCircle2 } from 'lucide-react';
 
 interface EbmTableProps {
   rows: EbmRow[];
+  onOpenPdf?: (fileName: string, side: 'PDF1' | 'PDF2') => void;
 }
 
-export const EbmTable: React.FC<EbmTableProps> = ({ rows }) => {
+export const EbmTable: React.FC<EbmTableProps> = ({ rows, onOpenPdf }) => {
   return (
     <div className="flex flex-col h-full space-y-2">
       <div className="p-3 bg-amber-50 border border-amber-200 rounded-lg text-xs text-amber-900 flex items-center justify-between">
@@ -48,8 +49,34 @@ export const EbmTable: React.FC<EbmTableProps> = ({ rows }) => {
                       {r.ahu}
                     </span>
                   </td>
-                  <td className="py-2 px-3 text-slate-700 font-mono">{r.pdf1File}</td>
-                  <td className="py-2 px-3 text-slate-700 font-mono">{r.pdf2Files}</td>
+                  <td className="py-2 px-3 text-slate-700 font-mono">
+                    {r.pdf1File && r.pdf1File !== '-' ? (
+                      <button
+                        type="button"
+                        onClick={() => onOpenPdf?.(r.pdf1File, 'PDF1')}
+                        className="pdf-openable-cell px-1.5 py-0.5 inline-block text-left text-blue-700 font-medium hover:text-blue-950 rounded cursor-pointer transition-all"
+                        title={`${r.pdf1File} dosyasını görüntüle`}
+                      >
+                        {r.pdf1File}
+                      </button>
+                    ) : (
+                      '-'
+                    )}
+                  </td>
+                  <td className="py-2 px-3 text-slate-700 font-mono">
+                    {r.pdf2Files && r.pdf2Files !== '-' ? (
+                      <button
+                        type="button"
+                        onClick={() => onOpenPdf?.(r.pdf2Files, 'PDF2')}
+                        className="pdf-openable-cell px-1.5 py-0.5 inline-block text-left text-indigo-700 font-medium hover:text-indigo-950 rounded cursor-pointer transition-all"
+                        title={`${r.pdf2Files} dosyasını görüntüle`}
+                      >
+                        {r.pdf2Files}
+                      </button>
+                    ) : (
+                      '-'
+                    )}
+                  </td>
                   <td className="py-2 px-3">
                     <span className="inline-flex items-center gap-1 px-2 py-0.5 rounded-full text-[11px] font-medium bg-emerald-50 text-emerald-800 border border-emerald-200">
                       <CheckCircle2 className="w-3 h-3 text-emerald-600" />

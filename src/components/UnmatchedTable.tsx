@@ -4,9 +4,10 @@ import { AlertTriangle } from 'lucide-react';
 
 interface UnmatchedTableProps {
   rows: UnmatchedPdfRow[];
+  onOpenPdf?: (fileName: string, side?: 'PDF1' | 'PDF2') => void;
 }
 
-export const UnmatchedTable: React.FC<UnmatchedTableProps> = ({ rows }) => {
+export const UnmatchedTable: React.FC<UnmatchedTableProps> = ({ rows, onOpenPdf }) => {
   return (
     <div className="flex flex-col h-full">
       <div className="px-4 py-3 bg-[#f8fafc] border border-slate-200/80 rounded-lg text-xs text-slate-800 flex items-center justify-between">
@@ -56,7 +57,20 @@ export const UnmatchedTable: React.FC<UnmatchedTableProps> = ({ rows }) => {
                       {r.side}
                     </span>
                   </td>
-                  <td className="py-2.5 px-4 text-slate-800 font-mono font-medium">{r.pdfName}</td>
+                  <td className="py-2.5 px-4 text-slate-800 font-mono font-medium">
+                    {r.pdfName && r.pdfName !== '-' ? (
+                      <button
+                        type="button"
+                        onClick={() => onOpenPdf?.(r.pdfName, r.side)}
+                        className="pdf-openable-cell px-1.5 py-0.5 inline-block text-left text-slate-800 font-medium hover:text-emerald-950 rounded cursor-pointer transition-all"
+                        title={`${r.pdfName} dosyasını görüntüle`}
+                      >
+                        {r.pdfName}
+                      </button>
+                    ) : (
+                      '-'
+                    )}
+                  </td>
                   <td className="py-2.5 px-4 text-slate-700">{r.projectName || '-'}</td>
                   <td className="py-2.5 px-4 font-bold text-slate-900">{r.ahu}</td>
                   <td className="py-2.5 px-4 text-rose-700 font-medium">{r.reason}</td>

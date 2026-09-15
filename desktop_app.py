@@ -19,6 +19,7 @@ from pdf_viewer import open_pdf_at_page
 from updater import check_for_update, download_update, restart_with_update
 from ahu_matching import normalize_equipment_id
 from build_info import BUILD_SHA, BUILD_VERSION
+from pdf_hover_indicator import get_cell_hover_box
 
 VERSION = BUILD_VERSION
 UPDATE_CHECK_INTERVAL_MS = 15 * 60 * 1000
@@ -30,6 +31,7 @@ class App(tk.Tk):
         self.title(f"PDF kW Selector {VERSION} — Batch Motor Analysis")
         self.geometry("1300x820")
         self.minsize(1100, 700)
+        self._cell_hover_box = get_cell_hover_box()
         self.pdf1_inputs: list[PdfInput] = []
         self.pdf2_inputs: list[PdfInput] = []
         self.analysis = None
@@ -139,6 +141,7 @@ class App(tk.Tk):
         # Notebook tabs
         tabs = ttk.Notebook(self)
         tabs.pack(fill="both", expand=True, padx=10, pady=(8, 0))
+        tabs.bind("<<NotebookTabChanged>>", lambda e: self._cell_hover_box.hide(), add="+")
         self.tabs = tabs
         result_tab = ttk.Frame(tabs, style="White.TFrame")
         unmatched_tab = ttk.Frame(tabs, style="White.TFrame")
@@ -156,7 +159,8 @@ class App(tk.Tk):
         self._tree_cell_data: dict[str, dict] = {}
         self.tree.bind("<Button-1>", self._on_tree_cell_click)
         self.tree.bind("<Motion>", self._on_tree_cell_motion)
-        self.tree.bind("<Leave>", lambda e: self.tree.configure(cursor=""))
+        self.tree.bind("<Leave>", lambda e: (self.tree.configure(cursor=""), self._cell_hover_box.hide()))
+        self.tree.bind("<MouseWheel>", lambda e: self._cell_hover_box.hide(), add="+")
 
         unmatched_cols = ("Taraf", "PDF", "Proje", "AHU", "Neden")
         self.unmatched_tree = ttk.Treeview(unmatched_tab, columns=unmatched_cols, show="headings")
@@ -164,7 +168,7 @@ class App(tk.Tk):
         for col in unmatched_cols:
             self.unmatched_tree.heading(col, text=col)
             self.unmatched_tree.column(col, width=widths[col], anchor="w")
-        unmatched_scroll = ttk.Scrollbar(unmatched_tab, orient="vertical", command=self.unmatched_tree.yview)
+        unmatched_scroll = ttk.Scrollbar(unmatched_tab, orient="vertical", command=lambda *args: (self.unmatched_tree.yview(*args), self._cell_hover_box.hide()))
         self.unmatched_tree.configure(yscrollcommand=unmatched_scroll.set)
         self.unmatched_tree.pack(side="left", fill="both", expand=True, padx=(8, 0), pady=8)
         unmatched_scroll.pack(side="right", fill="y", padx=(0, 8), pady=8)
@@ -172,7 +176,8 @@ class App(tk.Tk):
         self.unmatched_tree.bind("<Button-1>", self._on_unmatched_cell_click)
         self.unmatched_tree.bind("<Double-1>", self._on_unmatched_click)
         self.unmatched_tree.bind("<Motion>", self._on_unmatched_cell_motion)
-        self.unmatched_tree.bind("<Leave>", lambda e: self.unmatched_tree.configure(cursor=""))
+        self.unmatched_tree.bind("<Leave>", lambda e: (self.unmatched_tree.configure(cursor=""), self._cell_hover_box.hide()))
+        self.unmatched_tree.bind("<MouseWheel>", lambda e: self._cell_hover_box.hide(), add="+")
 
         detail_frame = ttk.LabelFrame(log_tab, text="Sonuç JSON / Teknik Detay", padding=6)
         log_tab.grid_rowconfigure(1, weight=1)
@@ -750,8 +755,10 @@ class App(tk.Tk):
             idx = 3 if col == "#4" else 4
             if values and len(values) > idx and str(values[idx]).strip() not in ("", "-"):
                 self.tree.configure(cursor="hand2")
+                self._cell_hover_box.show(self.tree, row_id, col)
                 return
         self.tree.configure(cursor="")
+        self._cell_hover_box.hide()
 
     def _on_unmatched_cell_click(self, event):
         region = self.unmatched_tree.identify_region(event.x, event.y)
@@ -776,8 +783,10 @@ class App(tk.Tk):
         row_id = self.unmatched_tree.identify_row(event.y)
         if region == "cell" and col == "#2" and row_id:
             self.unmatched_tree.configure(cursor="hand2")
+            self._cell_hover_box.show(self.unmatched_tree, row_id, col)
             return
         self.unmatched_tree.configure(cursor="")
+        self._cell_hover_box.hide()
 
     def _on_unmatched_click(self, event):
         row_id = self.unmatched_tree.identify_row(event.y)

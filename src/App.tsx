@@ -21,7 +21,7 @@ export function App() {
 
   const [pdf1Docs, setPdf1Docs] = useState<BatchDocument[]>(initialPdf1);
   const [pdf2Docs, setPdf2Docs] = useState<BatchDocument[]>(initialPdf2);
-  const [activeTab, setActiveTab] = useState<'DANFOSS' | 'EBM' | 'VOCLEAN' | 'SYSRECO' | 'UNMATCHED' | 'LOGS'>('UNMATCHED');
+  const [activeTab, setActiveTab] = useState<'DANFOSS' | 'EBM' | 'VOCLEAN' | 'SYSRECO' | 'UNMATCHED' | 'LOGS'>('DANFOSS');
   const [tolerance, setTolerance] = useState<number>(0.01);
   const [isAnalyzing, setIsAnalyzing] = useState<boolean>(false);
   const [progressMessage, setProgressMessage] = useState<string>('');
@@ -230,6 +230,19 @@ export function App() {
     setSelectedComparison(comparison);
   };
 
+  const handleOpenPdfByName = (fileName: string, side?: 'PDF1' | 'PDF2') => {
+    if (!fileName || fileName === '-') return;
+    const doc = (side === 'PDF2' ? pdf2Docs : pdf1Docs).find(
+      (d) => d.name === fileName || d.path === fileName
+    ) || (side ? (side === 'PDF1' ? pdf2Docs : pdf1Docs) : [...pdf1Docs, ...pdf2Docs]).find(
+      (d) => d.name === fileName || d.path === fileName
+    );
+    addLog('INFO', `Kullanıcı PDF dosya hücresine tıkladı: ${fileName}`);
+    if (doc) {
+      setSelectedDoc(doc);
+    }
+  };
+
   return (
     <div className="min-h-screen bg-[#f0f4f9] flex flex-col font-sans text-slate-800">
       {/* Top Header */}
@@ -371,13 +384,21 @@ export function App() {
               />
             )}
 
-            {activeTab === 'EBM' && <EbmTable rows={ebmRows} />}
+            {activeTab === 'EBM' && (
+              <EbmTable rows={ebmRows} onOpenPdf={handleOpenPdfByName} />
+            )}
 
-            {activeTab === 'VOCLEAN' && <VocleanTable rows={vocleanRows} />}
+            {activeTab === 'VOCLEAN' && (
+              <VocleanTable rows={vocleanRows} onOpenPdf={handleOpenPdfByName} />
+            )}
 
-            {activeTab === 'SYSRECO' && <SysrecoTable rows={sysrecoRows} />}
+            {activeTab === 'SYSRECO' && (
+              <SysrecoTable rows={sysrecoRows} onOpenPdf={handleOpenPdfByName} />
+            )}
 
-            {activeTab === 'UNMATCHED' && <UnmatchedTable rows={unmatchedRows} />}
+            {activeTab === 'UNMATCHED' && (
+              <UnmatchedTable rows={unmatchedRows} onOpenPdf={handleOpenPdfByName} />
+            )}
 
             {activeTab === 'LOGS' && (
               <LogsViewer

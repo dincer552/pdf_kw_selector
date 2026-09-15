@@ -178,7 +178,7 @@ export const ResultsTable: React.FC<ResultsTableProps> = ({ comparisons, onSelec
                             e.stopPropagation();
                             onSelectPdfPage ? onSelectPdfPage(item, 'PDF1') : onSelectRow?.(item);
                           }}
-                          className="inline-flex items-center gap-1 font-bold text-blue-700 hover:text-blue-900 bg-blue-50 hover:bg-blue-100 px-2 py-0.5 rounded border border-blue-200 transition-colors cursor-pointer"
+                          className="pdf-openable-cell inline-flex items-center gap-1 font-bold text-blue-700 hover:text-blue-900 bg-blue-50 hover:bg-blue-100 px-2 py-0.5 rounded border border-blue-200 transition-all cursor-pointer"
                           title={item.pdf1File ? `Sayfa ${item.pdf1Page || 1} aç (${item.pdf1File})` : 'Kaynak sayfayı görüntüle'}
                         >
                           <span>{item.pdf1Kw} kW</span>
@@ -193,7 +193,7 @@ export const ResultsTable: React.FC<ResultsTableProps> = ({ comparisons, onSelec
                             e.stopPropagation();
                             onSelectPdfPage ? onSelectPdfPage(item, 'PDF2') : onSelectRow?.(item);
                           }}
-                          className="inline-flex items-center gap-1 font-bold text-indigo-700 hover:text-indigo-900 bg-indigo-50 hover:bg-indigo-100 px-2 py-0.5 rounded border border-indigo-200 transition-colors cursor-pointer"
+                          className="pdf-openable-cell inline-flex items-center gap-1 font-bold text-indigo-700 hover:text-indigo-900 bg-indigo-50 hover:bg-indigo-100 px-2 py-0.5 rounded border border-indigo-200 transition-all cursor-pointer"
                           title={item.pdf2File ? `Sayfa ${item.pdf2Page || 1} aç (${item.pdf2File})` : 'Kaynak sayfayı görüntüle'}
                         >
                           <span>{item.pdf2Kw} kW</span>

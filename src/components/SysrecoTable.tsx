@@ -4,9 +4,10 @@ import { Layers } from 'lucide-react';
 
 interface SysrecoTableProps {
   rows: SysrecoRow[];
+  onOpenPdf?: (fileName: string, side?: 'PDF1' | 'PDF2') => void;
 }
 
-export const SysrecoTable: React.FC<SysrecoTableProps> = ({ rows }) => {
+export const SysrecoTable: React.FC<SysrecoTableProps> = ({ rows, onOpenPdf }) => {
   return (
     <div className="flex flex-col h-full space-y-2">
       <div className="p-3 bg-cyan-50 border border-cyan-200 rounded-lg text-xs text-cyan-900 flex items-center justify-between">
@@ -43,7 +44,20 @@ export const SysrecoTable: React.FC<SysrecoTableProps> = ({ rows }) => {
                 <tr key={i} className="hover:bg-cyan-50/40 transition-colors">
                   <td className="py-2 px-3 font-medium text-slate-800">{r.projectName}</td>
                   <td className="py-2 px-3 font-bold text-slate-900">{r.ahu}</td>
-                  <td className="py-2 px-3 text-slate-700 font-mono">{r.pdfFile}</td>
+                  <td className="py-2 px-3 text-slate-700 font-mono">
+                    {r.pdfFile && r.pdfFile !== '-' ? (
+                      <button
+                        type="button"
+                        onClick={() => onOpenPdf?.(r.pdfFile, 'PDF1')}
+                        className="pdf-openable-cell px-1.5 py-0.5 inline-block text-left text-cyan-800 font-medium hover:text-cyan-950 rounded cursor-pointer transition-all"
+                        title={`${r.pdfFile} dosyasını görüntüle`}
+                      >
+                        {r.pdfFile}
+                      </button>
+                    ) : (
+                      '-'
+                    )}
+                  </td>
                   <td className="py-2 px-3">
                     <span className="inline-flex px-2 py-0.5 rounded font-mono font-bold bg-cyan-100 text-cyan-900 border border-cyan-300">
                       {r.sysrecoModel}

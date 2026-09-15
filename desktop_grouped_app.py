@@ -26,30 +26,33 @@ class GroupedApp(BaseApp):
     def _build_ebm_tab(self):
         tab=ttk.Frame(self.tabs, style="White.TFrame"); self.tabs.add(tab,text="EBM-PAPST (0)"); cols=("Proje","AHU","Seçim çıktısı","Elektrik p.","Durum"); self.ebm_tree=ttk.Treeview(tab,columns=cols,show="headings"); widths={"Proje":300,"AHU":120,"Seçim çıktısı":300,"Elektrik p.":420,"Durum":260}
         for col in cols:self.ebm_tree.heading(col,text=col);self.ebm_tree.column(col,width=widths[col],anchor="w")
-        scroll=ttk.Scrollbar(tab,orient="vertical",command=self.ebm_tree.yview);self.ebm_tree.configure(yscrollcommand=scroll.set);self.ebm_tree.pack(side="left",fill="both",expand=True,padx=(5,0),pady=5);scroll.pack(side="right",fill="y",padx=(0,5),pady=5);self.ebm_tab=tab
+        scroll=ttk.Scrollbar(tab,orient="vertical",command=lambda *args: (self.ebm_tree.yview(*args), self._cell_hover_box.hide()));self.ebm_tree.configure(yscrollcommand=scroll.set);self.ebm_tree.pack(side="left",fill="both",expand=True,padx=(5,0),pady=5);scroll.pack(side="right",fill="y",padx=(0,5),pady=5);self.ebm_tab=tab
         self._ebm_cell_data: dict[str, dict] = {}
         self.ebm_tree.bind("<Button-1>", self._on_ebm_cell_click)
         self.ebm_tree.bind("<Double-1>", self._on_ebm_cell_click)
         self.ebm_tree.bind("<Motion>", self._on_ebm_cell_motion)
-        self.ebm_tree.bind("<Leave>", lambda e: self.ebm_tree.configure(cursor=""))
+        self.ebm_tree.bind("<Leave>", lambda e: (self.ebm_tree.configure(cursor=""), self._cell_hover_box.hide()))
+        self.ebm_tree.bind("<MouseWheel>", lambda e: self._cell_hover_box.hide(), add="+")
     def _build_voclean_tab(self):
         tab=ttk.Frame(self.tabs, style="White.TFrame"); self.tabs.add(tab,text="VOCLEAN (0)"); cols=("Proje","PDF1","VOClean kW","PDF1 Sayfa","PDF2","AHU","Durum"); self.voclean_tree=ttk.Treeview(tab,columns=cols,show="headings"); widths={"Proje":260,"PDF1":300,"VOClean kW":100,"PDF1 Sayfa":90,"PDF2":300,"AHU":180,"Durum":280}
         for col in cols:self.voclean_tree.heading(col,text=col);self.voclean_tree.column(col,width=widths[col],anchor="w")
-        scroll=ttk.Scrollbar(tab,orient="vertical",command=self.voclean_tree.yview);self.voclean_tree.configure(yscrollcommand=scroll.set);self.voclean_tree.pack(side="left",fill="both",expand=True,padx=(5,0),pady=5);scroll.pack(side="right",fill="y",padx=(0,5),pady=5);self.voclean_tab=tab
+        scroll=ttk.Scrollbar(tab,orient="vertical",command=lambda *args: (self.voclean_tree.yview(*args), self._cell_hover_box.hide()));self.voclean_tree.configure(yscrollcommand=scroll.set);self.voclean_tree.pack(side="left",fill="both",expand=True,padx=(5,0),pady=5);scroll.pack(side="right",fill="y",padx=(0,5),pady=5);self.voclean_tab=tab
         self._voclean_cell_data: dict[str, dict] = {}
         self.voclean_tree.bind("<Button-1>", self._on_voclean_cell_click)
         self.voclean_tree.bind("<Double-1>", self._on_voclean_cell_click)
         self.voclean_tree.bind("<Motion>", self._on_voclean_cell_motion)
-        self.voclean_tree.bind("<Leave>", lambda e: self.voclean_tree.configure(cursor=""))
+        self.voclean_tree.bind("<Leave>", lambda e: (self.voclean_tree.configure(cursor=""), self._cell_hover_box.hide()))
+        self.voclean_tree.bind("<MouseWheel>", lambda e: self._cell_hover_box.hide(), add="+")
     def _build_sysreco_tab(self):
         tab=ttk.Frame(self.tabs, style="White.TFrame"); self.tabs.add(tab,text="SYSRECO (0)"); cols=("Proje","AHU","PDF","SysReco Model"); self.sysreco_tree=ttk.Treeview(tab,columns=cols,show="headings"); widths={"Proje":320,"AHU":180,"PDF":420,"SysReco Model":180}
         for col in cols:self.sysreco_tree.heading(col,text=col);self.sysreco_tree.column(col,width=widths[col],anchor="w")
-        scroll=ttk.Scrollbar(tab,orient="vertical",command=self.sysreco_tree.yview);self.sysreco_tree.configure(yscrollcommand=scroll.set);self.sysreco_tree.pack(side="left",fill="both",expand=True,padx=(5,0),pady=5);scroll.pack(side="right",fill="y",padx=(0,5),pady=5);self.sysreco_tab=tab
+        scroll=ttk.Scrollbar(tab,orient="vertical",command=lambda *args: (self.sysreco_tree.yview(*args), self._cell_hover_box.hide()));self.sysreco_tree.configure(yscrollcommand=scroll.set);self.sysreco_tree.pack(side="left",fill="both",expand=True,padx=(5,0),pady=5);scroll.pack(side="right",fill="y",padx=(0,5),pady=5);self.sysreco_tab=tab
         self._sysreco_cell_data: dict[str, dict] = {}
         self.sysreco_tree.bind("<Button-1>", self._on_sysreco_cell_click)
         self.sysreco_tree.bind("<Double-1>", self._on_sysreco_cell_click)
         self.sysreco_tree.bind("<Motion>", self._on_sysreco_cell_motion)
-        self.sysreco_tree.bind("<Leave>", lambda e: self.sysreco_tree.configure(cursor=""))
+        self.sysreco_tree.bind("<Leave>", lambda e: (self.sysreco_tree.configure(cursor=""), self._cell_hover_box.hide()))
+        self.sysreco_tree.bind("<MouseWheel>", lambda e: self._cell_hover_box.hide(), add="+")
     def _grouped_scan_pdf1(self,document):
         key=str(document.path).casefold(); scan=self._grouped_pdf1_scan_cache.get(key)
         if scan is None: scan=scan_pdf(document.path,"PDF1"); self._grouped_pdf1_scan_cache[key]=scan
@@ -253,8 +256,10 @@ class GroupedApp(BaseApp):
             key = "pdf1_path" if col == "#3" else "pdf2_path"
             if data.get(key):
                 self.ebm_tree.configure(cursor="hand2")
+                self._cell_hover_box.show(self.ebm_tree, row_id, col)
                 return
         self.ebm_tree.configure(cursor="")
+        self._cell_hover_box.hide()
 
     def _on_sysreco_cell_click(self, event):
         region = self.sysreco_tree.identify_region(event.x, event.y)
@@ -277,8 +282,10 @@ class GroupedApp(BaseApp):
             data = getattr(self, "_sysreco_cell_data", {}).get(row_id, {})
             if data.get("pdf_path"):
                 self.sysreco_tree.configure(cursor="hand2")
+                self._cell_hover_box.show(self.sysreco_tree, row_id, col)
                 return
         self.sysreco_tree.configure(cursor="")
+        self._cell_hover_box.hide()
 
     def _on_voclean_cell_click(self, event):
         region = self.voclean_tree.identify_region(event.x, event.y)
@@ -309,8 +316,10 @@ class GroupedApp(BaseApp):
             key = "pdf1_path" if col == "#2" else "pdf2_path"
             if data.get(key):
                 self.voclean_tree.configure(cursor="hand2")
+                self._cell_hover_box.show(self.voclean_tree, row_id, col)
                 return
         self.voclean_tree.configure(cursor="")
+        self._cell_hover_box.hide()
     def _post_analysis(self):
         try:
             self._render_ebm(); self._render_voclean(); self._render_sysreco(); self._render_unmatched(); rows=[self.tree.item(i,"values") for i in self.tree.get_children()]; grouped=group_result_rows(rows)
