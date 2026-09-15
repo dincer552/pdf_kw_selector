@@ -1,5 +1,5 @@
 import React from 'react';
-import { CheckCircle2, XCircle, AlertCircle } from 'lucide-react';
+import { CheckCircle2, XCircle } from 'lucide-react';
 
 interface StatusBadgeProps {
   status: string;
@@ -16,12 +16,10 @@ export const StatusBadge: React.FC<StatusBadgeProps> = ({
   className = '',
   size = 'md',
 }) => {
-  const isMatch =
-    forcedIsMatch !== undefined
-      ? forcedIsMatch
-      : status === 'MATCH' ||
-        status.toLowerCase() === 'match' ||
-        (status.toLowerCase().includes('eşleşti') && !status.toLowerCase().includes('yok'));
+  // Only the actual MATCH result is green. Informational text such as
+  // "BA kodu eşleşti" or "PDF2 AHU eşleşti; ..." is still a non-MATCH status.
+  const normalizedStatus = status.trim().toUpperCase();
+  const isMatch = forcedIsMatch !== undefined ? forcedIsMatch : normalizedStatus === 'MATCH';
 
   const displayLabel =
     label ||
