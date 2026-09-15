@@ -1,7 +1,8 @@
 """Build metadata embedded in packaged applications."""
 
-# Install the PDF-cell opener before any Tkinter Treeview is created.
+# Install PDF-cell behavior before any Tkinter Treeview is created.
 import pdf_click_opener  # noqa: F401
+import pdf_hover_indicator  # noqa: F401
 import button_label_fix  # noqa: F401
 import ui_polish  # noqa: F401
 
