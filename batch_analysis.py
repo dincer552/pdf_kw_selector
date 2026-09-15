@@ -7,7 +7,7 @@ from pathlib import Path
 from ahu_matching import AHUMatch, discover_equipment, match_ahu_lists, normalize_equipment_id
 from app_logger import debug, exception, info, warning
 from motor_compare import MotorComparison, compare_motor_records
-from motor_database import build_comparison_key
+from motor_database import MotorRecord, build_comparison_key
 from pdf_master_scan import build_physical_motor_records, scan_pdf, scan_pdfs
 from project_discovery import ProjectDiscovery, normalize_project_name
 from project_matching import ProjectMatch, match_discoveries
@@ -67,6 +67,15 @@ def _extract_side_motors(paths,side,target_ahu):
         try:records.extend(build_physical_motor_records(scan_pdf(path,side)))
         except Exception as exc:exception("Motor keşfi başarısız",exc,side=side,path=path,ahu=target)
     records=_dedupe_motor_records(records); return records if target is None else [r for r in records if normalize_equipment_id(r.equipment_id)==target]
+
+def _canonicalize_motor_records(records:list[MotorRecord], canonical_ahu:str|None)->list[MotorRecord]:
+    """Use the confirmed AHU identity as the motor-comparison key on both sides."""
+    if not canonical_ahu:
+        return records
+    canonical = normalize_equipment_id(canonical_ahu)
+    if not canonical:
+        return records
+    return [replace(record, equipment_id=canonical) for record in records]
 
 def _pair_project_groups(left_groups,right_groups):
     """Use exact project names/AHU overlap first; fuzzy scoring is last resort."""
@@ -156,12 +165,18 @@ def analyze_batch(pdf1_paths,pdf2_paths,progress_callback=None):
         info("AHU MATCH DEBUG: proje grubu",project=pm.left_name,pdf1_files=[d.path for d in lg],pdf2_files=[d.path for d in rg],pdf1_ahus=sorted({item.normalized for item in left_equipment}),pdf2_ahus=sorted({item.normalized for item in right_equipment}))
         for am in match_ahu_lists(left_equipment,right_equipment):
             lf=_files_for_ahu(lg,am.left_normalized);rf=_files_for_ahu(rg,am.right_normalized); info("AHU MATCH DEBUG: aday",project=pm.left_name,left=am.left_normalized,right=am.right_normalized,score=am.score,status=am.status,reason=getattr(am,"reason",None),pdf1_files=list(lf),pdf2_files=list(rf)); ahu_batches.append(BatchAHU(pm.left_name,am,lf,rf))
-            if am.status not in {"EXACT","NORMALIZED_MATCH","USER_APPROVED"}:continue
+            if am.status not in {"EXACT","NORMALIZED_MATCH","USER_APPROVED","APPROVED_FLEXIBLE"}:continue
             if _is_ebm_pdf1(lf):
                 info("EBM-Papst PDF1 motor karşılaştırması atlandı; AHU eşleşmesi korunuyor",project=pm.left_name,ahu=am.left_normalized,pdf1_files=list(lf),pdf2_files=list(rf))
                 continue
             try:
-                comps = compare_motor_records(_extract_side_motors(lf,"PDF1",am.left_normalized),_extract_side_motors(rf,"PDF2",am.right_normalized))
+                pdf1_records = _extract_side_motors(lf,"PDF1",am.left_normalized)
+                pdf2_records = _extract_side_motors(rf,"PDF2",am.right_normalized)
+                # AHU matching is authoritative: compare the two sides under
+                # one canonical identity, even when the source spellings differ.
+                pdf1_records = _canonicalize_motor_records(pdf1_records, am.left_normalized)
+                pdf2_records = _canonicalize_motor_records(pdf2_records, am.left_normalized)
+                comps = compare_motor_records(pdf1_records, pdf2_records)
                 patched = []
                 for c in comps:
                     p1 = c.pdf1_path or (str(lf[0]) if lf else None)
