@@ -1,6 +1,7 @@
 import React from 'react';
 import { VocleanRow } from '../types';
-import { Sparkles, CheckCircle2, AlertCircle } from 'lucide-react';
+import { Sparkles } from 'lucide-react';
+import { StatusBadge } from './StatusBadge';
 
 interface VocleanTableProps {
   rows: VocleanRow[];
@@ -85,21 +86,8 @@ export const VocleanTable: React.FC<VocleanTableProps> = ({ rows, onOpenPdf }) =
                         {r.ahu}
                       </span>
                     </td>
-                    <td className="py-2 px-3">
-                      <span
-                        className={`inline-flex items-center gap-1 px-2 py-0.5 rounded-full text-[11px] font-medium ${
-                          isMatched
-                            ? 'bg-emerald-50 text-emerald-800 border border-emerald-200'
-                            : 'bg-rose-50 text-rose-800 border border-rose-200'
-                        }`}
-                      >
-                        {isMatched ? (
-                          <CheckCircle2 className="w-3 h-3 text-emerald-600" />
-                        ) : (
-                          <AlertCircle className="w-3 h-3 text-rose-600" />
-                        )}
-                        {r.status}
-                      </span>
+                    <td className="py-2 px-3 whitespace-nowrap">
+                      <StatusBadge status={r.status} isMatch={isMatched} />
                     </td>
                   </tr>
                 );

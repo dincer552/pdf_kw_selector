@@ -1,6 +1,7 @@
 import React from 'react';
 import { X, FileText, CheckCircle2, AlertCircle, Layers } from 'lucide-react';
 import { BatchDocument, MotorComparison } from '../types';
+import { StatusBadge } from './StatusBadge';
 
 interface DocumentModalProps {
   document?: BatchDocument | null;
@@ -53,8 +54,8 @@ export const DocumentModal: React.FC<DocumentModalProps> = ({
                   <span className="font-semibold text-slate-900">{comparison.componentLabel}</span>
                 </div>
                 <div>
-                  <span className="text-slate-500 font-medium block">Durum:</span>
-                  <span className="font-bold text-slate-900">{comparison.status}</span>
+                  <span className="text-slate-500 font-medium block mb-1">Durum:</span>
+                  <StatusBadge status={comparison.status} />
                 </div>
               </div>
 

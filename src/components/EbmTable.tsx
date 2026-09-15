@@ -1,6 +1,7 @@
 import React from 'react';
 import { EbmRow } from '../types';
-import { Fan, CheckCircle2 } from 'lucide-react';
+import { Fan } from 'lucide-react';
+import { StatusBadge } from './StatusBadge';
 
 interface EbmTableProps {
   rows: EbmRow[];
@@ -77,11 +78,8 @@ export const EbmTable: React.FC<EbmTableProps> = ({ rows, onOpenPdf }) => {
                       '-'
                     )}
                   </td>
-                  <td className="py-2 px-3">
-                    <span className="inline-flex items-center gap-1 px-2 py-0.5 rounded-full text-[11px] font-medium bg-emerald-50 text-emerald-800 border border-emerald-200">
-                      <CheckCircle2 className="w-3 h-3 text-emerald-600" />
-                      {r.status}
-                    </span>
+                  <td className="py-2 px-3 whitespace-nowrap">
+                    <StatusBadge status={r.status} isMatch={true} />
                   </td>
                 </tr>
               ))

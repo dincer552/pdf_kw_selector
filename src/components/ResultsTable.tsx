@@ -1,6 +1,7 @@
 import React, { useState } from 'react';
-import { CheckCircle2, XCircle, AlertCircle, HelpCircle, Search, Info } from 'lucide-react';
+import { CheckCircle2, XCircle, AlertCircle, Search, Info } from 'lucide-react';
 import { MotorComparison } from '../types';
+import { StatusBadge } from './StatusBadge';
 
 interface ResultsTableProps {
   comparisons: MotorComparison[];
@@ -205,34 +206,8 @@ export const ResultsTable: React.FC<ResultsTableProps> = ({ comparisons, onSelec
                         ? `${item.differenceKw.toFixed(2)} kW`
                         : '-'}
                     </td>
-                    <td className="py-2 px-3 text-center">
-                      {isMatch && (
-                        <span className="inline-flex items-center gap-1 px-2 py-0.5 rounded-full text-[11px] font-bold bg-emerald-100 text-emerald-800 border border-emerald-300">
-                          <CheckCircle2 className="w-3 h-3 text-emerald-600" />
-                          MATCH
-                        </span>
-                      )}
-                      {isMismatch && (
-                        <span className="inline-flex items-center gap-1 px-2 py-0.5 rounded-full text-[11px] font-bold bg-[#ffb3b3] text-rose-950 border border-rose-400 shadow-2xs">
-                          <XCircle className="w-3 h-3 text-rose-700" />
-                          MISMATCH
-                        </span>
-                      )}
-                      {item.status === 'EBM_PAPST' && (
-                        <span className="inline-flex items-center gap-1 px-2 py-0.5 rounded-full text-[11px] font-bold bg-amber-100 text-amber-900 border border-amber-300">
-                          EBM-PAPST
-                        </span>
-                      )}
-                      {item.status === 'ONLY_IN_PDF1' && (
-                        <span className="inline-flex items-center gap-1 px-2 py-0.5 rounded-full text-[11px] font-medium bg-slate-100 text-slate-700">
-                          Yalnızca PDF1
-                        </span>
-                      )}
-                      {item.status === 'ONLY_IN_PDF2' && (
-                        <span className="inline-flex items-center gap-1 px-2 py-0.5 rounded-full text-[11px] font-medium bg-slate-100 text-slate-700">
-                          Yalnızca PDF2
-                        </span>
-                      )}
+                    <td className="py-2 px-3 text-center whitespace-nowrap">
+                      <StatusBadge status={item.status} />
                     </td>
                     <td className="py-2 px-3 text-slate-600 max-w-xs truncate" title={item.explanation}>
                       {item.explanation}

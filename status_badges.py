@@ -118,16 +118,17 @@ class _StatusBadgeOverlay:
                 local_y = cell_y - body_top
                 green = status.casefold() == "match"
                 label = "✓ MATCH" if green else f"✕ {status}"
-                outline = "#16a34a" if green else "#dc2626"
-                fill = "#ecfdf3" if green else "#fff1f2"
-                foreground = "#15803d" if green else "#b91c1c"
-                badge_w = min(max(badge_font.measure(label) + 18, 64), max(64, col_width - 10))
-                badge_h = min(20, max(18, cell_h - 6))
+                outline = "#10b981" if green else "#ef4444"
+                fill = "#dcfce7" if green else "#fee2e2"
+                foreground = "#064e3b" if green else "#7f1d1d"
+                badge_w = min(max(badge_font.measure(label) + 20, 68), max(68, col_width - 10))
+                badge_h = min(22, max(18, cell_h - 4))
                 x1 = 5
-                y1 = local_y + max(3, (cell_h - badge_h) / 2)
+                y1 = local_y + max(2, (cell_h - badge_h) / 2)
                 x2 = min(col_width - 5, x1 + badge_w)
                 y2 = y1 + badge_h
-                _rounded_box(self.canvas, x1, y1, x2, y2, 7, fill=fill, outline=outline, width=1)
+                radius = badge_h / 2.0
+                _rounded_box(self.canvas, x1, y1, x2, y2, radius, fill=fill, outline=outline, width=1.5)
                 self.canvas.create_text((x1 + x2) / 2, (y1 + y2) / 2, text=label, fill=foreground, font=badge_font)
         except (tk.TclError, ValueError, IndexError):
             return
