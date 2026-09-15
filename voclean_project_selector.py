@@ -23,6 +23,7 @@ def _scan_pdf_with_project_override(path, side):
 
 
 pdf_master_scan.scan_pdf = _scan_pdf_with_project_override
+batch.scan_pdf = _scan_pdf_with_project_override
 
 
 def set_pdf2_project_override(path: str, project) -> None:
