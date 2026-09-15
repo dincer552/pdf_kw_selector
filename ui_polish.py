@@ -92,23 +92,20 @@ def _status_badge_text(value):
 
 
 def _install_status_badges(app):
-    """Render MATCH/other statuses as per-cell green/red badges."""
+    """Show each status cell as a small green/red badge inside its own cell."""
     trees = [w for w in _walk(app) if isinstance(w, ttk.Treeview)]
-    if not trees:
-        return
-
     for tree in trees:
         columns = _status_columns(tree)
         if not columns:
             continue
+
         state = getattr(tree, "_status_badge_state", None)
         if state is None:
-            state = {"labels": {}, "signature": None}
+            state = {"labels": {}, "job": None}
             tree._status_badge_state = state
 
         def refresh(tree=tree, columns=columns, state=state):
             try:
-                parent = tree.master
                 wanted = {}
                 for item in tree.get_children(""):
                     for col in columns:
@@ -120,13 +117,15 @@ def _install_status_badges(app):
                         if not badge_text:
                             continue
                         x, y, width, height = bbox
-                        font = ("Segoe UI", 8, "bold")
-                        key = (item, col)
-                        wanted[key] = (x, y, width, height, badge_text, is_match)
+                        wanted[(item, col)] = (x, y, width, height, badge_text, is_match)
 
-                for key in list(state["labels"]):
-                    if key not in wanted:
-                        state["labels"].pop(key).destroy()
+                for key, label in list(state["labels"].items()):
+                    if key not in wanted or not label.winfo_exists():
+                        try:
+                            label.destroy()
+                        except tk.TclError:
+                            pass
+                        state["labels"].pop(key, None)
 
                 for key, (x, y, width, height, badge_text, is_match) in wanted.items():
                     label = state["labels"].get(key)
@@ -135,32 +134,37 @@ def _install_status_badges(app):
                     border = "#24b878" if is_match else "#e05252"
                     if label is None or not label.winfo_exists():
                         label = tk.Label(
-                            parent,
+                            tree,
                             text=badge_text,
-                            font=font,
+                            font=("Segoe UI", 8, "bold"),
                             bg=bg,
                             fg=fg,
-                            bd=1,
-                            relief="solid",
-                            highlightthickness=0,
+                            bd=0,
+                            relief="flat",
+                            highlightthickness=1,
+                            highlightbackground=border,
+                            highlightcolor=border,
                             padx=7,
-                            pady=2,
+                            pady=1,
                             anchor="center",
+                            cursor="hand2",
                         )
                         state["labels"][key] = label
                     else:
-                        label.configure(text=badge_text, bg=bg, fg=fg, bd=1)
-                    label.place(x=tree.winfo_x() + x + 3, y=tree.winfo_y() + y + 2)
+                        label.configure(
+                            text=badge_text,
+                            bg=bg,
+                            fg=fg,
+                            highlightbackground=border,
+                            highlightcolor=border,
+                        )
+                    label.place(x=x + 4, y=y + 2)
                     label.lift()
-                app.after(250, refresh)
-            except tk.TclError:
-                return
 
-        tree.bind("<Configure>", lambda e, refresh=refresh: refresh(), add="+")
-        tree.bind("<Motion>", lambda e, refresh=refresh: refresh(), add="+")
-        tree.bind("<MouseWheel>", lambda e, refresh=refresh: refresh(), add="+")
-        tree.bind("<Button-4>", lambda e, refresh=refresh: refresh(), add="+")
-        tree.bind("<Button-5>", lambda e, refresh=refresh: refresh(), add="+")
+                state["job"] = app.after(80, refresh)
+            except tk.TclError:
+                state["job"] = None
+
         refresh()
 
 
@@ -214,8 +218,8 @@ def _polish(app):
                         widget.destroy()
                 ttk.Button(log_buttons, text="JSON KAYDET", command=app.save_json).pack(side="left", padx=3)
 
-        _make_vertical_tab_resizer(app)
         _install_status_badges(app)
+        _make_vertical_tab_resizer(app)
 
         style.configure("Accent.TButton", background="#62b8df", foreground="#ffffff", padding=(16, 7), font=("Segoe UI", 10, "bold"), borderwidth=0)
         style.map("Accent.TButton", background=[("active", "#3da2d2"), ("pressed", "#258dbd")])
