@@ -1,0 +1,6 @@
+{
+  "name": "PDF kW Selector",
+  "description": "Engineering PDF motor power (kW) verification and matching tool between equipment selection outputs and electrical schematics.",
+  "requestFramePermissions": [],
+  "majorCapabilities": ["MAJOR_CAPABILITY_SERVER_SIDE_GEMINI_API"]
+}
