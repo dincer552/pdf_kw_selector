@@ -70,30 +70,19 @@ def _project_candidate(left_docs, right_docs):
 
 
 def _ask_project(left_name: str, right_name: str, shared_tokens: set[str]) -> bool:
-    identity = "\nOrtak kimlik: " + ", ".join(sorted(shared_tokens)) if shared_tokens else ""
     text = (
-        "PDF1 ve PDF2 proje adları birebir aynı değil.\n\n"
         f"PDF1: {left_name}\n"
-        f"PDF2: {right_name}"
-        f"{identity}\n\n"
-        "Bunlar aynı proje mi?\n\n"
-        "EVET: Bu eşleştirmeyi onayla ve bu projedeki AHU'ları eşleştir.\n"
-        "HAYIR: Bu proje çiftini eşleştirme."
+        f"PDF2: {right_name}\n\n"
+        "Bunlar aynı proje mi?"
     )
     return bool(messagebox.askyesno("Proje eşleşmesi onayı", text))
 
 
 def _ask_ahu(project: str | None, left: str, right: str, *, reused_rule: bool = False) -> bool:
-    rule = "\n\nÖnceki AHU onayındaki esnek eşleştirme kuralı uygulanacak." if reused_rule else ""
     text = (
-        "AHU referansları birebir aynı değil.\n\n"
-        f"Proje: {project or '-'}\n"
-        f"PDF1 AHU: {left}\n"
-        f"PDF2 AHU: {right}\n\n"
-        "Bunlar aynı AHU mu?\n\n"
-        "EVET: Bu eşleştirmeyi onayla ve aynı isimlendirme farkını kalan AHU'larda da kullan.\n"
-        "HAYIR: Bu AHU çiftini eşleştirme."
-        f"{rule}"
+        f"PDF1: {left}\n"
+        f"PDF2: {right}\n\n"
+        "Bunlar aynı AHU mu?"
     )
     return bool(messagebox.askyesno("AHU eşleşmesi onayı", text))
 
