@@ -1,9 +1,4 @@
-"""Show a green outline over PDF cells while the mouse is over them.
-
-The outline is deliberately drawn in a tiny transparent Windows overlay so the
-Treeview text remains visible. Only cells that resolve to a real PDF path are
-highlighted; clicking the highlighted cell opens that PDF.
-"""
+"""Show a green outline over PDF cells while the mouse is over them."""
 from __future__ import annotations
 
 import os
@@ -26,23 +21,27 @@ def _basename(value: str) -> str:
     return os.path.basename(value.replace("\\", "/")).casefold()
 
 
-def _walk_pdf_paths(value: object, seen: set[int] | None = None):
-    if seen is None:
-        seen = set()
-    if value is None or isinstance(value, (str, bytes, int, float, bool)):
-        if _is_pdf(value):
-            yield value
-        return
-    marker = id(value)
-    if marker in seen:
-        return
-    seen.add(marker)
-    if isinstance(value, dict):
-        for item in value.values():
-            yield from _walk_pdf_paths(item, seen)
-    elif isinstance(value, (list, tuple, set)):
-        for item in value:
-            yield from _walk_pdf_paths(item, seen)
+def _candidate_from_cell_data(tree: ttk.Treeview, item: str, column_id: str) -> str | None:
+    """Use the exact PDF path stored by the result renderer when available."""
+    app = tree.winfo_toplevel()
+    data_maps = (
+        ("_tree_cell_data", {"#3": "pdf1_path", "#4": "pdf2_path"}),
+        ("_ebm_cell_data", {"#3": "pdf1_path", "#4": "pdf2_path"}),
+        ("_voclean_cell_data", {"#2": "pdf1_path", "#5": "pdf2_path"}),
+        ("_sysreco_cell_data", {"#3": "pdf_path"}),
+        ("_unmatched_cell_data", {"#2": "path"}),
+    )
+    for attr, mapping in data_maps:
+        data_map = getattr(app, attr, None)
+        if not isinstance(data_map, dict):
+            continue
+        data = data_map.get(item)
+        if not isinstance(data, dict):
+            continue
+        path = data.get(mapping.get(column_id, ""))
+        if path and os.path.isfile(str(path)):
+            return str(path)
+    return None
 
 
 def _resolve_pdf(tree: ttk.Treeview, item: str, column_id: str) -> str | None:
@@ -52,40 +51,51 @@ def _resolve_pdf(tree: ttk.Treeview, item: str, column_id: str) -> str | None:
         return None
     if heading not in _PDF_COLUMNS:
         return None
+
+    # Result renderers already know the exact source path. Prefer that over
+    # filename matching so duplicate PDF names cannot highlight the wrong file.
+    exact = _candidate_from_cell_data(tree, item, column_id)
+    if exact:
+        return exact
+
     values = tree.item(item, "values") or ()
     try:
-        index = list(tree["columns"]).index(column_id)
+        column_index = list(tree["columns"]).index(column_id)
     except (ValueError, tk.TclError):
         return None
-    if index >= len(values):
+    if column_index >= len(values):
         return None
-    displayed = str(values[index]).strip()
+    displayed = str(values[column_index]).strip()
     if not _is_pdf(displayed):
         return None
 
+    # A full PDF path may also be supplied as a Treeview tag.
     for tag in tree.item(item, "tags") or ():
-        if _is_pdf(tag):
-            candidate = os.path.expanduser(str(tag))
-            if os.path.isfile(candidate):
-                return candidate
+        if _is_pdf(tag) and os.path.isfile(os.path.expanduser(str(tag))):
+            return os.path.expanduser(str(tag))
 
+    # Fall back to the source-document lists on the application.
     app = tree.winfo_toplevel()
-    analysis = getattr(app, "analysis", None)
-    if analysis is not None:
-        wanted = _basename(displayed)
-        for candidate in _walk_pdf_paths(analysis):
-            candidate = str(candidate)
-            if _basename(candidate) == wanted and os.path.isfile(candidate):
-                return candidate
-
+    wanted = _basename(displayed)
     for attr in ("pdf1_documents", "pdf2_documents"):
         documents = getattr(app, attr, None)
-        if documents is not None:
-            wanted = _basename(displayed)
-            for doc in documents:
-                path = doc.get("path") if isinstance(doc, dict) else getattr(doc, "path", None)
-                if path and _basename(str(path)) == wanted and os.path.isfile(str(path)):
-                    return str(path)
+        if documents is None:
+            continue
+        for doc in documents:
+            path = doc.get("path") if isinstance(doc, dict) else getattr(doc, "path", None)
+            if path and _basename(str(path)) == wanted and os.path.isfile(str(path)):
+                return str(path)
+
+    # Last fallback: inspect common analysis document containers. Dataclass
+    # objects are handled explicitly; this avoids the previous recursive scan
+    # silently ignoring Path/document objects.
+    analysis = getattr(app, "analysis", None)
+    for attr in ("pdf1_documents", "pdf2_documents"):
+        documents = getattr(analysis, attr, None) if analysis is not None else None
+        for doc in documents or ():
+            path = getattr(doc, "path", None)
+            if path and _basename(str(path)) == wanted and os.path.isfile(str(path)):
+                return str(path)
     return None
 
 
@@ -114,13 +124,14 @@ def _hide(tree: ttk.Treeview) -> None:
 
 def _show(tree: ttk.Treeview, item: str, column_id: str, path: str) -> None:
     bbox = tree.bbox(item, column_id)
-    if not bbox:
+    if not bbox or len(bbox) < 4:
         _hide(tree)
         return
     x, y, width, height = map(int, bbox)
     root = tree.winfo_toplevel()
     screen_x = tree.winfo_rootx() + x
     screen_y = tree.winfo_rooty() + y
+
     overlay = getattr(tree, "_pdf_hover_overlay", None)
     if overlay is None or not overlay.winfo_exists():
         overlay = tk.Toplevel(root)
@@ -134,10 +145,17 @@ def _show(tree: ttk.Treeview, item: str, column_id: str, path: str) -> None:
             return
         canvas = tk.Canvas(overlay, bg="#ff00ff", highlightthickness=0, bd=0)
         canvas.pack(fill="both", expand=True)
-        overlay.bind("<Button-1>", lambda _e, t=tree: _open_pdf(getattr(t, "_pdf_hover_path", "")))
-        tree._pdf_hover_overlay = overlay
+
+        def click(_event=None, t=tree):
+            selected = getattr(t, "_pdf_hover_path", None)
+            if selected:
+                _open_pdf(selected)
+
+        overlay.bind("<Button-1>", click)
+        overlay.bind("<Leave>", lambda _event, t=tree: _hide(t))
     else:
         canvas = overlay.winfo_children()[0]
+
     canvas.delete("all")
     canvas.create_rectangle(2, 2, max(2, width - 2), max(2, height - 2), outline="#7CFC00", width=2)
     overlay.geometry(f"{width}x{height}+{screen_x}+{screen_y}")
@@ -156,6 +174,8 @@ def _motion(tree: ttk.Treeview, event) -> None:
             _show(tree, item, column_id, path)
         else:
             _hide(tree)
+    except tk.TclError:
+        _hide(tree)
     except Exception:
         _hide(tree)
 
