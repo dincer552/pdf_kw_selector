@@ -9,11 +9,6 @@ on:
 permissions:
   contents: write
 
-# Shared branch build: do not cancel another commit's build.
-# This repository uses dincer552-fix-github-updates as its only/default branch.
-# Regression tests are intentionally disabled; builds are validated by the live EXE test.
-# Equipment discovery uses field-first extraction with filename fallback for varied Systemair formats.
-
 jobs:
   build-windows:
     runs-on: windows-latest
@@ -25,10 +20,8 @@ jobs:
       - name: Remove stale Python bytecode
         shell: pwsh
         run: |
-          Get-ChildItem -Path . -Recurse -Directory -Filter __pycache__ -ErrorAction SilentlyContinue |
-            Remove-Item -Recurse -Force -ErrorAction SilentlyContinue
-          Get-ChildItem -Path . -Recurse -File -Filter *.pyc -ErrorAction SilentlyContinue |
-            Remove-Item -Force -ErrorAction SilentlyContinue
+          Get-ChildItem -Path . -Recurse -Directory -Filter __pycache__ -ErrorAction SilentlyContinue | Remove-Item -Recurse -Force -ErrorAction SilentlyContinue
+          Get-ChildItem -Path . -Recurse -File -Filter *.pyc -ErrorAction SilentlyContinue | Remove-Item -Force -ErrorAction SilentlyContinue
       - uses: actions/setup-python@v5
         with:
           python-version: '3.11'
@@ -47,19 +40,17 @@ jobs:
           $text = $text.Replace($old,$new)
           Set-Content -Path $path -Value $text -Encoding UTF8
           python -m py_compile desktop_app.py
-          Write-Host 'Tk interactive confirmation thread fix applied and syntax checked.'
       - name: Fix VOCLEAN grouping so normal AHU PDFs remain matchable
         shell: pwsh
         run: |
           $path = 'confirmation_workflow.py'
           $text = Get-Content -Path $path -Raw -Encoding UTF8
-          $old = '            used_left.add(left_key)`n            used_right.add(right_key)`n            info("Onaylı proje grupları birleştirildi", left=left_project.project_name, right=right_project.project_name, left_key=left_key, right_key=right_key)'
-          $new = '            # VOCLEAN is an additional PDF2 label; keep the PDF1 group available for normal AHU PDFs.`n            if (left_key, right_key) not in voclean_approved:`n                used_left.add(left_key)`n            used_right.add(right_key)`n            info("Onaylı proje grupları birleştirildi", left=left_project.project_name, right=right_project.project_name, left_key=left_key, right_key=right_key, voclean_override=(left_key, right_key) in voclean_approved)'
-          if (-not $text.Contains($old)) { throw 'VOCLEAN grouping patch target was not found.' }
-          $text = $text.Replace($old,$new)
-          Set-Content -Path $path -Value $text -Encoding UTF8
+          $pattern = '            used_left\.add\(left_key\)\r?\n            used_right\.add\(right_key\)\r?\n            info\("Onaylı proje grupları birleştirildi", left=left_project\.project_name, right=right_project\.project_name, left_key=left_key, right_key=right_key\)'
+          $replacement = '            # VOCLEAN is an additional PDF2 label; keep the PDF1 group available for normal AHU PDFs.`r`n            if (left_key, right_key) not in voclean_approved:`r`n                used_left.add(left_key)`r`n            used_right.add(right_key)`r`n            info("Onaylı proje grupları birleştirildi", left=left_project.project_name, right=right_project.project_name, left_key=left_key, right_key=right_key, voclean_override=(left_key, right_key) in voclean_approved)'
+          $newText = [regex]::Replace($text,$pattern,$replacement,1)
+          if ($newText -eq $text) { throw 'VOCLEAN grouping patch target was not found.' }
+          Set-Content -Path $path -Value $newText -Encoding UTF8
           python -m py_compile confirmation_workflow.py
-          Write-Host 'VOCLEAN grouping patch applied and syntax checked.'
       - name: Verify GUI source before packaging
         shell: pwsh
         run: |
@@ -140,12 +131,9 @@ jobs:
             index=$((index + 1))
           done
           chunks_json+="]"
-          printf '{"version":"%s","build":"%s","file":"%s","size":%s,"sha256":"%s","chunks":%s}\n' \
-            "$VERSION" "$BUILD_SHA" "$name" "$size" "$sha" "$chunks_json" > "$UPDATE_ROOT/.manifest.json.tmp"
+          printf '{"version":"%s","build":"%s","file":"%s","size":%s,"sha256":"%s","chunks":%s}\n' "$VERSION" "$BUILD_SHA" "$name" "$size" "$sha" "$chunks_json" > "$UPDATE_ROOT/.manifest.json.tmp"
           mv -f "$UPDATE_ROOT/.${name}.tmp" "$UPDATE_ROOT/$name"
           mv -f "$UPDATE_ROOT/.manifest.json.tmp" "$UPDATE_ROOT/manifest.json"
-          find "$UPDATE_ROOT" -maxdepth 1 -type f -name 'PDF_KW_Selector_*.exe' \
-            ! -name "$name" ! -name 'PDF_KW_Selector_latest.exe' -delete
-          find "$UPDATE_ROOT" -maxdepth 1 -type f -name 'PDF_KW_Selector_*.exe.part*' \
-            ! -name "${name}.part*" -delete
+          find "$UPDATE_ROOT" -maxdepth 1 -type f -name 'PDF_KW_Selector_*.exe' ! -name "$name" ! -name 'PDF_KW_Selector_latest.exe' -delete
+          find "$UPDATE_ROOT" -maxdepth 1 -type f -name 'PDF_KW_Selector_*.exe.part*' ! -name "${name}.part*" -delete
           install -m 0644 "$UPDATE_ROOT/$name" "$UPDATE_ROOT/PDF_KW_Selector_latest.exe"
