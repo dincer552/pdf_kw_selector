@@ -45,11 +45,11 @@ jobs:
         run: |
           $path = 'confirmation_workflow.py'
           $text = Get-Content -Path $path -Raw -Encoding UTF8
-          $pattern = '            used_left\.add\(left_key\)\r?\n            used_right\.add\(right_key\)\r?\n            info\("Onaylı proje grupları birleştirildi", left=left_project\.project_name, right=right_project\.project_name, left_key=left_key, right_key=right_key\)'
-          $replacement = '            # VOCLEAN is an additional PDF2 label; keep the PDF1 group available for normal AHU PDFs.`r`n            if (left_key, right_key) not in voclean_approved:`r`n                used_left.add(left_key)`r`n            used_right.add(right_key)`r`n            info("Onaylı proje grupları birleştirildi", left=left_project.project_name, right=right_project.project_name, left_key=left_key, right_key=right_key, voclean_override=(left_key, right_key) in voclean_approved)'
-          $newText = [regex]::Replace($text,$pattern,$replacement,1)
-          if ($newText -eq $text) { throw 'VOCLEAN grouping patch target was not found.' }
-          Set-Content -Path $path -Value $newText -Encoding UTF8
+          $old = '            used_left.add(left_key)'
+          $new = '            if (left_key, right_key) not in voclean_approved: used_left.add(left_key)'
+          if (-not $text.Contains($old)) { throw 'VOCLEAN grouping patch target was not found.' }
+          $text = $text.Replace($old,$new,1)
+          Set-Content -Path $path -Value $text -Encoding UTF8
           python -m py_compile confirmation_workflow.py
       - name: Verify GUI source before packaging
         shell: pwsh
