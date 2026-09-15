@@ -53,10 +53,12 @@ jobs:
 
           def _analysis_finished(self,analysis):
           '@
+          $replacement = ($replacement -split "`r?`n" | ForEach-Object { if ($_ -match '^          ') { $_.Substring(6) } else { $_ } }) -join "`r`n"
           $newText = [regex]::Replace($text,$pattern,$replacement,1)
           if ($newText -eq $text) { throw 'Tk thread patch could not find _run_analysis_after_scan block.' }
           Set-Content -Path $path -Value $newText -Encoding UTF8
-          Write-Host 'Tk interactive confirmation patch applied.'
+          python -m py_compile desktop_app.py
+          Write-Host 'Tk interactive confirmation patch applied and syntax checked.'
       - name: Verify GUI source before packaging
         shell: pwsh
         run: |
