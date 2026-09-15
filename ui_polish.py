@@ -33,8 +33,6 @@ def _pin_bottom_bars(app):
             buttons.pack_forget()
         buttons.pack(side="bottom", fill="x", padx=0, pady=0)
 
-    # The update-progress row is optional. If it is shown later by the update
-    # checker, force it to remain immediately above the fixed action bar.
     if update_panel is not None and update_panel.winfo_manager() == "pack":
         update_panel.pack_forget()
         update_panel.pack(side="bottom", fill="x", padx=0, pady=0)
@@ -66,8 +64,6 @@ def _make_vertical_tab_resizer(app):
     app._tab_resizer = splitter
     app._tab_resizer_spacer = spacer
 
-    # _manual_update_check() may call update_panel.pack() later. Re-assert the
-    # footer order shortly afterwards so that row can never push the buttons out.
     def keep_footer():
         try:
             _pin_bottom_bars(app)
@@ -76,6 +72,96 @@ def _make_vertical_tab_resizer(app):
             return
 
     app.after(250, keep_footer)
+
+
+def _status_columns(tree):
+    result = []
+    for col in tree["columns"]:
+        heading = str(tree.heading(col, "text") or "").strip().casefold()
+        if heading in {"durum", "status", "sonuç", "result"}:
+            result.append(col)
+    return result
+
+
+def _status_badge_text(value):
+    text = " ".join(str(value or "").split())
+    if not text:
+        return None, False
+    is_match = text.casefold() == "match"
+    return (("✓ " if is_match else "✕ ") + text), is_match
+
+
+def _install_status_badges(app):
+    """Render MATCH/other statuses as per-cell green/red badges."""
+    trees = [w for w in _walk(app) if isinstance(w, ttk.Treeview)]
+    if not trees:
+        return
+
+    for tree in trees:
+        columns = _status_columns(tree)
+        if not columns:
+            continue
+        state = getattr(tree, "_status_badge_state", None)
+        if state is None:
+            state = {"labels": {}, "signature": None}
+            tree._status_badge_state = state
+
+        def refresh(tree=tree, columns=columns, state=state):
+            try:
+                parent = tree.master
+                wanted = {}
+                for item in tree.get_children(""):
+                    for col in columns:
+                        bbox = tree.bbox(item, col)
+                        if not bbox:
+                            continue
+                        value = tree.set(item, col)
+                        badge_text, is_match = _status_badge_text(value)
+                        if not badge_text:
+                            continue
+                        x, y, width, height = bbox
+                        font = ("Segoe UI", 8, "bold")
+                        key = (item, col)
+                        wanted[key] = (x, y, width, height, badge_text, is_match)
+
+                for key in list(state["labels"]):
+                    if key not in wanted:
+                        state["labels"].pop(key).destroy()
+
+                for key, (x, y, width, height, badge_text, is_match) in wanted.items():
+                    label = state["labels"].get(key)
+                    bg = "#e9fff3" if is_match else "#fff0f0"
+                    fg = "#087a4b" if is_match else "#b42318"
+                    border = "#24b878" if is_match else "#e05252"
+                    if label is None or not label.winfo_exists():
+                        label = tk.Label(
+                            parent,
+                            text=badge_text,
+                            font=font,
+                            bg=bg,
+                            fg=fg,
+                            bd=1,
+                            relief="solid",
+                            highlightthickness=0,
+                            padx=7,
+                            pady=2,
+                            anchor="center",
+                        )
+                        state["labels"][key] = label
+                    else:
+                        label.configure(text=badge_text, bg=bg, fg=fg, bd=1)
+                    label.place(x=tree.winfo_x() + x + 3, y=tree.winfo_y() + y + 2)
+                    label.lift()
+                app.after(250, refresh)
+            except tk.TclError:
+                return
+
+        tree.bind("<Configure>", lambda e, refresh=refresh: refresh(), add="+")
+        tree.bind("<Motion>", lambda e, refresh=refresh: refresh(), add="+")
+        tree.bind("<MouseWheel>", lambda e, refresh=refresh: refresh(), add="+")
+        tree.bind("<Button-4>", lambda e, refresh=refresh: refresh(), add="+")
+        tree.bind("<Button-5>", lambda e, refresh=refresh: refresh(), add="+")
+        refresh()
 
 
 def _polish(app):
@@ -104,7 +190,6 @@ def _polish(app):
         if children:
             children[0].configure(style="TFrame")
 
-        # Move JSON/technical detail from SONUÇLAR to HATA / İŞLEM LOGLARI.
         detail = getattr(app, "detail", None)
         result_tab = app.tree.master
         unmatched_tab = app.unmatched_tree.master
@@ -130,6 +215,7 @@ def _polish(app):
                 ttk.Button(log_buttons, text="JSON KAYDET", command=app.save_json).pack(side="left", padx=3)
 
         _make_vertical_tab_resizer(app)
+        _install_status_badges(app)
 
         style.configure("Accent.TButton", background="#62b8df", foreground="#ffffff", padding=(16, 7), font=("Segoe UI", 10, "bold"), borderwidth=0)
         style.map("Accent.TButton", background=[("active", "#3da2d2"), ("pressed", "#258dbd")])
