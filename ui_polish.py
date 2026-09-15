@@ -37,7 +37,7 @@ def _polish(app):
         style.configure("TLabelframe.Label", background=colors["panel"], foreground=colors["accent_hover"], font=("Segoe UI", 10, "bold"))
         style.configure("TLabel", background=colors["surface"], foreground=colors["text"], font=("Segoe UI", 9))
         style.configure("Muted.TLabel", background=colors["surface"], foreground=colors["muted"], font=("Segoe UI", 9))
-        style.configure("TNotebook", background=colors["surface"], borderwidth=0, tabmargins=(0, 0, 0, 0))
+        style.configure("TNotebook", background=colors["surface"], borderwidth=0)
         style.configure("TNotebook.Tab", background=colors["panel"], foreground=colors["muted"], padding=(16, 9), font=("Segoe UI", 9, "bold"))
         style.map("TNotebook.Tab", background=[("selected", colors["panel_alt"]), ("active", colors["border"])], foreground=[("selected", colors["text"]), ("active", colors["text"])])
         style.configure("TButton", background=colors["panel_alt"], foreground=colors["text"], padding=(11, 7), font=("Segoe UI", 9, "bold"), bordercolor=colors["border"], borderwidth=1, relief="solid")
