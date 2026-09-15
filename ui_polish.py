@@ -15,26 +15,42 @@ def _walk(widget):
 
 def _polish(app):
     try:
+        colors = {
+            "surface": "#0d1117",
+            "panel": "#161b22",
+            "panel_alt": "#21262d",
+            "border": "#30363d",
+            "text": "#e6edf3",
+            "muted": "#8b949e",
+            "accent": "#2f81f7",
+            "accent_hover": "#58a6ff",
+            "selection": "#1f6feb",
+        }
         style = ttk.Style(app)
         try:
             style.theme_use("clam")
         except tk.TclError:
             pass
 
-        style.configure("TFrame", background="#eef7fc")
-        style.configure("TLabelframe", background="#eef7fc", borderwidth=1, relief="solid")
-        style.configure("TLabelframe.Label", background="#dff2fb", foreground="#16445c", font=("Segoe UI", 10, "bold"))
-        style.configure("TLabel", background="#eef7fc", foreground="#17384a", font=("Segoe UI", 9))
-        style.configure("TNotebook", background="#dceff8", borderwidth=0)
-        style.configure("TNotebook.Tab", background="#cfeaf7", foreground="#16445c", padding=(14, 7), font=("Segoe UI", 9, "bold"))
-        style.map("TNotebook.Tab", background=[("selected", "#ffffff")], foreground=[("selected", "#0877a8")])
-        style.configure("TButton", background="#d8eef9", foreground="#16445c", padding=(10, 6), font=("Segoe UI", 9, "bold"), borderwidth=1, relief="solid")
-        style.map("TButton", background=[("active", "#bde3f4"), ("pressed", "#a9d8ec")])
-        style.configure("Treeview", background="#ffffff", fieldbackground="#ffffff", foreground="#183b4c", rowheight=28, font=("Segoe UI", 9))
-        style.configure("Treeview.Heading", background="#c9e8f5", foreground="#16445c", font=("Segoe UI", 9, "bold"), padding=7)
-        style.map("Treeview", background=[("selected", "#c8eafa")], foreground=[("selected", "#10384b")])
+        style.configure("TFrame", background=colors["surface"])
+        style.configure("TLabelframe", background=colors["panel"], bordercolor=colors["border"], borderwidth=1, relief="solid")
+        style.configure("TLabelframe.Label", background=colors["panel"], foreground=colors["accent_hover"], font=("Segoe UI", 10, "bold"))
+        style.configure("TLabel", background=colors["surface"], foreground=colors["text"], font=("Segoe UI", 9))
+        style.configure("Muted.TLabel", background=colors["surface"], foreground=colors["muted"], font=("Segoe UI", 9))
+        style.configure("TNotebook", background=colors["surface"], borderwidth=0, tabmargins=(0, 0, 0, 0))
+        style.configure("TNotebook.Tab", background=colors["panel"], foreground=colors["muted"], padding=(16, 9), font=("Segoe UI", 9, "bold"))
+        style.map("TNotebook.Tab", background=[("selected", colors["panel_alt"]), ("active", colors["border"])], foreground=[("selected", colors["text"]), ("active", colors["text"])])
+        style.configure("TButton", background=colors["panel_alt"], foreground=colors["text"], padding=(11, 7), font=("Segoe UI", 9, "bold"), bordercolor=colors["border"], borderwidth=1, relief="solid")
+        style.map("TButton", background=[("active", colors["border"]), ("pressed", colors["accent"]), ("disabled", colors["panel"])], foreground=[("disabled", colors["muted"])])
+        style.configure("Accent.TButton", background=colors["accent"], foreground="#ffffff", padding=(16, 8), font=("Segoe UI", 10, "bold"), borderwidth=0)
+        style.map("Accent.TButton", background=[("active", colors["accent_hover"]), ("pressed", "#1f6feb"), ("disabled", colors["panel"])])
+        style.configure("Treeview", background=colors["panel"], fieldbackground=colors["panel"], foreground=colors["text"], rowheight=30, font=("Segoe UI", 9), bordercolor=colors["border"], lightcolor=colors["border"], darkcolor=colors["border"])
+        style.configure("Treeview.Heading", background=colors["panel_alt"], foreground=colors["muted"], font=("Segoe UI", 9, "bold"), padding=8, relief="flat")
+        style.map("Treeview", background=[("selected", colors["selection"])], foreground=[("selected", "#ffffff")])
+        style.configure("Horizontal.TProgressbar", troughcolor=colors["panel_alt"], background=colors["accent"], lightcolor=colors["accent"], darkcolor=colors["accent"], bordercolor=colors["border"])
+        style.configure("Update.Horizontal.TProgressbar", troughcolor=colors["panel_alt"], background="#3fb950", lightcolor="#3fb950", darkcolor="#238636", bordercolor=colors["border"])
 
-        app.configure(background="#eef7fc")
+        app.configure(background=colors["surface"])
         children = app.winfo_children()
         if children:
             children[0].configure(style="TFrame")
@@ -64,11 +80,22 @@ def _polish(app):
                         widget.destroy()
                 ttk.Button(log_buttons, text="JSON KAYDET", command=app.save_json).pack(side="left", padx=3)
 
-        # Make the main action prominent.
-        style.configure("Accent.TButton", background="#62b8df", foreground="#ffffff", padding=(16, 7), font=("Segoe UI", 10, "bold"), borderwidth=0)
-        style.map("Accent.TButton", background=[("active", "#3da2d2"), ("pressed", "#258dbd")])
         for widget in _walk(app):
-            if isinstance(widget, ttk.Button) and widget.cget("text") == "ANALİZ":
+            if isinstance(widget, tk.Text):
+                widget.configure(
+                    background=colors["panel"],
+                    foreground=colors["text"],
+                    insertbackground=colors["text"],
+                    selectbackground=colors["selection"],
+                    selectforeground="#ffffff",
+                    highlightthickness=1,
+                    highlightbackground=colors["border"],
+                    highlightcolor=colors["accent"],
+                    relief="flat",
+                    padx=8,
+                    pady=8,
+                )
+            if isinstance(widget, ttk.Button) and widget.cget("text") in ("ANALİZ", "ANALİZ BAŞLA"):
                 widget.configure(style="Accent.TButton")
     except Exception:
         # Visual polish must never prevent the application from starting.
