@@ -99,6 +99,8 @@ class App(tk.Tk):
         # LabelFrame
         style.configure("TLabelframe", background=card_bg, bordercolor=border_color, borderwidth=1, relief="solid")
         style.configure("TLabelframe.Label", background=card_bg, foreground=text_dark, font=("Segoe UI", 9, "bold"))
+        style.configure("Card.TLabelframe", background=card_bg, bordercolor=border_color, borderwidth=1, relief="solid")
+        style.configure("Card.TLabelframe.Label", background=card_bg, foreground=text_dark, font=("Segoe UI", 9, "bold"))
 
     def _build_ui(self):
         # Modern Header
@@ -205,22 +207,184 @@ class App(tk.Tk):
         if not getattr(self, "_manual_check_active", False): self.update_check_button.configure(text="↻", state="normal"); return
         symbols=("↻","⟳","↺","⟲"); index=self._update_check_spinner_index % len(symbols); self.update_check_button.configure(text=symbols[index],state="disabled"); self._update_check_spinner_index+=1; self.after(180,self._spin_update_check_button)
 
-    def _file_box(self,parent,title,side):
-        frame=ttk.LabelFrame(parent,text=title,padding=6); label=ttk.Label(frame,text="0 PDF seçildi"); label.pack(side="left",fill="x",expand=True); ttk.Button(frame,text="PDF EKLE",command=lambda:self.add_files(side)).pack(side="right",padx=2); ttk.Button(frame,text="KLASÖR EKLE",command=lambda:self.add_folder(side)).pack(side="right",padx=2); return label,frame
-    def add_files(self,side): self._merge_inputs(side,list(filedialog.askopenfilenames(title=f"{side} PDF seç",filetypes=[("PDF","*.pdf")])) )
-    def add_folder(self,side):
-        path=filedialog.askdirectory(title=f"{side} PDF klasörü seç")
-        if path:self._merge_inputs(side,[path])
-    def _merge_inputs(self,side,paths):
-        discovered=discover_pdfs(paths,recursive=True); target=self.pdf1_inputs if side=="PDF1" else self.pdf2_inputs; known={str(x.path).casefold() for x in target}
+    @staticmethod
+    def _format_bytes(size_bytes: int) -> str:
+        if size_bytes < 1024:
+            return f"{size_bytes} B"
+        elif size_bytes < 1024 * 1024:
+            return f"{size_bytes / 1024:.1f} KB"
+        else:
+            return f"{size_bytes / (1024 * 1024):.1f} MB"
+
+    def _file_box(self, parent, title, side):
+        frame = ttk.Frame(parent, style="White.TFrame", padding=10)
+        # Inner border effect
+        inner_box = tk.Frame(frame, bg="#ffffff", highlightbackground="#e2e8f0", highlightthickness=1, padx=8, pady=8)
+        inner_box.pack(fill="both", expand=True)
+
+        # Header inside the card
+        head_row = tk.Frame(inner_box, bg="#ffffff")
+        head_row.pack(fill="x", pady=(0, 6))
+
+        badge_color = "#eff6ff" if side == "PDF1" else "#f5f3ff"
+        badge_fg = "#2563eb" if side == "PDF1" else "#4f46e5"
+        side_badge = tk.Label(head_row, text=f" {side} ", bg=badge_color, fg=badge_fg, font=("Segoe UI", 9, "bold"), relief="flat")
+        side_badge.pack(side="left", padx=(0, 6))
+
+        info_col = tk.Frame(head_row, bg="#ffffff")
+        info_col.pack(side="left")
+        tk.Label(info_col, text=title, font=("Segoe UI", 10, "bold"), bg="#ffffff", fg="#0f172a").pack(anchor="w")
+        sub_desc = "Ekipman ve motor seçim dokümanları" if side == "PDF1" else "Bağlantı şemaları ve pano çizimleri"
+        tk.Label(info_col, text=sub_desc, font=("Segoe UI", 8), bg="#ffffff", fg="#94a3b8").pack(anchor="w")
+
+        btn_col = tk.Frame(head_row, bg="#ffffff")
+        btn_col.pack(side="right")
+
+        count_badge = tk.Label(btn_col, text="0 PDF", bg="#ffffff", fg="#475569", font=("Segoe UI", 8, "bold"), relief="solid", bd=1, padx=6, pady=2)
+        count_badge.pack(side="left", padx=(0, 6))
+
+        ttk.Button(btn_col, text="+ PDF EKLE", style="Secondary.TButton", command=lambda: self.add_files(side)).pack(side="left", padx=2)
+        ttk.Button(btn_col, text="+ KLASÖR EKLE", style="Secondary.TButton", command=lambda: self.add_folder(side)).pack(side="left", padx=2)
+
+        # Inner scrollable list area
+        list_container = tk.Frame(inner_box, bg="#f8fafc", highlightbackground="#e2e8f0", highlightthickness=1)
+        list_container.pack(fill="both", expand=True, pady=(4, 0))
+
+        canvas = tk.Canvas(list_container, bg="#f8fafc", highlightthickness=0, height=95)
+        scrollbar = ttk.Scrollbar(list_container, orient="vertical", command=canvas.yview)
+        scrollable_frame = tk.Frame(canvas, bg="#f8fafc")
+
+        scrollable_frame.bind(
+            "<Configure>",
+            lambda e, c=canvas: c.configure(scrollregion=c.bbox("all"))
+        )
+        canvas_window = canvas.create_window((0, 0), window=scrollable_frame, anchor="nw")
+
+        def _on_canvas_resize(event, c=canvas, cw=canvas_window):
+            c.itemconfig(cw, width=event.width)
+        canvas.bind("<Configure>", _on_canvas_resize)
+        canvas.configure(yscrollcommand=scrollbar.set)
+
+        canvas.pack(side="left", fill="both", expand=True)
+        scrollbar.pack(side="right", fill="y")
+
+        # Store references
+        if side == "PDF1":
+            self._pdf1_scroll_frame = scrollable_frame
+            self._pdf1_canvas = canvas
+            self._pdf1_badge = count_badge
+        else:
+            self._pdf2_scroll_frame = scrollable_frame
+            self._pdf2_canvas = canvas
+            self._pdf2_badge = count_badge
+
+        self._refresh_file_list(side)
+        return count_badge, frame
+
+    def remove_file(self, side: str, index: int):
+        target = self.pdf1_inputs if side == "PDF1" else self.pdf2_inputs
+        if 0 <= index < len(target):
+            removed = target.pop(index)
+            info("PDF girişi silindi", side=side, path=str(removed.path))
+            self._refresh_file_list(side)
+
+    def _refresh_file_list(self, side: str):
+        target = self.pdf1_inputs if side == "PDF1" else self.pdf2_inputs
+        scroll_frame = getattr(self, f"_{side.lower()}_scroll_frame", None)
+        badge = getattr(self, f"_{side.lower()}_badge", None)
+        if scroll_frame is None:
+            return
+
+        if badge:
+            badge.configure(text=f"{len(target)} PDF")
+
+        for child in scroll_frame.winfo_children():
+            child.destroy()
+
+        if not target:
+            empty_lbl = tk.Label(
+                scroll_frame,
+                text="PDF dosyalarını buraya sürükleyin veya '+ PDF EKLE' butonunu kullanın",
+                bg="#f8fafc",
+                fg="#94a3b8",
+                font=("Segoe UI", 8),
+                pady=20
+            )
+            empty_lbl.pack(fill="both", expand=True)
+            return
+
+        for idx, item in enumerate(target):
+            card = tk.Frame(scroll_frame, bg="#ffffff", highlightbackground="#e2e8f0", highlightthickness=1, padx=6, pady=4)
+            card.pack(fill="x", expand=True, padx=4, pady=2)
+
+            icon = tk.Label(card, text="📄", bg="#ffffff", fg="#2563eb", font=("Segoe UI", 10))
+            icon.pack(side="left", padx=(0, 6))
+
+            text_box = tk.Frame(card, bg="#ffffff")
+            text_box.pack(side="left", fill="both", expand=True)
+
+            fname = Path(item.path).name
+            tk.Label(text_box, text=fname, bg="#ffffff", fg="#0f172a", font=("Segoe UI", 9, "bold"), anchor="w").pack(fill="x", anchor="w")
+
+            size_str = self._format_bytes(getattr(item, "size_bytes", 0))
+            sub_info = f"{size_str} • {str(item.path)}"
+            if len(sub_info) > 60:
+                sub_info = sub_info[:57] + "..."
+            tk.Label(text_box, text=sub_info, bg="#ffffff", fg="#64748b", font=("Segoe UI", 8), anchor="w").pack(fill="x", anchor="w")
+
+            # Silme butonu (Trash can button 🗑)
+            del_btn = tk.Button(
+                card,
+                text="🗑",
+                bg="#ffffff",
+                fg="#94a3b8",
+                activeforeground="#ef4444",
+                activebackground="#fee2e2",
+                font=("Segoe UI", 10),
+                relief="flat",
+                bd=0,
+                cursor="hand2",
+                command=lambda i=idx, s=side: self.remove_file(s, i)
+            )
+            del_btn.pack(side="right", padx=(4, 2))
+
+    def add_files(self, side):
+        self._merge_inputs(side, list(filedialog.askopenfilenames(title=f"{side} PDF seç", filetypes=[("PDF", "*.pdf")])))
+
+    def add_folder(self, side):
+        path = filedialog.askdirectory(title=f"{side} PDF klasörü seç")
+        if path:
+            self._merge_inputs(side, [path])
+
+    def _merge_inputs(self, side, paths):
+        discovered = discover_pdfs(paths, recursive=True)
+        target = self.pdf1_inputs if side == "PDF1" else self.pdf2_inputs
+        known = {str(x.path).casefold() for x in target}
         for path in discovered:
-            if str(path).casefold() not in known: target.append(path)
-        label=self.pdf1_label if side=="PDF1" else self.pdf2_label; names=", ".join(Path(x.path).name for x in target[:3]); label.configure(text=f"{len(target)} PDF: {names}{' ...' if len(target)>3 else ''}"); info("PDF girişleri güncellendi",side=side,count=len(target),paths=[str(x.path) for x in target])
+            if str(path).casefold() not in known:
+                target.append(path)
+                known.add(str(path).casefold())
+        self._refresh_file_list(side)
+        info("PDF girişleri güncellendi", side=side, count=len(target), paths=[str(x.path) for x in target])
+
     def clear_inputs(self):
-        if self._analysis_running:return
-        self.pdf1_inputs.clear(); self.pdf2_inputs.clear(); self.pdf1_label.configure(text="0 PDF seçildi"); self.pdf2_label.configure(text="0 PDF seçildi"); self.analysis=None
-        for item in self.tree.get_children(): self.tree.delete(item)
-        self._clear_unmatched(); self._clear_analysis_detail(); self.status.configure(text="Hazır"); self.update_progress.set(0); self.update_detail.set("Güncelleme hazır"); self.update_panel.pack_forget(); self._clear_grouped_results(); info("PDF seçimleri ve analiz sonuçları temizlendi")
+        if self._analysis_running:
+            return
+        self.pdf1_inputs.clear()
+        self.pdf2_inputs.clear()
+        self._refresh_file_list("PDF1")
+        self._refresh_file_list("PDF2")
+        self.analysis = None
+        for item in self.tree.get_children():
+            self.tree.delete(item)
+        self._clear_unmatched()
+        self._clear_analysis_detail()
+        self.status.configure(text="Hazır")
+        self.update_progress.set(0)
+        self.update_detail.set("Güncelleme hazır")
+        self.update_panel.pack_forget()
+        self._clear_grouped_results()
+        info("PDF seçimleri ve analiz sonuçları temizlendi")
 
     def _clear_analysis_detail(self): self._set_detail("")
     def _clear_grouped_results(self): return
