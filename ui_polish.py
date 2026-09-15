@@ -13,13 +13,40 @@ def _walk(widget):
         yield from _walk(child)
 
 
+def _find_action_bar(app):
+    for child in app.winfo_children():
+        if not isinstance(child, ttk.Frame):
+            continue
+        for nested in child.winfo_children():
+            if isinstance(nested, ttk.Button) and nested.cget("text") == "▶ ANALİZ BAŞLA":
+                return child
+    return None
+
+
+def _pin_bottom_bars(app):
+    """Keep the action bar permanently at the bottom, below the resizable area."""
+    buttons = getattr(app, "_fixed_action_bar", None) or _find_action_bar(app)
+    update_panel = getattr(app, "update_panel", None)
+    if buttons is not None:
+        app._fixed_action_bar = buttons
+        if buttons.winfo_manager() == "pack":
+            buttons.pack_forget()
+        buttons.pack(side="bottom", fill="x", padx=0, pady=0)
+
+    # The update-progress row is optional. If it is shown later by the update
+    # checker, force it to remain immediately above the fixed action bar.
+    if update_panel is not None and update_panel.winfo_manager() == "pack":
+        update_panel.pack_forget()
+        update_panel.pack(side="bottom", fill="x", padx=0, pady=0)
+
+
 def _make_vertical_tab_resizer(app):
-    """Put the notebook in a vertical-only splitter so the action bar stays visible."""
+    """Put the notebook in a vertical-only splitter; footer controls stay fixed."""
     tabs = getattr(app, "tabs", None)
     if tabs is None or getattr(app, "_tab_resizer", None) is not None:
         return
 
-    update_panel = getattr(app, "update_panel", None)
+    _pin_bottom_bars(app)
     splitter = tk.PanedWindow(
         app,
         orient="vertical",
@@ -33,14 +60,22 @@ def _make_vertical_tab_resizer(app):
     spacer = ttk.Frame(splitter, height=4)
 
     tabs.pack_forget()
-    if update_panel is not None:
-        splitter.pack(fill="both", expand=True, padx=10, pady=(8, 0), before=update_panel)
-    else:
-        splitter.pack(fill="both", expand=True, padx=10, pady=(8, 0))
+    splitter.pack(fill="both", expand=True, padx=10, pady=(8, 0))
     splitter.add(tabs, minsize=220, stretch="always")
     splitter.add(spacer, minsize=4, height=4, stretch="never")
     app._tab_resizer = splitter
     app._tab_resizer_spacer = spacer
+
+    # _manual_update_check() may call update_panel.pack() later. Re-assert the
+    # footer order shortly afterwards so that row can never push the buttons out.
+    def keep_footer():
+        try:
+            _pin_bottom_bars(app)
+            app.after(250, keep_footer)
+        except tk.TclError:
+            return
+
+    app.after(250, keep_footer)
 
 
 def _polish(app):
@@ -94,8 +129,6 @@ def _polish(app):
                         widget.destroy()
                 ttk.Button(log_buttons, text="JSON KAYDET", command=app.save_json).pack(side="left", padx=3)
 
-        # The notebook is the only vertically resizable area. The action bar
-        # remains outside the splitter, so ANALİZ BAŞLA can never be hidden.
         _make_vertical_tab_resizer(app)
 
         style.configure("Accent.TButton", background="#62b8df", foreground="#ffffff", padding=(16, 7), font=("Segoe UI", 10, "bold"), borderwidth=0)
@@ -104,7 +137,6 @@ def _polish(app):
             if isinstance(widget, ttk.Button) and widget.cget("text") == "ANALİZ":
                 widget.configure(style="Accent.TButton")
     except Exception:
-        # Visual/layout polish must never prevent the application from starting.
         pass
 
 
