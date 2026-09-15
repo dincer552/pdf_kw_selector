@@ -243,6 +243,7 @@ def analyze_with_confirmations(pdf1_paths, pdf2_paths, progress_callback=None):
 
     original_project_match = batch.match_discoveries
     original_ahu_match = batch.match_ahu_lists
+    original_project_pair_groups = batch._pair_project_groups
 
     def confirmed_project_match(left, right):
         if (left.project_name_normalized, right.project_name_normalized) in approved_projects:
@@ -258,6 +259,41 @@ def analyze_with_confirmations(pdf1_paths, pdf2_paths, progress_callback=None):
                 right_source=right.project_source,
             )
         return original_project_match(left, right)
+
+    def confirmed_project_pairs(left_group_map, right_group_map):
+        """Treat user-approved project-name variants as one project group."""
+        output = []
+        used_left = set()
+        used_right = set()
+
+        for left_key, right_key in sorted(approved_projects):
+            if left_key not in left_group_map or right_key not in right_group_map:
+                continue
+            left_project = left_group_map[left_key][0].project
+            right_project = right_group_map[right_key][0].project
+            output.append((
+                left_key,
+                right_key,
+                ProjectMatch(
+                    left_name=left_project.project_name,
+                    right_name=right_project.project_name,
+                    left_normalized=left_project.project_name_normalized,
+                    right_normalized=right_project.project_name_normalized,
+                    score=1.0,
+                    status="USER_APPROVED",
+                    reason="user confirmed project names refer to the same project; project groups were unified",
+                    left_source=left_project.project_source,
+                    right_source=right_project.project_source,
+                ),
+            ))
+            used_left.add(left_key)
+            used_right.add(right_key)
+            info("Onaylı proje grupları birleştirildi", left=left_project.project_name, right=right_project.project_name, left_key=left_key, right_key=right_key)
+
+        remaining_left = {key: docs for key, docs in left_group_map.items() if key not in used_left}
+        remaining_right = {key: docs for key, docs in right_group_map.items() if key not in used_right}
+        output.extend(original_project_pair_groups(remaining_left, remaining_right))
+        return output
 
     def confirmed_ahu_matches(left, right):
         base = original_ahu_match(left, right)
@@ -288,6 +324,7 @@ def analyze_with_confirmations(pdf1_paths, pdf2_paths, progress_callback=None):
 
     batch.match_discoveries = confirmed_project_match
     batch.match_ahu_lists = confirmed_ahu_matches
+    batch._pair_project_groups = confirmed_project_pairs
     try:
         info("Onaylı eşleştirmelerle hesap başlıyor", approved_projects=list(approved_projects), approved_ahus=list(all_approved_ahus))
         return batch.analyze_batch(list(pdf1_paths), list(pdf2_paths), progress_callback=progress_callback)
@@ -297,3 +334,4 @@ def analyze_with_confirmations(pdf1_paths, pdf2_paths, progress_callback=None):
     finally:
         batch.match_discoveries = original_project_match
         batch.match_ahu_lists = original_ahu_match
+        batch._pair_project_groups = original_project_pair_groups
