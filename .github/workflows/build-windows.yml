@@ -29,16 +29,6 @@ jobs:
           cache-dependency-path: requirements.txt
       - name: Install dependencies
         run: python -m pip install -r requirements.txt pyinstaller
-      - name: Fix Tk confirmation thread usage
-        shell: pwsh
-        run: |
-          $path = 'desktop_app.py'
-          $text = Get-Content -Path $path -Raw -Encoding UTF8
-          $old = 'threading.Thread(target=self._analyze_background,args=(pdf1_paths,pdf2_paths),daemon=True).start()'
-          $new = 'self._analyze_background(pdf1_paths,pdf2_paths)'
-          if (-not $text.Contains($old)) { throw 'Tk thread fix target was not found.' }
-          Set-Content -Path $path -Value $text.Replace($old,$new) -Encoding UTF8
-          python -m py_compile desktop_app.py
       - name: Keep normal AHU group available after VOCLEAN selection
         shell: pwsh
         run: |
