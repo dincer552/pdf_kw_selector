@@ -162,7 +162,11 @@ class App(tk.Tk):
         self.unmatched_tree.configure(yscrollcommand=unmatched_scroll.set)
         self.unmatched_tree.pack(side="left", fill="both", expand=True, padx=(8, 0), pady=8)
         unmatched_scroll.pack(side="right", fill="y", padx=(0, 8), pady=8)
+        self._unmatched_cell_data: dict[str, dict] = {}
+        self.unmatched_tree.bind("<Button-1>", self._on_unmatched_cell_click)
         self.unmatched_tree.bind("<Double-1>", self._on_unmatched_click)
+        self.unmatched_tree.bind("<Motion>", self._on_unmatched_cell_motion)
+        self.unmatched_tree.bind("<Leave>", lambda e: self.unmatched_tree.configure(cursor=""))
 
         detail_frame = ttk.LabelFrame(log_tab, text="Sonuç JSON / Teknik Detay", padding=6)
         detail_frame.pack(fill="both", expand=False, padx=8, pady=(8, 0))
@@ -579,6 +583,7 @@ class App(tk.Tk):
         info("GUI sonuç tablosu oluşturuldu",comparisons=len(comparisons),counts=counts,grouped_ahu_count=group_number); self.status.configure(text=f"✓ Proje {len(self.analysis.project_matches)} | AHU {len(self.analysis.ahu_matches)} | Motor {len(self.analysis.motor_comparisons)} | MATCH {counts['MATCH']} | MISMATCH {counts['MISMATCH']} | PDF1 {counts['ONLY_IN_PDF1']} | PDF2 {counts['ONLY_IN_PDF2']}"); self._set_detail(json.dumps(self.analysis.to_dict(),ensure_ascii=False,indent=2)); self.refresh_logs()
     def _render_unmatched(self):
         for item in self.unmatched_tree.get_children(): self.unmatched_tree.delete(item)
+        self._unmatched_cell_data = {}
         matched_paths=set()
         for ahu in self.analysis.ahu_matches:
             matched_paths.update(str(path).casefold() for path in ahu.pdf1_files); matched_paths.update(str(path).casefold() for path in ahu.pdf2_files)
@@ -588,11 +593,14 @@ class App(tk.Tk):
                 if str(document.path).casefold() in matched_paths: continue
                 project=document.project.project_name or "-"; ahus=", ".join(document.equipment) if document.equipment else "-"; reason="AHU eşleşmesine giremedi" if document.equipment else "Ekipman/AHU tespit edilemedi"; rows.append((side,Path(document.path).name,project,ahus,reason,str(document.path)))
         rows.sort(key=lambda row:(row[0],row[1].casefold()))
-        for side,pdf,project,ahus,reason,path in rows:self.unmatched_tree.insert("","end",values=(side,pdf,project,ahus,reason),tags=(path,))
+        for side,pdf,project,ahus,reason,path in rows:
+            item_id = self.unmatched_tree.insert("","end",values=(side,pdf,project,ahus,reason),tags=(path,))
+            self._unmatched_cell_data[item_id] = {"path": path, "name": pdf, "page": 1}
         self.tabs.tab(1,text=f"EŞLEŞMEYEN PDF'LER ({len(rows)})"); info("Eşleşmeyen PDF listesi oluşturuldu",unmatched_count=len(rows),matched_ahu_pdf_count=len(matched_paths),unmatched=[{"side":r[0],"path":r[5],"project":r[2],"ahu":r[3],"reason":r[4]} for r in rows])
     def _clear_unmatched(self):
         if not hasattr(self,"unmatched_tree"):return
         for item in self.unmatched_tree.get_children():self.unmatched_tree.delete(item)
+        if hasattr(self,"_unmatched_cell_data"):self._unmatched_cell_data.clear()
         if hasattr(self,"tabs"):self.tabs.tab(1,text="EŞLEŞMEYEN PDF'LER (0)")
     def _analysis_failed(self,exc):
         self._analysis_running=False; exception("GUI sonuç tablosu oluşturma hatası",exc); messagebox.showerror("Sonuç gösterme hatası",f"{type(exc).__name__}: {exc}"); self.status.configure(text="Analiz başarısız"); self.update_detail.set("Analiz başarısız"); self.refresh_logs()
@@ -657,6 +665,24 @@ class App(tk.Tk):
         if not path:return
         Path(path).write_text(json.dumps(self.analysis.to_dict(),ensure_ascii=False,indent=2),encoding="utf-8"); info("Analiz JSON kaydedildi",path=path); self.refresh_logs()
 
+    def open_pdf_document(self, file_path: str | Path | None, page: int | None = 1, description: str = "") -> bool:
+        if not file_path:
+            messagebox.showinfo("PDF Bilgisi", f"{description or 'PDF'} için dosya yolu bulunamadı.")
+            return False
+        p = Path(file_path)
+        if not p.exists():
+            messagebox.showwarning("Dosya Bulunamadı", f"PDF dosyası mevcut konumda bulunamadı:\n{file_path}")
+            return False
+        display_page = page or 1
+        self.status.configure(text=f"PDF açılıyor: {p.name} (Sayfa {display_page})...")
+        info("Kullanıcı PDF bağlantısına tıkladı, PDF açılıyor", description=description, path=str(p), page=display_page)
+        ok = open_pdf_at_page(p, display_page)
+        if ok:
+            self.status.configure(text=f"PDF açıldı: {p.name} (Sayfa {display_page})")
+        else:
+            self.status.configure(text=f"PDF açılırken bir sorun oluştu: {p.name}")
+        return ok
+
     def _on_tree_cell_click(self, event):
         region = self.tree.identify_region(event.x, event.y)
         if region != "cell":
@@ -694,23 +720,7 @@ class App(tk.Tk):
         except (ValueError, TypeError):
             page = None
 
-        if not pdf_path:
-            messagebox.showinfo("PDF Bilgisi", f"{side_name} için dosya yolu bulunamadı.")
-            return
-
-        p = Path(pdf_path)
-        if not p.exists():
-            messagebox.showwarning("Dosya Bulunamadı", f"PDF dosyası mevcut konumda bulunamadı:\n{pdf_path}")
-            return
-
-        display_page = page or 1
-        self.status.configure(text=f"PDF açılıyor: {p.name} (Sayfa {display_page})...")
-        info("Kullanıcı kW hücresine tıkladı, PDF açılıyor", side=side_name, path=str(p), page=display_page, kw=kw_val)
-        ok = open_pdf_at_page(p, display_page)
-        if ok:
-            self.status.configure(text=f"PDF açıldı: {p.name} (Sayfa {display_page})")
-        else:
-            self.status.configure(text=f"PDF açılırken bir sorun oluştu: {p.name}")
+        self.open_pdf_document(pdf_path, page, side_name)
 
     def _on_tree_cell_motion(self, event):
         region = self.tree.identify_region(event.x, event.y)
@@ -724,13 +734,41 @@ class App(tk.Tk):
                 return
         self.tree.configure(cursor="")
 
+    def _on_unmatched_cell_click(self, event):
+        region = self.unmatched_tree.identify_region(event.x, event.y)
+        if region != "cell":
+            return
+        col = self.unmatched_tree.identify_column(event.x)
+        row_id = self.unmatched_tree.identify_row(event.y)
+        if not row_id or col != "#2":  # Sadece "PDF" sütununa (#2) tıklandığında
+            return
+        data = getattr(self, "_unmatched_cell_data", {}).get(row_id, {})
+        path = data.get("path")
+        if not path:
+            tags = self.unmatched_tree.item(row_id, "tags")
+            if tags and len(tags) > 0 and tags[0]:
+                path = tags[0]
+        if path:
+            self.open_pdf_document(path, data.get("page", 1), f"Eşleşmeyen PDF ({data.get('name', Path(path).name)})")
+
+    def _on_unmatched_cell_motion(self, event):
+        region = self.unmatched_tree.identify_region(event.x, event.y)
+        col = self.unmatched_tree.identify_column(event.x)
+        row_id = self.unmatched_tree.identify_row(event.y)
+        if region == "cell" and col == "#2" and row_id:
+            self.unmatched_tree.configure(cursor="hand2")
+            return
+        self.unmatched_tree.configure(cursor="")
+
     def _on_unmatched_click(self, event):
         row_id = self.unmatched_tree.identify_row(event.y)
         if not row_id:
             return
-        tags = self.unmatched_tree.item(row_id, "tags")
-        if tags and len(tags) > 0 and tags[0]:
-            p = Path(tags[0])
-            if p.exists():
-                self.status.configure(text=f"PDF açılıyor: {p.name}...")
-                open_pdf_at_page(p, 1)
+        data = getattr(self, "_unmatched_cell_data", {}).get(row_id, {})
+        path = data.get("path")
+        if not path:
+            tags = self.unmatched_tree.item(row_id, "tags")
+            if tags and len(tags) > 0 and tags[0]:
+                path = tags[0]
+        if path:
+            self.open_pdf_document(path, data.get("page", 1), f"Eşleşmeyen PDF ({data.get('name', Path(path).name)})")

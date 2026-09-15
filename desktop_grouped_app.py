@@ -27,14 +27,29 @@ class GroupedApp(BaseApp):
         tab=ttk.Frame(self.tabs, style="White.TFrame"); self.tabs.add(tab,text="EBM-PAPST (0)"); cols=("Proje","AHU","Seçim çıktısı","Elektrik p.","Durum"); self.ebm_tree=ttk.Treeview(tab,columns=cols,show="headings"); widths={"Proje":300,"AHU":120,"Seçim çıktısı":300,"Elektrik p.":420,"Durum":260}
         for col in cols:self.ebm_tree.heading(col,text=col);self.ebm_tree.column(col,width=widths[col],anchor="w")
         scroll=ttk.Scrollbar(tab,orient="vertical",command=self.ebm_tree.yview);self.ebm_tree.configure(yscrollcommand=scroll.set);self.ebm_tree.pack(side="left",fill="both",expand=True,padx=(5,0),pady=5);scroll.pack(side="right",fill="y",padx=(0,5),pady=5);self.ebm_tab=tab
+        self._ebm_cell_data: dict[str, dict] = {}
+        self.ebm_tree.bind("<Button-1>", self._on_ebm_cell_click)
+        self.ebm_tree.bind("<Double-1>", self._on_ebm_cell_click)
+        self.ebm_tree.bind("<Motion>", self._on_ebm_cell_motion)
+        self.ebm_tree.bind("<Leave>", lambda e: self.ebm_tree.configure(cursor=""))
     def _build_voclean_tab(self):
         tab=ttk.Frame(self.tabs, style="White.TFrame"); self.tabs.add(tab,text="VOCLEAN (0)"); cols=("Proje","PDF1","VOClean kW","PDF1 Sayfa","PDF2","AHU","Durum"); self.voclean_tree=ttk.Treeview(tab,columns=cols,show="headings"); widths={"Proje":260,"PDF1":300,"VOClean kW":100,"PDF1 Sayfa":90,"PDF2":300,"AHU":180,"Durum":280}
         for col in cols:self.voclean_tree.heading(col,text=col);self.voclean_tree.column(col,width=widths[col],anchor="w")
         scroll=ttk.Scrollbar(tab,orient="vertical",command=self.voclean_tree.yview);self.voclean_tree.configure(yscrollcommand=scroll.set);self.voclean_tree.pack(side="left",fill="both",expand=True,padx=(5,0),pady=5);scroll.pack(side="right",fill="y",padx=(0,5),pady=5);self.voclean_tab=tab
+        self._voclean_cell_data: dict[str, dict] = {}
+        self.voclean_tree.bind("<Button-1>", self._on_voclean_cell_click)
+        self.voclean_tree.bind("<Double-1>", self._on_voclean_cell_click)
+        self.voclean_tree.bind("<Motion>", self._on_voclean_cell_motion)
+        self.voclean_tree.bind("<Leave>", lambda e: self.voclean_tree.configure(cursor=""))
     def _build_sysreco_tab(self):
         tab=ttk.Frame(self.tabs, style="White.TFrame"); self.tabs.add(tab,text="SYSRECO (0)"); cols=("Proje","AHU","PDF","SysReco Model"); self.sysreco_tree=ttk.Treeview(tab,columns=cols,show="headings"); widths={"Proje":320,"AHU":180,"PDF":420,"SysReco Model":180}
         for col in cols:self.sysreco_tree.heading(col,text=col);self.sysreco_tree.column(col,width=widths[col],anchor="w")
         scroll=ttk.Scrollbar(tab,orient="vertical",command=self.sysreco_tree.yview);self.sysreco_tree.configure(yscrollcommand=scroll.set);self.sysreco_tree.pack(side="left",fill="both",expand=True,padx=(5,0),pady=5);scroll.pack(side="right",fill="y",padx=(0,5),pady=5);self.sysreco_tab=tab
+        self._sysreco_cell_data: dict[str, dict] = {}
+        self.sysreco_tree.bind("<Button-1>", self._on_sysreco_cell_click)
+        self.sysreco_tree.bind("<Double-1>", self._on_sysreco_cell_click)
+        self.sysreco_tree.bind("<Motion>", self._on_sysreco_cell_motion)
+        self.sysreco_tree.bind("<Leave>", lambda e: self.sysreco_tree.configure(cursor=""))
     def _grouped_scan_pdf1(self,document):
         key=str(document.path).casefold(); scan=self._grouped_pdf1_scan_cache.get(key)
         if scan is None: scan=scan_pdf(document.path,"PDF1"); self._grouped_pdf1_scan_cache[key]=scan
@@ -74,12 +89,15 @@ class GroupedApp(BaseApp):
         return result
     def _render_voclean(self):
         for item in self.voclean_tree.get_children(): self.voclean_tree.delete(item)
+        self._voclean_cell_data = {}
         self._special_pdf_sets(); rows=[]
         for document in self.analysis.pdf1_documents:
             key=("PDF1",str(document.path).casefold())
             if key not in self._vocclean_pdf_keys: continue
             scan=self._grouped_scan_pdf1(document); motor_results=list(scan.pdf1_motors)
-            if not motor_results: rows.append((document.project.project_name or "-",Path(document.path).name,"-","-","-","-","VOClean bulundu; Plug fan kW bulunamadı")); continue
+            if not motor_results:
+                rows.append((document.project.project_name or "-",Path(document.path).name,"-","-","-","-","VOClean bulundu; Plug fan kW bulunamadı",str(document.path),1,None,1))
+                continue
             for motor in motor_results:
                 if motor.value_kw is None: continue
                 prefix=self._vocclean_power_prefix(motor.value_kw).upper(); matches=[]
@@ -88,22 +106,42 @@ class GroupedApp(BaseApp):
                         ahu_text=str(ahu).strip()
                         if ahu_text.upper().startswith(prefix): matches.append((pdf2_document,ahu_text))
                 if matches:
-                    for pdf2_document,ahu_text in matches: rows.append((document.project.project_name or "-",Path(document.path).name,f"{motor.value_kw:g}",str(motor.page_number),Path(pdf2_document.path).name,ahu_text,f"BA kodu eşleşti ({prefix[:-1]})"))
-                else: rows.append((document.project.project_name or "-",Path(document.path).name,f"{motor.value_kw:g}",str(motor.page_number),"-","-",f"PDF2 AHU eşleşmesi yok; beklenen {prefix[:-1]}-xxxxx"))
+                    for pdf2_document,ahu_text in matches:
+                        rows.append((document.project.project_name or "-",Path(document.path).name,f"{motor.value_kw:g}",str(motor.page_number),Path(pdf2_document.path).name,ahu_text,f"BA kodu eşleşti ({prefix[:-1]})",str(document.path),motor.page_number,str(pdf2_document.path),1))
+                else:
+                    rows.append((document.project.project_name or "-",Path(document.path).name,f"{motor.value_kw:g}",str(motor.page_number),"-","-",f"PDF2 AHU eşleşmesi yok; beklenen {prefix[:-1]}-xxxxx",str(document.path),motor.page_number,None,1))
         rows.sort(key=lambda r:(str(r[0]).casefold(),str(r[1]).casefold(),str(r[3]),str(r[5]).casefold()))
-        for row in rows:self.voclean_tree.insert("","end",values=row)
+        for r in rows:
+            item_id = self.voclean_tree.insert("","end",values=(r[0],r[1],r[2],r[3],r[4],r[5],r[6]))
+            self._voclean_cell_data[item_id] = {
+                "pdf1_path": r[7],
+                "pdf1_page": r[8],
+                "pdf2_path": r[9],
+                "pdf2_page": r[10],
+                "pdf1_name": r[1],
+                "pdf2_name": r[4],
+            }
         self.tabs.tab(self.voclean_tab,text=f"VOCLEAN ({len(self._vocclean_pdf_keys)})")
     def _render_sysreco(self):
         for item in self.sysreco_tree.get_children(): self.sysreco_tree.delete(item)
+        self._sysreco_cell_data = {}
         self._special_pdf_sets(); rows=[]
         for document,full_text in self._sysreco_documents():
             models=self._sysreco_models(full_text) or ["SysReco modeli bulunamadı"]
-            for model in models: rows.append((document.project.project_name or "-",", ".join(str(value) for value in document.equipment) if document.equipment else "-",Path(document.path).name,model))
+            for model in models:
+                rows.append((document.project.project_name or "-",", ".join(str(value) for value in document.equipment) if document.equipment else "-",Path(document.path).name,model,str(document.path),1))
         rows.sort(key=lambda r:(str(r[0]).casefold(),str(r[1]).casefold(),str(r[2]).casefold(),str(r[3]).casefold()))
-        for row in rows:self.sysreco_tree.insert("","end",values=row)
+        for r in rows:
+            item_id = self.sysreco_tree.insert("","end",values=(r[0],r[1],r[2],r[3]))
+            self._sysreco_cell_data[item_id] = {
+                "pdf_path": r[4],
+                "page": r[5],
+                "pdf_name": r[2],
+            }
         self.tabs.tab(self.sysreco_tab,text=f"SYSRECO ({len(self._sysreco_pdf_keys)})")
     def _render_ebm(self):
         for item in self.ebm_tree.get_children(): self.ebm_tree.delete(item)
+        self._ebm_cell_data = {}
         self._special_pdf_sets(); rows=[]
         for document in self.analysis.pdf1_documents:
             key=("PDF1",str(document.path).casefold())
@@ -112,10 +150,23 @@ class GroupedApp(BaseApp):
             for ahu in self.analysis.ahu_matches:
                 if getattr(ahu.match,"status","") not in {"EXACT","NORMALIZED_MATCH","USER_APPROVED"}: continue
                 if str(document.path).casefold() in {str(p).casefold() for p in ahu.pdf1_files}: matching.extend(ahu.pdf2_files)
-            pdf2=", ".join(Path(p).name for p in dict.fromkeys(matching)) or "-"; status="PDF2 AHU eşleşti; motor kW karşılaştırması yapılmadı" if matching else "PDF2 AHU eşleşmesi yok"
-            for ahu_id in tuple(document.equipment) or ("-",): rows.append((document.project.project_name or "-",ahu_id or "-",Path(document.path).name,pdf2,status))
+            pdf2_paths = list(dict.fromkeys(matching))
+            pdf2=", ".join(Path(p).name for p in pdf2_paths) or "-"; status="PDF2 AHU eşleşti; motor kW karşılaştırması yapılmadı" if matching else "PDF2 AHU eşleşmesi yok"
+            scan=self._grouped_scan_pdf1(document)
+            ebm_page = min(scan.pdf1_ebm_pages) if getattr(scan, "pdf1_ebm_pages", None) else 1
+            for ahu_id in tuple(document.equipment) or ("-",):
+                rows.append((document.project.project_name or "-",ahu_id or "-",Path(document.path).name,pdf2,status,str(document.path),ebm_page,str(pdf2_paths[0]) if pdf2_paths else None,1))
         rows.sort(key=lambda r:(str(r[1]).casefold(),str(r[2]).casefold(),str(r[0]).casefold()))
-        for row in rows:self.ebm_tree.insert("","end",values=row)
+        for r in rows:
+            item_id = self.ebm_tree.insert("","end",values=(r[0],r[1],r[2],r[3],r[4]))
+            self._ebm_cell_data[item_id] = {
+                "pdf1_path": r[5],
+                "pdf1_page": r[6],
+                "pdf2_path": r[7],
+                "pdf2_page": r[8],
+                "pdf1_name": r[2],
+                "pdf2_name": r[3],
+            }
         self.tabs.tab(self.ebm_tab,text=f"EBM-PAPST ({len(self._ebm_pdf_keys)})")
     def _selected_pdf_keys(self):
         result=set()
@@ -152,20 +203,114 @@ class GroupedApp(BaseApp):
         info("PDF sekme sınıflandırması tamamlandı",selected_pdf_count=sum(counts.values()),**{f"{k.lower().replace('-','_').replace(' ','_')}_pdf_count":v for k,v in counts.items()})
     def _render_unmatched(self):
         for item in self.unmatched_tree.get_children(): self.unmatched_tree.delete(item)
+        self._unmatched_cell_data = {}
         _,categories=self._validate_pdf_accounting(); unmatched=categories["EŞLEŞMEYEN"]; documents={("PDF1",str(d.path).casefold()):(d,"PDF1") for d in self.analysis.pdf1_documents}; documents.update({("PDF2",str(d.path).casefold()):(d,"PDF2") for d in self.analysis.pdf2_documents}); rows=[]
         for key in sorted(unmatched):
             item=documents.get(key)
             if item:
-                document,side=item; project=document.project.project_name or "-"; ahus=", ".join(str(value) for value in document.equipment if str(value).strip()) if document.equipment else "-"; reason="AHU eşleşmesine giremedi" if document.equipment else "Ekipman/AHU tespit edilemedi"
-            else: side,path=key; project=ahus="-"; reason="PDF analiz dışında kaldı"
-            rows.append((side,Path(key[1]).name,project,ahus,reason,key[1]))
-        for side,pdf,project,ahus,reason,path in rows:self.unmatched_tree.insert("","end",values=(side,pdf,project,ahus,reason),tags=(path,))
+                document,side=item; project=document.project.project_name or "-"; ahus=", ".join(str(value) for value in document.equipment if str(value).strip()) if document.equipment else "-"; reason="AHU eşleşmesine giremedi" if document.equipment else "Ekipman/AHU tespit edilemedi"; path_val=str(document.path)
+            else: side,path_val=key; project=ahus="-"; reason="PDF analiz dışında kaldı"
+            rows.append((side,Path(key[1]).name,project,ahus,reason,path_val))
+        for side,pdf,project,ahus,reason,path in rows:
+            item_id = self.unmatched_tree.insert("","end",values=(side,pdf,project,ahus,reason),tags=(path,))
+            self._unmatched_cell_data[item_id] = {"path": path, "pdf_path": path, "name": pdf, "page": 1}
         self._unmatched_pdf_keys=unmatched
     def _clear_grouped_results(self):
         for item in self.ebm_tree.get_children(): self.ebm_tree.delete(item)
         for item in self.voclean_tree.get_children(): self.voclean_tree.delete(item)
         for item in self.sysreco_tree.get_children(): self.sysreco_tree.delete(item)
+        if hasattr(self, "_ebm_cell_data"): self._ebm_cell_data.clear()
+        if hasattr(self, "_voclean_cell_data"): self._voclean_cell_data.clear()
+        if hasattr(self, "_sysreco_cell_data"): self._sysreco_cell_data.clear()
         self._grouped_pdf1_scan_cache.clear(); self._ebm_pdf_keys.clear(); self._vocclean_pdf_keys.clear(); self._sysreco_pdf_keys.clear(); self._unmatched_pdf_keys.clear(); self._pdf_accounting_error_shown=False; self.tabs.tab(0,text="DANFOS (0)"); self.tabs.tab(self.ebm_tab,text="EBM-PAPST (0)"); self.tabs.tab(self.voclean_tab,text="VOCLEAN (0)"); self.tabs.tab(self.sysreco_tab,text="SYSRECO (0)")
+
+    def _on_ebm_cell_click(self, event):
+        region = self.ebm_tree.identify_region(event.x, event.y)
+        if region != "cell":
+            return
+        col = self.ebm_tree.identify_column(event.x)
+        row_id = self.ebm_tree.identify_row(event.y)
+        if not row_id or col not in ("#3", "#4"):
+            return
+        data = getattr(self, "_ebm_cell_data", {}).get(row_id, {})
+        if col == "#3":
+            pdf_path = data.get("pdf1_path")
+            page = data.get("pdf1_page", 1)
+            desc = f"Seçim çıktısı (PDF1): {data.get('pdf1_name', '')}"
+        else:
+            pdf_path = data.get("pdf2_path")
+            page = data.get("pdf2_page", 1)
+            desc = f"Elektrik projesi (PDF2): {data.get('pdf2_name', '')}"
+        if pdf_path:
+            self.open_pdf_document(pdf_path, page, desc)
+
+    def _on_ebm_cell_motion(self, event):
+        region = self.ebm_tree.identify_region(event.x, event.y)
+        col = self.ebm_tree.identify_column(event.x)
+        row_id = self.ebm_tree.identify_row(event.y)
+        if region == "cell" and col in ("#3", "#4") and row_id:
+            data = getattr(self, "_ebm_cell_data", {}).get(row_id, {})
+            key = "pdf1_path" if col == "#3" else "pdf2_path"
+            if data.get(key):
+                self.ebm_tree.configure(cursor="hand2")
+                return
+        self.ebm_tree.configure(cursor="")
+
+    def _on_sysreco_cell_click(self, event):
+        region = self.sysreco_tree.identify_region(event.x, event.y)
+        if region != "cell":
+            return
+        col = self.sysreco_tree.identify_column(event.x)
+        row_id = self.sysreco_tree.identify_row(event.y)
+        if not row_id or col != "#3":
+            return
+        data = getattr(self, "_sysreco_cell_data", {}).get(row_id, {})
+        pdf_path = data.get("pdf_path")
+        if pdf_path:
+            self.open_pdf_document(pdf_path, data.get("page", 1), f"SysReco PDF: {data.get('pdf_name', '')}")
+
+    def _on_sysreco_cell_motion(self, event):
+        region = self.sysreco_tree.identify_region(event.x, event.y)
+        col = self.sysreco_tree.identify_column(event.x)
+        row_id = self.sysreco_tree.identify_row(event.y)
+        if region == "cell" and col == "#3" and row_id:
+            data = getattr(self, "_sysreco_cell_data", {}).get(row_id, {})
+            if data.get("pdf_path"):
+                self.sysreco_tree.configure(cursor="hand2")
+                return
+        self.sysreco_tree.configure(cursor="")
+
+    def _on_voclean_cell_click(self, event):
+        region = self.voclean_tree.identify_region(event.x, event.y)
+        if region != "cell":
+            return
+        col = self.voclean_tree.identify_column(event.x)
+        row_id = self.voclean_tree.identify_row(event.y)
+        if not row_id or col not in ("#2", "#5"):
+            return
+        data = getattr(self, "_voclean_cell_data", {}).get(row_id, {})
+        if col == "#2":
+            pdf_path = data.get("pdf1_path")
+            page = data.get("pdf1_page", 1)
+            desc = f"VOClean PDF1 (Seçim): {data.get('pdf1_name', '')}"
+        else:
+            pdf_path = data.get("pdf2_path")
+            page = data.get("pdf2_page", 1)
+            desc = f"VOClean PDF2 (Elektrik): {data.get('pdf2_name', '')}"
+        if pdf_path:
+            self.open_pdf_document(pdf_path, page, desc)
+
+    def _on_voclean_cell_motion(self, event):
+        region = self.voclean_tree.identify_region(event.x, event.y)
+        col = self.voclean_tree.identify_column(event.x)
+        row_id = self.voclean_tree.identify_row(event.y)
+        if region == "cell" and col in ("#2", "#5") and row_id:
+            data = getattr(self, "_voclean_cell_data", {}).get(row_id, {})
+            key = "pdf1_path" if col == "#2" else "pdf2_path"
+            if data.get(key):
+                self.voclean_tree.configure(cursor="hand2")
+                return
+        self.voclean_tree.configure(cursor="")
     def _post_analysis(self):
         try:
             self._render_ebm(); self._render_voclean(); self._render_sysreco(); self._render_unmatched(); rows=[self.tree.item(i,"values") for i in self.tree.get_children()]; grouped=group_result_rows(rows)
