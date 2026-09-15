@@ -11,6 +11,7 @@ import pdf_master_scan
 from app_logger import info, warning
 
 _PROJECT_OVERRIDES: dict[str, object] = {}
+_VOCLEAN_PDF2_PATHS: set[str] = set()
 _ORIGINAL_SCAN_PDF = pdf_master_scan.scan_pdf
 
 
@@ -32,7 +33,19 @@ def set_pdf2_project_override(path: str, project) -> None:
 
 def clear_pdf2_project_overrides(paths) -> None:
     for path in paths:
-        _PROJECT_OVERRIDES.pop(str(path).casefold(), None)
+        key = str(path).casefold()
+        _PROJECT_OVERRIDES.pop(key, None)
+        _VOCLEAN_PDF2_PATHS.discard(key)
+
+
+def is_voclean_pdf2_path(path: str) -> bool:
+    """Return whether this PDF2 was originally detected as VOCLEAN.
+
+    The project override intentionally replaces the PDF2 Project Name with the
+    selected PDF1 project. Keep the original VOCLEAN identity separately so the
+    grouped result renderer does not send the file to EŞLEŞMEYEN PDF'LER.
+    """
+    return str(path).casefold() in _VOCLEAN_PDF2_PATHS
 
 
 def _run_on_ui(callback):
@@ -120,8 +133,11 @@ def prepare_voclean_project_assignments(pdf1_paths, pdf2_paths):
             voclean_paths.append(str(scan.path))
     assignments = {}
     for path in voclean_paths:
+        key = str(path).casefold()
+        _VOCLEAN_PDF2_PATHS.add(key)
         selected_key = _run_on_ui(lambda root, p=path: _select_group(root, p, groups))
         if selected_key is None:
+            _VOCLEAN_PDF2_PATHS.discard(key)
             warning("VOCLEAN proje grubu seçimi iptal edildi", path=path)
             raise RuntimeError(f"VOCLEAN proje grubu seçimi iptal edildi: {path}")
         selected_project = left_groups[selected_key][0].project
