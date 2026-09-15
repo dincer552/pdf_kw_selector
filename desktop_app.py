@@ -184,11 +184,16 @@ class App(tk.Tk):
         self.update_detail = tk.StringVar(value="Güncelleme hazır")
         style = ttk.Style(self)
         style.configure("Update.Horizontal.TProgressbar", troughcolor="#e2e8f0", background="#1a56db")
-        progress = ttk.Frame(action_dock, padding=(8, 0))
+        update_area = ttk.Frame(action_dock, style="White.TFrame", width=720, height=34)
+        update_area.pack(side="right", fill="y", padx=(12, 0))
+        update_area.pack_propagate(False)
+        self.update_area = update_area
+        progress = ttk.Frame(update_area, padding=(8, 0))
         self.update_panel = progress
-        ttk.Label(progress, textvariable=self.update_detail, anchor="e").pack(side="right")
+        ttk.Label(progress, textvariable=self.update_detail, anchor="e").pack(side="left", fill="x", expand=True)
         self.update_bar = ttk.Progressbar(progress, style="Update.Horizontal.TProgressbar", variable=self.update_progress, maximum=100, length=360)
         self.update_bar.pack(side="right", padx=8)
+        progress.pack(fill="both", expand=True)
 
         # Action Buttons bar
         buttons = ttk.Frame(action_dock, padding=(0, 2))
@@ -196,12 +201,12 @@ class App(tk.Tk):
         ttk.Button(buttons, text="▶ ANALİZ BAŞLA", style="Primary.TButton", command=self.compare).pack(side="left", padx=(0, 6))
         ttk.Button(buttons, text="↺ TEMİZLE", style="Secondary.TButton", command=self.clear_inputs).pack(side="left", padx=3)
 
-        self.update_notice = ttk.Frame(buttons)
-        self.update_notice.pack(side="right", padx=8)
+        self.update_notice = ttk.Frame(update_area, style="White.TFrame")
+        self.update_notice.place(relx=1, rely=0.5, anchor="e")
         self.update_notice_label = ttk.Label(self.update_notice, text="Yeni sürüm mevcut", foreground="#16803d")
         self.update_notice_label.pack(side="left", padx=(0, 6))
         ttk.Button(self.update_notice, text="İNDİR", style="Secondary.TButton", command=self.download_available_update).pack(side="left")
-        self.update_notice.pack_forget()
+        self.update_notice.place_forget()
 
         self.status = ttk.Label(buttons, text="Hazır", anchor="e")
         self.status.pack(side="right")
@@ -624,8 +629,8 @@ class App(tk.Tk):
     def _update_check_finished(self,info_data,exc):
         self._update_check_running=False; self._manual_check_active=False; self.update_check_button.configure(text="↻",state="normal")
         if exc: exception("Arka plan güncelleme kontrolü hatası",exc); return
-        if not info_data["available"]: self._available_update=None; self.update_notice.pack_forget(); return
-        self._available_update=info_data; self.update_notice_label.configure(text=f"Yeni sürüm mevcut: {info_data['version']}"); self.update_notice.pack(side="right",padx=8); info("Yeni sürüm bulundu",version=info_data["version"],build_sha=info_data.get("build_sha"))
+        if not info_data["available"]: self._available_update=None; self.update_notice.place_forget(); return
+        self._available_update=info_data; self.update_notice_label.configure(text=f"Yeni sürüm mevcut: {info_data['version']}"); self.update_notice.place(relx=1, rely=0.5, anchor="e"); info("Yeni sürüm bulundu",version=info_data["version"],build_sha=info_data.get("build_sha"))
     def download_available_update(self):
         if self._update_check_running or getattr(self,"_download_running",False):return
         self._update_check_running=True; self._download_running=True; self.status.configure(text="Güncel sürüm kontrol ediliyor..."); self.update_detail.set("En güncel sürüm kontrol ediliyor..."); self.update_panel.pack(fill="x"); self.update_idletasks(); threading.Thread(target=self._refresh_update_before_download,daemon=True).start()
@@ -635,8 +640,8 @@ class App(tk.Tk):
     def _download_check_finished(self,info_data,exc):
         self._update_check_running=False
         if exc: self._download_running=False; self._available_update=None; self.update_panel.pack_forget(); exception("İndirme öncesi güncelleme kontrolü hatası",exc); messagebox.showerror("Güncelleme",f"Güncel sürüm kontrol edilemedi:\n{type(exc).__name__}: {exc}"); self.status.configure(text="Güncelleme kontrolü başarısız"); return
-        if not info_data["available"]: self._download_running=False; self._available_update=None; self.update_notice.pack_forget(); self.update_panel.pack_forget(); self.status.configure(text="Program güncel"); self.update_detail.set("Program güncel"); info("İndirme öncesi kontrolde yeni güncelleme bulunamadı"); return
-        self._available_update=info_data; self.update_notice_label.configure(text=f"Yeni sürüm mevcut: {info_data['version']}"); self.update_notice.pack_forget(); self.status.configure(text="Yeni sürüm indiriliyor..."); self.update_progress.set(0); self.update_detail.set("İndirme başlıyor..."); threading.Thread(target=self._download_update_background,args=(info_data,),daemon=True).start()
+        if not info_data["available"]: self._download_running=False; self._available_update=None; self.update_notice.place_forget(); self.update_panel.pack_forget(); self.status.configure(text="Program güncel"); self.update_detail.set("Program güncel"); info("İndirme öncesi kontrolde yeni güncelleme bulunamadı"); return
+        self._available_update=info_data; self.update_notice_label.configure(text=f"Yeni sürüm mevcut: {info_data['version']}"); self.update_notice.place_forget(); self.status.configure(text="Yeni sürüm indiriliyor..."); self.update_progress.set(0); self.update_detail.set("İndirme başlıyor..."); threading.Thread(target=self._download_update_background,args=(info_data,),daemon=True).start()
     def _download_update_background(self,info_data):
         try: temp_exe=download_update(info_data["download_url"],expected_digest=info_data.get("digest"),asset_id=info_data.get("asset_id"),browser_download_url=info_data.get("browser_download_url"),expected_size=info_data.get("asset_size"),asset_name=info_data.get("asset_name"),chunks=info_data.get("chunks"),progress_callback=lambda stage,done,total,speed:self.after(0,self._update_progress,stage,done,total,speed)); self.after(0,self._update_install,temp_exe,info_data)
         except Exception as exc:self.after(0,self._update_failed,exc,info_data)
