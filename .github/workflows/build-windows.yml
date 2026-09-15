@@ -50,6 +50,16 @@ jobs:
           if (-not $text.Contains($old)) { throw 'Grouped app VOCLEAN import target was not found.' }
           Set-Content -Path $path -Value $text.Replace($old,$new) -Encoding UTF8
           python -m py_compile desktop_grouped_app.py voclean_project_selector.py
+      - name: Rename VOCLEAN table PDF headers
+        shell: pwsh
+        run: |
+          $path = 'desktop_grouped_app.py'
+          $text = Get-Content -Path $path -Raw -Encoding UTF8
+          $old = 'cols=("Proje","PDF1","VOClean kW","PDF1 Sayfa","PDF2","AHU","Durum")'
+          $new = 'cols=("Proje","Seçim PDF","VOClean kW","Seçim PDF Sayfa","Elektrik P. PDF","AHU","Durum")'
+          if (-not $text.Contains($old)) { throw 'VOCLEAN table header target was not found.' }
+          Set-Content -Path $path -Value $text.Replace($old,$new) -Encoding UTF8
+          python -m py_compile desktop_grouped_app.py
       - name: Keep special PDFs out of unmatched list
         shell: pwsh
         run: |
