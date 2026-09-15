@@ -5,7 +5,7 @@ from difflib import SequenceMatcher
 import re
 from pathlib import Path
 
-from tkinter import messagebox
+from tkinter import messagebox, simpledialog
 
 import batch_analysis as batch
 from ahu_matching import AHUMatch, score_ahu_ids
@@ -87,11 +87,71 @@ def _ask_ahu(project: str | None, left: str, right: str, *, reused_rule: bool = 
     return bool(messagebox.askyesno("AHU eşleşmesi onayı", text))
 
 
-def _project_confirmation_plan(left_groups, right_groups):
-    """Return normalized project pairs explicitly approved by the user."""
+def _is_voclean_pdf2(document) -> bool:
+    """Use the normal PDF2 Project Name discovery result as the VOCLEAN pre-scan."""
+    if getattr(document, "side", "").upper() != "PDF2":
+        return False
+    value = str(getattr(getattr(document, "project", None), "project_name", "") or "")
+    return bool(re.search(r"\bVOC\s*LEAN\b", value, flags=re.I))
+
+
+def _ask_voclean_project_group(voclean_document, left_groups) -> str:
+    """Ask which already-discovered PDF1 project group owns a VOCLEAN PDF2."""
+    candidates = []
+    for key, documents in left_groups.items():
+        if key.startswith("__UNRESOLVED__:") or not documents:
+            continue
+        project_name = documents[0].project.project_name or key
+        candidates.append((key, project_name))
+    candidates.sort(key=lambda item: str(item[1]).casefold())
+    if not candidates:
+        raise RuntimeError("VOCLEAN PDF2 için seçilebilecek PDF1 proje grubu bulunamadı.")
+
+    pdf_name = Path(voclean_document.path).name
+    options = "\n".join(f"{index}. {name}" for index, (_, name) in enumerate(candidates, 1))
+    prompt = (
+        f"PDF2: {pdf_name}\n"
+        "PDF2 Project Name ön taramasında VOCLEAN bulundu.\n\n"
+        "Bu PDF2 hangi PDF1 proje grubuna ait?\n\n"
+        f"{options}\n\n"
+        f"1-{len(candidates)} arasında proje grup numarasını girin."
+    )
+    choice = simpledialog.askinteger("VOCLEAN proje grubu seçimi", prompt, minvalue=1, maxvalue=len(candidates))
+    if choice is None:
+        raise RuntimeError(f"VOCLEAN PDF2 için proje grubu seçilmedi: {pdf_name}")
+    key, project_name = candidates[choice - 1]
+    info("VOCLEAN PDF2 proje grubu kullanıcı tarafından seçildi", pdf2=pdf_name, project_group=key, project=project_name)
+    return key
+
+
+def _prepare_voclean_project_assignments(left_groups, right_groups):
+    """Force VOCLEAN PDF2 groups through user-selected PDF1 groups.
+
+    This is only an override after normal PDF2 Project Name discovery. All other
+    PDF2 project names continue through the existing normal grouping/matching.
+    """
     approved: set[tuple[str, str]] = set()
-    used_left: set[str] = set()
     used_right: set[str] = set()
+    for right_key, right_docs in right_groups.items():
+        voclean_docs = [document for document in right_docs if _is_voclean_pdf2(document)]
+        if not voclean_docs:
+            continue
+        selected_left_key = _ask_voclean_project_group(voclean_docs[0], left_groups)
+        left_project = left_groups[selected_left_key][0].project
+        right_project = right_docs[0].project
+        if not left_project.project_name_normalized or not right_project.project_name_normalized:
+            raise RuntimeError(f"VOCLEAN proje grubu kimliği oluşturulamadı: {Path(voclean_docs[0].path).name}")
+        approved.add((left_project.project_name_normalized, right_project.project_name_normalized))
+        used_right.add(right_key)
+        info("VOCLEAN PDF2 proje grubu eşlemesi hazırlandı", left=left_project.project_name, right=right_project.project_name, pdf2_files=[d.path for d in right_docs])
+    return approved, used_right
+
+
+def _project_confirmation_plan(left_groups, right_groups, initial_approved=None, initial_used_right=None):
+    """Return normalized project pairs explicitly approved by the user."""
+    approved: set[tuple[str, str]] = set(initial_approved or ())
+    used_left: set[str] = set()
+    used_right: set[str] = set(initial_used_right or ())
     candidates = []
 
     for left_key, left_docs in left_groups.items():
@@ -170,7 +230,7 @@ def _build_ahu_confirmations(project_pair_docs):
                     unmatched_right.discard(rid)
                     info("Kullanıcı AHU isimlendirme farkını onayladı", project=project_name, left=raw_left, right=raw_right, rule=flexible_rule)
                 else:
-                    warning("Kullanıcı AHU isimlendirme farkını reddetti", project=project_name, left=raw_left, right=raw_right)
+                    warning("Kullanıcı AHU isimlendirmesini reddetti", project=project_name, left=raw_left, right=raw_right)
                     unmatched_left.discard(lid)
                     unmatched_right.discard(rid)
                 break
@@ -219,7 +279,15 @@ def analyze_with_confirmations(pdf1_paths, pdf2_paths, progress_callback=None):
     left_groups = batch._group_documents(left_docs)
     right_groups = batch._group_documents(right_docs)
 
-    approved_projects = _project_confirmation_plan(left_groups, right_groups)
+    # Normal PDF2 Project Name discovery is still the pre-scan/source of truth.
+    # Only a discovered Project Name containing VOCLEAN gets the manual group override.
+    voclean_approved, voclean_right_keys = _prepare_voclean_project_assignments(left_groups, right_groups)
+    approved_projects = _project_confirmation_plan(
+        left_groups,
+        right_groups,
+        initial_approved=voclean_approved,
+        initial_used_right=voclean_right_keys,
+    )
     if progress_callback:
         progress_callback("matching", 2, 5, "Projeler eşleştirildi; AHU onayları hazırlanıyor")
 
