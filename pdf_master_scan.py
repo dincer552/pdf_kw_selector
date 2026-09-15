@@ -1,6 +1,6 @@
 from __future__ import annotations
 from concurrent.futures import ThreadPoolExecutor, as_completed
-from dataclasses import dataclass
+from dataclasses import dataclass, replace
 from functools import lru_cache
 from pathlib import Path
 import fitz
@@ -166,7 +166,11 @@ def build_physical_motor_records(scan):
     for result in results:
         component = result.component_type or result.component_role or "motor"
         start_index = indexes.get(component, 1); made = builder(result, start_index=start_index)
-        output.extend(made); indexes[component] = start_index + len(made)
+        for r in made:
+            if not getattr(r, "source_path", None) and getattr(scan, "path", None):
+                r = replace(r, source_path=str(scan.path))
+            output.append(r)
+        indexes[component] = start_index + len(made)
     return output
 
 

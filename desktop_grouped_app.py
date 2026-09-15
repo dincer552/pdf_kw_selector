@@ -9,6 +9,7 @@ import desktop_app as desktop_module
 from app_logger import exception, info, startup
 from desktop_app import App as BaseApp, VERSION
 from drag_drop import install_pdf_drop_targets
+from pdf_viewer import open_pdf_at_page
 from result_grouping import group_result_rows
 from updater import apply_update
 from confirmation_workflow import analyze_with_confirmations
@@ -169,7 +170,18 @@ class GroupedApp(BaseApp):
         try:
             self._render_ebm(); self._render_voclean(); self._render_sysreco(); self._render_unmatched(); rows=[self.tree.item(i,"values") for i in self.tree.get_children()]; grouped=group_result_rows(rows)
             for i in self.tree.get_children(): self.tree.delete(i)
-            for row in grouped:self.tree.insert("","end",values=row,tags=("mismatch",) if len(row)>5 and str(row[5]).strip()=="MISMATCH" else ())
+            self._tree_cell_data = {}
+            for row in grouped:
+                item_id = self.tree.insert("","end",values=row,tags=("mismatch",) if len(row)>5 and str(row[5]).strip()=="MISMATCH" else ())
+                if len(row) > 9:
+                    p1_p = int(row[7]) if str(row[7]).strip().isdigit() else None
+                    p2_p = int(row[9]) if str(row[9]).strip().isdigit() else None
+                    self._tree_cell_data[item_id] = {
+                        "pdf1_path": row[6] or None,
+                        "pdf1_page": p1_p,
+                        "pdf2_path": row[8] or None,
+                        "pdf2_page": p2_p,
+                    }
             self._refresh_grouped_tab_counts(); elapsed=time.perf_counter()-self._analysis_started_at if self._analysis_started_at is not None else None
             if elapsed is not None:self.status.configure(text=f"Analiz süresi: {elapsed:.2f} sn | PDF {len(self._selected_pdf_keys())} | AHU {len(self.analysis.ahu_matches)} | Motor {len(self.analysis.motor_comparisons)} | MATCH/MISMATCH sonuçları hazır"); info("Toplu analiz tamamlandı",elapsed_seconds=round(elapsed,3),selected_pdf_count=len(self._selected_pdf_keys()),ahu_count=len(self.analysis.ahu_matches),motor_count=len(self.analysis.motor_comparisons))
             self.refresh_logs()

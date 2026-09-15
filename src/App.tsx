@@ -214,6 +214,22 @@ export function App() {
   const sysrecoRows = analysisResult?.sysrecoRows || [];
   const unmatchedRows = analysisResult?.unmatchedPdfs || [];
 
+  const handleSelectPdfPage = (comparison: MotorComparison, side: 'PDF1' | 'PDF2') => {
+    const fileName = side === 'PDF1' ? comparison.pdf1File : comparison.pdf2File;
+    const doc = side === 'PDF1'
+      ? pdf1Docs.find((d) => d.name === fileName || d.path === fileName)
+      : pdf2Docs.find((d) => d.name === fileName || d.path === fileName);
+
+    const page = side === 'PDF1' ? comparison.pdf1Page : comparison.pdf2Page;
+    const kw = side === 'PDF1' ? comparison.pdf1Kw : comparison.pdf2Kw;
+    addLog('INFO', `Kullanıcı ${side} kW değerine tıkladı: ${kw} kW (Sayfa: ${page || 1}, Dosya: ${fileName || '-'})`);
+
+    if (doc) {
+      setSelectedDoc(doc);
+    }
+    setSelectedComparison(comparison);
+  };
+
   return (
     <div className="min-h-screen bg-[#f0f4f9] flex flex-col font-sans text-slate-800">
       {/* Top Header */}
@@ -351,6 +367,7 @@ export function App() {
               <ResultsTable
                 comparisons={comparisons}
                 onSelectRow={(row) => setSelectedComparison(row)}
+                onSelectPdfPage={handleSelectPdfPage}
               />
             )}
 

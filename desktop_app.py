@@ -15,6 +15,7 @@ from batch_analysis import analyze_batch
 from desktop_inputs import PdfInput, discover_pdfs
 from drag_drop import install_pdf_drop_targets
 from pdf_master_scan import scan_pdfs
+from pdf_viewer import open_pdf_at_page
 from updater import check_for_update, download_update, restart_with_update
 from ahu_matching import normalize_equipment_id
 from build_info import BUILD_SHA, BUILD_VERSION
@@ -146,6 +147,10 @@ class App(tk.Tk):
             self.tree.heading(col, text=col)
             self.tree.column(col, width=100, anchor="center")
         self.tree.pack(fill="both", expand=True, padx=8, pady=8)
+        self._tree_cell_data: dict[str, dict] = {}
+        self.tree.bind("<Button-1>", self._on_tree_cell_click)
+        self.tree.bind("<Motion>", self._on_tree_cell_motion)
+        self.tree.bind("<Leave>", lambda e: self.tree.configure(cursor=""))
 
         unmatched_cols = ("Taraf", "PDF", "Proje", "AHU", "Neden")
         self.unmatched_tree = ttk.Treeview(unmatched_tab, columns=unmatched_cols, show="headings")
@@ -157,6 +162,7 @@ class App(tk.Tk):
         self.unmatched_tree.configure(yscrollcommand=unmatched_scroll.set)
         self.unmatched_tree.pack(side="left", fill="both", expand=True, padx=(8, 0), pady=8)
         unmatched_scroll.pack(side="right", fill="y", padx=(0, 8), pady=8)
+        self.unmatched_tree.bind("<Double-1>", self._on_unmatched_click)
 
         detail_frame = ttk.LabelFrame(log_tab, text="Sonuç JSON / Teknik Detay", padding=6)
         detail_frame.pack(fill="both", expand=False, padx=8, pady=(8, 0))
@@ -546,10 +552,30 @@ class App(tk.Tk):
             if left:ahu_context[left]=batch_ahu.project_name or "-"
             if right:ahu_context[right]=batch_ahu.project_name or "-"
         comparisons=list(self.analysis.motor_comparisons); comparisons.sort(key=lambda item:(ahu_context.get(normalize_equipment_id(item.equipment_id),"-").casefold(),normalize_equipment_id(item.equipment_id).casefold(),item.component_type.casefold(),item.component_index)); previous_group=None; group_number=0
+        self._tree_cell_data = {}
         for comparison in comparisons:
             counts[comparison.status]=counts.get(comparison.status,0)+1; ahu=normalize_equipment_id(comparison.equipment_id); project=ahu_context.get(ahu,"-"); group_key=(project.casefold(),ahu.casefold())
             if group_key!=previous_group: group_number+=1; previous_group=group_key
-            tag="group_a" if group_number%2 else "group_b"; self.tree.insert("","end",tags=(tag,),values=(project,ahu,comparison.component_label,self._fmt(comparison.pdf1_kw),self._fmt(comparison.pdf2_kw),comparison.status))
+            tag="group_a" if group_number%2 else "group_b"
+            row_vals = (
+                project,
+                ahu,
+                comparison.component_label,
+                self._fmt(comparison.pdf1_kw),
+                self._fmt(comparison.pdf2_kw),
+                comparison.status,
+                comparison.pdf1_path or "",
+                str(comparison.pdf1_page or "") if comparison.pdf1_page else "",
+                comparison.pdf2_path or "",
+                str(comparison.pdf2_page or "") if comparison.pdf2_page else "",
+            )
+            item_id = self.tree.insert("", "end", tags=(tag,), values=row_vals)
+            self._tree_cell_data[item_id] = {
+                "pdf1_path": comparison.pdf1_path,
+                "pdf1_page": comparison.pdf1_page,
+                "pdf2_path": comparison.pdf2_path,
+                "pdf2_page": comparison.pdf2_page,
+            }
         info("GUI sonuç tablosu oluşturuldu",comparisons=len(comparisons),counts=counts,grouped_ahu_count=group_number); self.status.configure(text=f"✓ Proje {len(self.analysis.project_matches)} | AHU {len(self.analysis.ahu_matches)} | Motor {len(self.analysis.motor_comparisons)} | MATCH {counts['MATCH']} | MISMATCH {counts['MISMATCH']} | PDF1 {counts['ONLY_IN_PDF1']} | PDF2 {counts['ONLY_IN_PDF2']}"); self._set_detail(json.dumps(self.analysis.to_dict(),ensure_ascii=False,indent=2)); self.refresh_logs()
     def _render_unmatched(self):
         for item in self.unmatched_tree.get_children(): self.unmatched_tree.delete(item)
@@ -630,3 +656,81 @@ class App(tk.Tk):
         path=filedialog.asksaveasfilename(title="Toplu analizi kaydet",defaultextension=".json",filetypes=[("JSON","*.json")])
         if not path:return
         Path(path).write_text(json.dumps(self.analysis.to_dict(),ensure_ascii=False,indent=2),encoding="utf-8"); info("Analiz JSON kaydedildi",path=path); self.refresh_logs()
+
+    def _on_tree_cell_click(self, event):
+        region = self.tree.identify_region(event.x, event.y)
+        if region != "cell":
+            return
+        col = self.tree.identify_column(event.x)
+        row_id = self.tree.identify_row(event.y)
+        if not row_id or col not in ("#4", "#5"):
+            return
+
+        values = self.tree.item(row_id, "values")
+        if not values or len(values) < 5:
+            return
+
+        data = getattr(self, "_tree_cell_data", {}).get(row_id, {})
+
+        if col == "#4":
+            # Seçim kW (PDF1)
+            kw_val = values[3] if len(values) > 3 else ""
+            if not kw_val or str(kw_val).strip() in ("", "-"):
+                return
+            pdf_path = data.get("pdf1_path") or (values[6] if len(values) > 6 and values[6] else None)
+            raw_page = data.get("pdf1_page") or (values[7] if len(values) > 7 and values[7] else None)
+            side_name = "Seçim çıktısı (PDF1)"
+        else:
+            # Elektrik P. kW (PDF2)
+            kw_val = values[4] if len(values) > 4 else ""
+            if not kw_val or str(kw_val).strip() in ("", "-"):
+                return
+            pdf_path = data.get("pdf2_path") or (values[8] if len(values) > 8 and values[8] else None)
+            raw_page = data.get("pdf2_page") or (values[9] if len(values) > 9 and values[9] else None)
+            side_name = "Elektrik projesi (PDF2)"
+
+        try:
+            page = int(raw_page) if raw_page is not None and str(raw_page).strip().isdigit() else None
+        except (ValueError, TypeError):
+            page = None
+
+        if not pdf_path:
+            messagebox.showinfo("PDF Bilgisi", f"{side_name} için dosya yolu bulunamadı.")
+            return
+
+        p = Path(pdf_path)
+        if not p.exists():
+            messagebox.showwarning("Dosya Bulunamadı", f"PDF dosyası mevcut konumda bulunamadı:\n{pdf_path}")
+            return
+
+        display_page = page or 1
+        self.status.configure(text=f"PDF açılıyor: {p.name} (Sayfa {display_page})...")
+        info("Kullanıcı kW hücresine tıkladı, PDF açılıyor", side=side_name, path=str(p), page=display_page, kw=kw_val)
+        ok = open_pdf_at_page(p, display_page)
+        if ok:
+            self.status.configure(text=f"PDF açıldı: {p.name} (Sayfa {display_page})")
+        else:
+            self.status.configure(text=f"PDF açılırken bir sorun oluştu: {p.name}")
+
+    def _on_tree_cell_motion(self, event):
+        region = self.tree.identify_region(event.x, event.y)
+        col = self.tree.identify_column(event.x)
+        row_id = self.tree.identify_row(event.y)
+        if region == "cell" and col in ("#4", "#5") and row_id:
+            values = self.tree.item(row_id, "values")
+            idx = 3 if col == "#4" else 4
+            if values and len(values) > idx and str(values[idx]).strip() not in ("", "-"):
+                self.tree.configure(cursor="hand2")
+                return
+        self.tree.configure(cursor="")
+
+    def _on_unmatched_click(self, event):
+        row_id = self.unmatched_tree.identify_row(event.y)
+        if not row_id:
+            return
+        tags = self.unmatched_tree.item(row_id, "tags")
+        if tags and len(tags) > 0 and tags[0]:
+            p = Path(tags[0])
+            if p.exists():
+                self.status.configure(text=f"PDF açılıyor: {p.name}...")
+                open_pdf_at_page(p, 1)

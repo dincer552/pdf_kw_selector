@@ -5,9 +5,10 @@ import { MotorComparison } from '../types';
 interface ResultsTableProps {
   comparisons: MotorComparison[];
   onSelectRow?: (row: MotorComparison) => void;
+  onSelectPdfPage?: (row: MotorComparison, side: 'PDF1' | 'PDF2') => void;
 }
 
-export const ResultsTable: React.FC<ResultsTableProps> = ({ comparisons, onSelectRow }) => {
+export const ResultsTable: React.FC<ResultsTableProps> = ({ comparisons, onSelectRow, onSelectPdfPage }) => {
   const [searchTerm, setSearchTerm] = useState('');
   const [statusFilter, setStatusFilter] = useState<'ALL' | 'MATCH' | 'MISMATCH' | 'SPECIAL'>('ALL');
 
@@ -170,10 +171,34 @@ export const ResultsTable: React.FC<ResultsTableProps> = ({ comparisons, onSelec
                       )}
                     </td>
                     <td className="py-2 px-3 text-right font-mono font-semibold text-slate-800">
-                      {item.pdf1Kw !== null ? `${item.pdf1Kw} kW` : '-'}
+                      {item.pdf1Kw !== null ? (
+                        <button
+                          type="button"
+                          onClick={(e) => {
+                            e.stopPropagation();
+                            onSelectPdfPage ? onSelectPdfPage(item, 'PDF1') : onSelectRow?.(item);
+                          }}
+                          className="inline-flex items-center gap-1 font-bold text-blue-700 hover:text-blue-900 bg-blue-50 hover:bg-blue-100 px-2 py-0.5 rounded border border-blue-200 transition-colors cursor-pointer"
+                          title={item.pdf1File ? `Sayfa ${item.pdf1Page || 1} aç (${item.pdf1File})` : 'Kaynak sayfayı görüntüle'}
+                        >
+                          <span>{item.pdf1Kw} kW</span>
+                        </button>
+                      ) : '-'}
                     </td>
                     <td className="py-2 px-3 text-right font-mono font-semibold text-slate-800">
-                      {item.pdf2Kw !== null ? `${item.pdf2Kw} kW` : '-'}
+                      {item.pdf2Kw !== null ? (
+                        <button
+                          type="button"
+                          onClick={(e) => {
+                            e.stopPropagation();
+                            onSelectPdfPage ? onSelectPdfPage(item, 'PDF2') : onSelectRow?.(item);
+                          }}
+                          className="inline-flex items-center gap-1 font-bold text-indigo-700 hover:text-indigo-900 bg-indigo-50 hover:bg-indigo-100 px-2 py-0.5 rounded border border-indigo-200 transition-colors cursor-pointer"
+                          title={item.pdf2File ? `Sayfa ${item.pdf2Page || 1} aç (${item.pdf2File})` : 'Kaynak sayfayı görüntüle'}
+                        >
+                          <span>{item.pdf2Kw} kW</span>
+                        </button>
+                      ) : '-'}
                     </td>
                     <td className="py-2 px-3 text-right font-mono text-slate-600">
                       {item.differenceKw !== null

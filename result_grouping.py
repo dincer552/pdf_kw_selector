@@ -37,7 +37,7 @@ def group_result_rows(rows: Iterable[Sequence[object]]) -> list[tuple[object, ..
         group = (_key(project), _key(ahu))
 
         if previous_group is not None and group != previous_group:
-            output.append(SPACER_ROW)
+            output.append(("",) * len(row))
 
         mutable = list(row)
         if previous_group == group:

@@ -31,6 +31,7 @@ class MotorRecord:
     source_page: int | None = None
     confidence: str = "high"
     model_brand: str | None = None
+    source_path: str | None = None
 
     def to_dict(self) -> dict:
         return asdict(self)
@@ -64,6 +65,7 @@ def expand_motor_group(
     source_page: int | None = None,
     start_index: int = 1,
     model_brand: str | None = None,
+    source_path: str | None = None,
 ) -> list[MotorRecord]:
     """Expand a motor group into one record per physical motor."""
     try:
@@ -94,6 +96,7 @@ def expand_motor_group(
                     motor_count=motor_count,
                     source_page=source_page,
                     model_brand=model_brand,
+                    source_path=source_path,
                 )
             )
         debug("Fiziksel motor kayıtları üretildi", equipment_id=equipment_id, component_type=component_type, group=group, power_kw=power_kw, start_index=start_index, count=len(records), source_page=source_page, model_brand=model_brand)

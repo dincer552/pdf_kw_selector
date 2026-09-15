@@ -1,7 +1,7 @@
 """Project -> AHU -> motor batch analysis orchestration."""
 from __future__ import annotations
 
-from dataclasses import asdict, dataclass
+from dataclasses import asdict, dataclass, replace
 from pathlib import Path
 
 from ahu_matching import AHUMatch, discover_equipment, match_ahu_lists, normalize_equipment_id
@@ -160,7 +160,16 @@ def analyze_batch(pdf1_paths,pdf2_paths,progress_callback=None):
             if _is_ebm_pdf1(lf):
                 info("EBM-Papst PDF1 motor karşılaştırması atlandı; AHU eşleşmesi korunuyor",project=pm.left_name,ahu=am.left_normalized,pdf1_files=list(lf),pdf2_files=list(rf))
                 continue
-            try:motor_comparisons.extend(compare_motor_records(_extract_side_motors(lf,"PDF1",am.left_normalized),_extract_side_motors(rf,"PDF2",am.right_normalized)))
+            try:
+                comps = compare_motor_records(_extract_side_motors(lf,"PDF1",am.left_normalized),_extract_side_motors(rf,"PDF2",am.right_normalized))
+                patched = []
+                for c in comps:
+                    p1 = c.pdf1_path or (str(lf[0]) if lf else None)
+                    p2 = c.pdf2_path or (str(rf[0]) if rf else None)
+                    if p1 != c.pdf1_path or p2 != c.pdf2_path:
+                        c = replace(c, pdf1_path=p1, pdf2_path=p2)
+                    patched.append(c)
+                motor_comparisons.extend(patched)
             except Exception as exc:exception("Motor karşılaştırması başarısız",exc,project=pm.left_name,ahu=am.left_normalized)
     progress("matching",4,5,"Motor sonuçları oluşturuluyor")
     info("AHU MATCH DEBUG: final",project_matches=len(project_matches),ahu_matches=len(ahu_batches),motor_comparisons=len(motor_comparisons))

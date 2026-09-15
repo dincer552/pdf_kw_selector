@@ -20,6 +20,8 @@ class MotorComparison:
     pdf1_group: str | None = None
     pdf2_group: str | None = None
     explanation: str | None = None
+    pdf1_path: str | None = None
+    pdf2_path: str | None = None
     def to_dict(self) -> dict: return asdict(self)
 
 def _canonical_key(record: MotorRecord) -> tuple[str, str, int]:
@@ -59,7 +61,7 @@ def compare_motor_records(pdf1_records: Iterable[MotorRecord], pdf2_records: Ite
                 else:
                     status="MATCH" if difference<=tolerance_kw else "MISMATCH"; explanation="Normal kW karşılaştırması yapıldı."
             label=template.component_label+(" [EBM]" if ebm else "")
-            output.append(MotorComparison(template.equipment_id,template.component_type,label,template.component_index,a_kw,b_kw,difference,status,a.source_page if a else None,b.source_page if b else None,a.source_group if a else None,b.source_group if b else None,explanation))
+            output.append(MotorComparison(template.equipment_id,template.component_type,label,template.component_index,a_kw,b_kw,difference,status,a.source_page if a else None,b.source_page if b else None,a.source_group if a else None,b.source_group if b else None,explanation,getattr(a,"source_path",None) if a else None,getattr(b,"source_path",None) if b else None))
             debug("Motor karşılaştırması",key=key,pdf1_kw=a_kw,pdf2_kw=b_kw,difference_kw=difference,status=status,pdf1_brand=a.model_brand if a else None,explanation=explanation)
         info("Motor kW hesaplaması bitti",comparison_count=len(output),match=sum(x.status=="MATCH" for x in output),mismatch=sum(x.status=="MISMATCH" for x in output),ebm_papst=sum(x.status=="EBM_PAPST" for x in output),only_pdf1=sum(x.status=="ONLY_IN_PDF1" for x in output),only_pdf2=sum(x.status=="ONLY_IN_PDF2" for x in output))
         return output
