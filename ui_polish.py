@@ -1,4 +1,4 @@
-"""Visual polish for the desktop GUI."""
+"""Visual polish and layout helpers for the desktop GUI."""
 from __future__ import annotations
 
 import tkinter as tk
@@ -11,6 +11,36 @@ def _walk(widget):
     for child in widget.winfo_children():
         yield child
         yield from _walk(child)
+
+
+def _make_vertical_tab_resizer(app):
+    """Put the notebook in a vertical-only splitter so the action bar stays visible."""
+    tabs = getattr(app, "tabs", None)
+    if tabs is None or getattr(app, "_tab_resizer", None) is not None:
+        return
+
+    update_panel = getattr(app, "update_panel", None)
+    splitter = tk.PanedWindow(
+        app,
+        orient="vertical",
+        sashwidth=8,
+        sashrelief="flat",
+        bd=0,
+        relief="flat",
+        bg="#c9e8f5",
+        opaqueresize=True,
+    )
+    spacer = ttk.Frame(splitter, height=4)
+
+    tabs.pack_forget()
+    if update_panel is not None:
+        splitter.pack(fill="both", expand=True, padx=10, pady=(8, 0), before=update_panel)
+    else:
+        splitter.pack(fill="both", expand=True, padx=10, pady=(8, 0))
+    splitter.add(tabs, minsize=220, stretch="always")
+    splitter.add(spacer, minsize=4, height=4, stretch="never")
+    app._tab_resizer = splitter
+    app._tab_resizer_spacer = spacer
 
 
 def _polish(app):
@@ -64,14 +94,17 @@ def _polish(app):
                         widget.destroy()
                 ttk.Button(log_buttons, text="JSON KAYDET", command=app.save_json).pack(side="left", padx=3)
 
-        # Make the main action prominent.
+        # The notebook is the only vertically resizable area. The action bar
+        # remains outside the splitter, so ANALİZ BAŞLA can never be hidden.
+        _make_vertical_tab_resizer(app)
+
         style.configure("Accent.TButton", background="#62b8df", foreground="#ffffff", padding=(16, 7), font=("Segoe UI", 10, "bold"), borderwidth=0)
         style.map("Accent.TButton", background=[("active", "#3da2d2"), ("pressed", "#258dbd")])
         for widget in _walk(app):
             if isinstance(widget, ttk.Button) and widget.cget("text") == "ANALİZ":
                 widget.configure(style="Accent.TButton")
     except Exception:
-        # Visual polish must never prevent the application from starting.
+        # Visual/layout polish must never prevent the application from starting.
         pass
 
 
