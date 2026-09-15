@@ -12,18 +12,9 @@ _ORIGINAL_TREEVIEW_INIT = ttk.Treeview.__init__
 def _rounded_box(canvas: tk.Canvas, x1: float, y1: float, x2: float, y2: float, radius: float, **kwargs):
     radius = max(2.0, min(radius, (x2 - x1) / 2, (y2 - y1) / 2))
     points = [
-        x1 + radius, y1,
-        x2 - radius, y1,
-        x2, y1,
-        x2, y1 + radius,
-        x2, y2 - radius,
-        x2, y2,
-        x2 - radius, y2,
-        x1 + radius, y2,
-        x1, y2,
-        x1, y2 - radius,
-        x1, y1 + radius,
-        x1, y1,
+        x1 + radius, y1, x2 - radius, y1, x2, y1, x2, y1 + radius,
+        x2, y2 - radius, x2, y2, x2 - radius, y2, x1 + radius, y2,
+        x1, y2, x1, y2 - radius, x1, y1 + radius, x1, y1,
     ]
     return canvas.create_polygon(points, smooth=True, **kwargs)
 
@@ -34,12 +25,12 @@ class _StatusBadgeOverlay:
         self.canvas: tk.Canvas | None = None
         self.status_col: str | None = None
         self._refresh_job = None
+        self._poll_job = None
         tree.after_idle(self._install)
 
     def _find_status_column(self):
         for column in self.tree["columns"]:
-            heading = str(self.tree.heading(column, "text") or "").strip().casefold()
-            if heading == "durum":
+            if str(self.tree.heading(column, "text") or "").strip().casefold() == "durum":
                 return column
         return None
 
@@ -50,24 +41,34 @@ class _StatusBadgeOverlay:
             self.status_col = self._find_status_column()
             if not self.status_col:
                 return
-            parent = self.tree.master
-            self.canvas = tk.Canvas(parent, highlightthickness=0, bd=0, bg="#ffffff")
+            self.canvas = tk.Canvas(self.tree.master, highlightthickness=0, bd=0, bg="#ffffff")
             self.canvas.place_forget()
             self.canvas.bind("<Button-1>", self._on_canvas_click)
             for sequence in ("<Configure>", "<Expose>", "<Visibility>", "<<TreeviewSelect>>", "<MouseWheel>", "<Button-4>", "<Button-5>"):
                 self.tree.bind(sequence, self._schedule_refresh, add="+")
             self.tree.bind("<Destroy>", self._on_destroy, add="+")
             self._schedule_refresh()
+            self._poll()
         except tk.TclError:
             return
 
+    def _poll(self):
+        try:
+            if not self.tree.winfo_exists():
+                return
+            self._schedule_refresh()
+            self._poll_job = self.tree.after(150, self._poll)
+        except tk.TclError:
+            self._poll_job = None
+
     def _on_destroy(self, _event=None):
-        if self._refresh_job is not None:
-            try:
-                self.tree.after_cancel(self._refresh_job)
-            except Exception:
-                pass
-            self._refresh_job = None
+        for job in (self._refresh_job, self._poll_job):
+            if job is not None:
+                try:
+                    self.tree.after_cancel(job)
+                except Exception:
+                    pass
+        self._refresh_job = self._poll_job = None
         if self.canvas is not None:
             try:
                 self.canvas.destroy()
@@ -87,9 +88,8 @@ class _StatusBadgeOverlay:
         try:
             if not self.tree.winfo_exists() or self.canvas is None or not self.status_col:
                 return
-            children = self.tree.get_children("")
             visible = []
-            for item_id in children:
+            for item_id in self.tree.get_children(""):
                 bbox = self.tree.bbox(item_id, self.status_col)
                 if bbox and bbox[2] > 0 and bbox[3] > 0:
                     visible.append((item_id, bbox))
@@ -99,7 +99,7 @@ class _StatusBadgeOverlay:
 
             first_bbox = visible[0][1]
             col_x = first_bbox[0]
-            col_width = int(self.tree.column(self.status_col, "width"))
+            col_width = max(1, int(self.tree.column(self.status_col, "width")))
             body_top = first_bbox[1]
             height = max(1, self.tree.winfo_height() - body_top)
             self.canvas.configure(width=col_width, height=height)
@@ -108,27 +108,20 @@ class _StatusBadgeOverlay:
             self.canvas.delete("all")
 
             badge_font = tkfont.Font(family="Segoe UI", size=8, weight="bold")
+            col_index = list(self.tree["columns"]).index(self.status_col)
             for item_id, bbox in visible:
                 values = self.tree.item(item_id, "values")
-                if not values:
-                    continue
-                try:
-                    col_index = list(self.tree["columns"]).index(self.status_col)
-                    status = str(values[col_index]).strip() if col_index < len(values) else ""
-                except (ValueError, TypeError):
-                    status = ""
+                status = str(values[col_index]).strip() if col_index < len(values) else ""
                 if not status:
                     continue
-
-                cell_x, cell_y, cell_w, cell_h = bbox
+                _, cell_y, _, cell_h = bbox
                 local_y = cell_y - body_top
-                label = "✓ MATCH" if status.casefold() == "match" else f"✕ {status}"
                 green = status.casefold() == "match"
+                label = "✓ MATCH" if green else f"✕ {status}"
                 outline = "#16a34a" if green else "#dc2626"
                 fill = "#ecfdf3" if green else "#fff1f2"
                 foreground = "#15803d" if green else "#b91c1c"
-                text_w = badge_font.measure(label)
-                badge_w = min(max(text_w + 18, 64), max(64, col_width - 10))
+                badge_w = min(max(badge_font.measure(label) + 18, 64), max(64, col_width - 10))
                 badge_h = min(20, max(18, cell_h - 6))
                 x1 = 5
                 y1 = local_y + max(3, (cell_h - badge_h) / 2)
@@ -136,13 +129,11 @@ class _StatusBadgeOverlay:
                 y2 = y1 + badge_h
                 _rounded_box(self.canvas, x1, y1, x2, y2, 7, fill=fill, outline=outline, width=1)
                 self.canvas.create_text((x1 + x2) / 2, (y1 + y2) / 2, text=label, fill=foreground, font=badge_font)
-        except tk.TclError:
+        except (tk.TclError, ValueError, IndexError):
             return
 
     def _on_canvas_click(self, event):
         try:
-            # Keep normal Treeview row selection working even though the badge
-            # canvas sits above the status cells.
             tree_y = event.y + self.tree.winfo_y()
             row_id = self.tree.identify_row(tree_y)
             if row_id:
@@ -157,5 +148,4 @@ def _treeview_init(self, *args, **kwargs):
     _StatusBadgeOverlay(self)
 
 
-# Install before the application's Treeviews are constructed.
 ttk.Treeview.__init__ = _treeview_init
