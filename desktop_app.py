@@ -13,6 +13,7 @@ from tkinter import filedialog, messagebox, ttk
 from app_logger import exception, info, read_log, clear_log, log_file, log_directory, startup
 from batch_analysis import analyze_batch
 from desktop_inputs import PdfInput, discover_pdfs
+from drag_drop import install_pdf_drop_targets
 from pdf_master_scan import scan_pdfs
 from updater import check_for_update, download_update, restart_with_update
 from ahu_matching import normalize_equipment_id
@@ -39,6 +40,7 @@ class App(tk.Tk):
         self._progress_latest = None
         self._init_modern_theme()
         self._build_ui()
+        install_pdf_drop_targets(self, self.pdf1_box, self.pdf2_box)
         self.after(5000, self._schedule_update_check)
 
     def _init_modern_theme(self):
@@ -246,6 +248,16 @@ class App(tk.Tk):
         ttk.Button(btn_col, text="+ PDF EKLE", style="Secondary.TButton", command=lambda: self.add_files(side)).pack(side="left", padx=2)
         ttk.Button(btn_col, text="+ KLASÖR EKLE", style="Secondary.TButton", command=lambda: self.add_folder(side)).pack(side="left", padx=2)
 
+        # Animated drop banner (hidden until files are dragged over this box)
+        banner_bg = "#eff6ff" if side == "PDF1" else "#f5f3ff"
+        banner_border = "#2563eb" if side == "PDF1" else "#7c3aed"
+        banner_fg = "#1d4ed8" if side == "PDF1" else "#6d28d9"
+        banner_text = "⬇  SEÇİM ÇIKTISI (PDF1) BURAYA BIRAKIN  ⬇" if side == "PDF1" else "⬇  ELEKTRİK PROJESİ (PDF2) BURAYA BIRAKIN  ⬇"
+
+        drop_banner = tk.Frame(inner_box, bg=banner_bg, highlightbackground=banner_border, highlightthickness=2, padx=8, pady=6)
+        banner_label = tk.Label(drop_banner, text=banner_text, bg=banner_bg, fg=banner_fg, font=("Segoe UI", 9, "bold"))
+        banner_label.pack(fill="both", expand=True)
+
         # Inner scrollable list area
         list_container = tk.Frame(inner_box, bg="#f8fafc", highlightbackground="#e2e8f0", highlightthickness=1)
         list_container.pack(fill="both", expand=True, pady=(4, 0))
@@ -273,13 +285,105 @@ class App(tk.Tk):
             self._pdf1_scroll_frame = scrollable_frame
             self._pdf1_canvas = canvas
             self._pdf1_badge = count_badge
+            self._pdf1_inner_box = inner_box
+            self._pdf1_drop_banner = drop_banner
+            self._pdf1_banner_label = banner_label
+            self._pdf1_list_container = list_container
+            self._pdf1_head_row = head_row
+            self._pdf1_is_drag_active = False
+            self._pdf1_anim_job = None
         else:
             self._pdf2_scroll_frame = scrollable_frame
             self._pdf2_canvas = canvas
             self._pdf2_badge = count_badge
+            self._pdf2_inner_box = inner_box
+            self._pdf2_drop_banner = drop_banner
+            self._pdf2_banner_label = banner_label
+            self._pdf2_list_container = list_container
+            self._pdf2_head_row = head_row
+            self._pdf2_is_drag_active = False
+            self._pdf2_anim_job = None
 
         self._refresh_file_list(side)
         return count_badge, frame
+
+    def set_drag_active(self, side: str, active: bool):
+        """Visually activate or deactivate the drop zone with clear animated feedback."""
+        is_active = getattr(self, f"_{side.lower()}_is_drag_active", False)
+        if is_active == active:
+            return
+
+        setattr(self, f"_{side.lower()}_is_drag_active", active)
+        inner_box = getattr(self, f"_{side.lower()}_inner_box", None)
+        drop_banner = getattr(self, f"_{side.lower()}_drop_banner", None)
+        list_container = getattr(self, f"_{side.lower()}_list_container", None)
+        head_row = getattr(self, f"_{side.lower()}_head_row", None)
+
+        if not inner_box or not drop_banner:
+            return
+
+        # Cancel any active pulse animation timer
+        anim_job = getattr(self, f"_{side.lower()}_anim_job", None)
+        if anim_job is not None:
+            try:
+                self.after_cancel(anim_job)
+            except Exception:
+                pass
+            setattr(self, f"_{side.lower()}_anim_job", None)
+
+        if active:
+            # Show animated banner above the list container
+            drop_banner.pack(fill="x", pady=(0, 6), before=list_container)
+            reg = getattr(self, "_register_drop_target", None)
+            if reg:
+                reg(drop_banner, side)
+
+            tint_bg = "#eff6ff" if side == "PDF1" else "#f5f3ff"
+            inner_box.configure(bg=tint_bg)
+            if head_row:
+                head_row.configure(bg=tint_bg)
+
+            # Start pulsating animation loop
+            self._run_drag_pulse_animation(side, 0)
+        else:
+            # Hide banner and restore clean normal appearance
+            drop_banner.pack_forget()
+            inner_box.configure(highlightbackground="#e2e8f0", highlightthickness=1, bg="#ffffff")
+            if head_row:
+                head_row.configure(bg="#ffffff")
+
+    def _run_drag_pulse_animation(self, side: str, step: int):
+        """Pulsating border color and icon animation during drag-over."""
+        if not getattr(self, f"_{side.lower()}_is_drag_active", False):
+            return
+
+        inner_box = getattr(self, f"_{side.lower()}_inner_box", None)
+        drop_banner = getattr(self, f"_{side.lower()}_drop_banner", None)
+        banner_label = getattr(self, f"_{side.lower()}_banner_label", None)
+
+        if not inner_box or not drop_banner:
+            return
+
+        if side == "PDF1":
+            palette = ["#2563eb", "#3b82f6", "#60a5fa", "#3b82f6"]
+            icons = ["⬇  SEÇİM ÇIKTISI (PDF1) BURAYA BIRAKIN  ⬇", "⤓  SEÇİM ÇIKTISI (PDF1) BURAYA BIRAKIN  ⤓"]
+        else:
+            palette = ["#7c3aed", "#8b5cf6", "#a78bfa", "#8b5cf6"]
+            icons = ["⬇  ELEKTRİK PROJESİ (PDF2) BURAYA BIRAKIN  ⬇", "⤓  ELEKTRİK PROJESİ (PDF2) BURAYA BIRAKIN  ⤓"]
+
+        color = palette[step % len(palette)]
+        icon_text = icons[(step // 2) % len(icons)]
+
+        try:
+            inner_box.configure(highlightbackground=color, highlightthickness=2)
+            drop_banner.configure(highlightbackground=color)
+            if banner_label:
+                banner_label.configure(text=icon_text)
+        except Exception:
+            pass
+
+        job = self.after(130, lambda: self._run_drag_pulse_animation(side, step + 1))
+        setattr(self, f"_{side.lower()}_anim_job", job)
 
     def remove_file(self, side: str, index: int):
         target = self.pdf1_inputs if side == "PDF1" else self.pdf2_inputs
@@ -311,6 +415,9 @@ class App(tk.Tk):
                 pady=20
             )
             empty_lbl.pack(fill="both", expand=True)
+            reg = getattr(self, "_register_drop_target", None)
+            if reg:
+                reg(empty_lbl, side)
             return
 
         for idx, item in enumerate(target):
@@ -347,6 +454,10 @@ class App(tk.Tk):
                 command=lambda i=idx, s=side: self.remove_file(s, i)
             )
             del_btn.pack(side="right", padx=(4, 2))
+
+        reg = getattr(self, "_register_drop_target", None)
+        if reg:
+            reg(scroll_frame, side)
 
     def add_files(self, side):
         self._merge_inputs(side, list(filedialog.askopenfilenames(title=f"{side} PDF seç", filetypes=[("PDF", "*.pdf")])))
