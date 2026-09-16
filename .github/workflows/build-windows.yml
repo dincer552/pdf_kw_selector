@@ -89,22 +89,22 @@ jobs:
       - name: Verify desktop status renderer is available
         shell: pwsh
         run: |
-          python -c "import build_info; import status; assert status.is_match_status('MATCH'); assert not status.is_match_status('MISMATCH'); assert hasattr(status,'install_status_display'); assert __import__('status') is status; print('Desktop status renderer import OK')"
+          python -c "import build_info; import status; assert status.is_match_status('MATCH'); assert not status.is_match_status('MISMATCH'); assert hasattr(status,'install_status_display'); print('Desktop status renderer import OK')"
       - name: Embed build metadata
         shell: pwsh
         env:
           APP_VERSION: v0.5.4.${{ github.run_number }}
         run: |
-          @"
-          \"\"\"Build metadata embedded in packaged applications.\"\"\"
-          import pdf_click_opener  # noqa: F401
-          import pdf_hover_indicator  # noqa: F401
-          import status  # noqa: F401
-          import button_label_fix  # noqa: F401
-          import voclean_project_selector  # noqa: F401
-          BUILD_SHA = \"$env:GITHUB_SHA\"
-          BUILD_VERSION = \"$env:APP_VERSION\"
-          "@ | Set-Content -Path build_info.py -Encoding UTF8
+          Set-Content -Path build_info.py -Value @(
+            '"""Build metadata embedded in packaged applications."""'
+            'import pdf_click_opener  # noqa: F401'
+            'import pdf_hover_indicator  # noqa: F401'
+            'import status  # noqa: F401'
+            'import button_label_fix  # noqa: F401'
+            'import voclean_project_selector  # noqa: F401'
+            "BUILD_SHA = `"$env:GITHUB_SHA`""
+            "BUILD_VERSION = `"$env:APP_VERSION`""
+          ) -Encoding UTF8
           python -c "import build_info; import status; print('Build metadata imports central status renderer')"
       - name: Build EXE
         shell: pwsh
