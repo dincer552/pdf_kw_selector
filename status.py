@@ -1,8 +1,10 @@
-"""Single source of truth for comparison statuses and their desktop presentation."""
+"""Single source of truth for comparison statuses and desktop presentation."""
 from __future__ import annotations
 
 from dataclasses import dataclass
 from typing import Any
+
+import tkinter as tk
 
 STATUS_MATCH = "MATCH"
 STATUS_MISMATCH = "MISMATCH"
@@ -64,18 +66,10 @@ def decide_motor_status(
     pdf2_kw = getattr(pdf2_record, "power_kw", None) if pdf2_record is not None else None
 
     if pdf1_record is None:
-        return StatusDecision(
-            STATUS_ONLY_IN_PDF2,
-            None,
-            "PDF1 tarafında karşılığı bulunamadı.",
-        )
+        return StatusDecision(STATUS_ONLY_IN_PDF2, None, "PDF1 tarafında karşılığı bulunamadı.")
 
     if pdf2_record is None:
-        return StatusDecision(
-            STATUS_ONLY_IN_PDF1,
-            None,
-            "PDF2 tarafında karşılığı bulunamadı.",
-        )
+        return StatusDecision(STATUS_ONLY_IN_PDF1, None, "PDF2 tarafında karşılığı bulunamadı.")
 
     if _is_ebm_papst(pdf1_record):
         return StatusDecision(
@@ -93,32 +87,22 @@ def decide_motor_status(
         )
 
     if difference <= tolerance_kw:
-        return StatusDecision(
-            STATUS_MATCH,
-            difference,
-            "Normal kW karşılaştırması yapıldı.",
-        )
+        return StatusDecision(STATUS_MATCH, difference, "Normal kW karşılaştırması yapıldı.")
 
-    return StatusDecision(
-        STATUS_MISMATCH,
-        difference,
-        "Normal kW karşılaştırması yapıldı.",
-    )
+    return StatusDecision(STATUS_MISMATCH, difference, "Normal kW karşılaştırması yapıldı.")
 
 
 # ----------------------------- Desktop presentation -----------------------------
 
 
 def install_status_display(root) -> None:
-    """Render status badges directly inside each visible Durum cell.
+    """Render status badges directly inside every visible Durum cell.
 
-    This deliberately avoids a single canvas overlay for the whole column.
-    Grouped Treeviews contain parent AHU rows and child motor rows; a column-wide
-    overlay can stay at stale coordinates and cover unrelated MATCH text while
-    scrolling. Each badge below belongs to exactly one Treeview item and is
-    repositioned from that item's bbox on every refresh.
+    The analysis result is never changed here. This layer only decides how the
+    already-produced status string is drawn: exact MATCH is green, everything
+    else is red. Each badge belongs to one Treeview item so scrolling and
+    grouped parent/child rows stay aligned.
     """
-    import tkinter as tk
     from tkinter import font as tkfont
     from tkinter import ttk
 
@@ -147,16 +131,6 @@ def install_status_display(root) -> None:
             for item_id in self.tree.get_children(parent):
                 yield item_id
                 yield from self.iter_items(item_id)
-
-        def row_background(self, item_id):
-            try:
-                for tag in self.tree.item(item_id, "tags") or ():
-                    bg = str(self.tree.tag_configure(tag, "background") or "")
-                    if bg:
-                        return bg
-            except tk.TclError:
-                pass
-            return "#ffffff"
 
         def install(self):
             try:
@@ -241,11 +215,9 @@ def install_status_display(root) -> None:
                     foreground = "#064e3b" if green else "#7f1d1d"
 
                     col_width = max(1, int(self.tree.column(self.status_col, "width")))
-                    max_badge_width = max(68, col_width - 10)
-                    badge_w = min(max(badge_font.measure(label) + 20, 68), max_badge_width)
+                    badge_w = min(max(badge_font.measure(label) + 20, 68), max(68, col_width - 10))
                     cell_h = max(18, int(bbox[3]))
                     badge_h = min(22, max(18, cell_h - 4))
-                    row_bg = self.row_background(item_id)
 
                     badge = self.badges.get(item_id)
                     if badge is None or not badge.winfo_exists():
@@ -255,12 +227,12 @@ def install_status_display(root) -> None:
                             height=badge_h,
                             highlightthickness=0,
                             bd=0,
-                            bg=row_bg,
+                            bg="#ffffff",
                         )
                         badge.bind("<Button-1>", lambda event, iid=item_id: self.on_badge_click(event, iid))
                         self.badges[item_id] = badge
 
-                    badge.configure(width=badge_w, height=badge_h, bg=row_bg)
+                    badge.configure(width=badge_w, height=badge_h, bg="#ffffff")
                     x = bbox[0] + max(2, (bbox[2] - badge_w) / 2)
                     y = bbox[1] + max(1, (bbox[3] - badge_h) / 2)
                     badge.place(x=x, y=y, anchor="nw")
@@ -305,3 +277,18 @@ def install_status_display(root) -> None:
     for tree in trees:
         if getattr(tree, "_central_status_overlay", None) is None:
             tree._central_status_overlay = StatusOverlay(tree)
+
+
+# The Windows entry point imports this module through build_info before creating
+# the root window. Automatically attach the single renderer to every Tk root.
+_ORIGINAL_TK_INIT = tk.Tk.__init__
+
+
+def _tk_init(self, *args, **kwargs):
+    _ORIGINAL_TK_INIT(self, *args, **kwargs)
+    self.after_idle(lambda: install_status_display(self))
+
+
+if not getattr(tk.Tk, "_pdf_kw_central_status_installed", False):
+    tk.Tk.__init__ = _tk_init
+    tk.Tk._pdf_kw_central_status_installed = True
