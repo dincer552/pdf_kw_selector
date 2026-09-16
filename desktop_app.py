@@ -186,6 +186,9 @@ class App(tk.Tk):
             self.tree.heading(col, text=col)
             self.tree.column(col, width=100, anchor="center")
         self.tree.pack(fill="both", expand=True, padx=8, pady=8)
+        self.tree.tag_configure("status_match", background="#e6ffed", foreground="#116329")
+        self.tree.tag_configure("status_error", background="#ffebe9", foreground="#b62324")
+        self.tree.tag_configure("status_neutral", background="#ffffff", foreground="#334155")
         self._tree_cell_data: dict[str, dict] = {}
         self.tree.bind("<Button-1>", self._on_tree_cell_click)
         self.tree.bind("<Motion>", self._on_tree_cell_motion)
@@ -619,7 +622,7 @@ class App(tk.Tk):
         for comparison in comparisons:
             counts[comparison.status]=counts.get(comparison.status,0)+1; ahu=normalize_equipment_id(comparison.equipment_id); project=ahu_context.get(ahu,"-"); group_key=(project.casefold(),ahu.casefold())
             if group_key!=previous_group: group_number+=1; previous_group=group_key
-            tag="group_a" if group_number%2 else "group_b"
+            status_tag = "status_match" if comparison.status == "MATCH" else "status_error"
             row_vals = (
                 project,
                 ahu,
