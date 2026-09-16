@@ -5,7 +5,7 @@ from dataclasses import dataclass
 from typing import Any
 
 import tkinter as tk
-from tkinter import ttk
+from tkinter import ttk, font as tkfont
 
 STATUS_MATCH = "MATCH"
 STATUS_MISMATCH = "MISMATCH"
@@ -194,7 +194,7 @@ class _StatusOverlay:
 
             columns = list(self.tree["columns"])
             col_index = columns.index(self.status_col)
-            badge_font = ("Segoe UI", 8, "bold")
+            badge_font = tkfont.Font(self.canvas, family="Segoe UI", size=8, weight="bold")
 
             for item_id, bbox in visible:
                 values = self.tree.item(item_id, "values")
@@ -211,7 +211,7 @@ class _StatusOverlay:
                 _, cell_y, _, cell_h = bbox
                 local_y = int(cell_y) - body_top
                 badge_h = min(22, max(18, int(cell_h) - 4))
-                measured = tk.font.Font(font=badge_font).measure(label) + 20
+                measured = badge_font.measure(label) + 20
                 badge_w = min(max(measured, 68), max(68, column_width - 10))
                 x1 = max(4, int((column_width - badge_w) / 2))
                 y1 = local_y + max(1, int((cell_h - badge_h) / 2))
