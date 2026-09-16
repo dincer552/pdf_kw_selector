@@ -41,14 +41,30 @@ class _StatusBadgeOverlay:
             self.status_col = self._find_status_column()
             if not self.status_col:
                 return
-            # Make the overlay a child of the Treeview itself. This keeps the
-            # coordinate system identical to Treeview.bbox() and avoids the
-            # offset that previously covered the status text without drawing
-            # the badge in the correct place.
-            self.canvas = tk.Canvas(self.tree, highlightthickness=0, bd=0, bg="#ffffff")
+
+            # The overlay MUST be a child of the Treeview itself.  The previous
+            # implementation attached it to tree.master and used mixed parent
+            # coordinates, which could cover the native cell text without
+            # reliably drawing the badge.  Keeping the overlay inside the
+            # Treeview makes bbox() coordinates and place() coordinates share
+            # the same coordinate system.
+            self.canvas = tk.Canvas(
+                self.tree,
+                highlightthickness=0,
+                bd=0,
+                bg="#ffffff",
+            )
             self.canvas.place_forget()
             self.canvas.bind("<Button-1>", self._on_canvas_click)
-            for sequence in ("<Configure>", "<Expose>", "<Visibility>", "<<TreeviewSelect>>", "<MouseWheel>", "<Button-4>", "<Button-5>"):
+            for sequence in (
+                "<Configure>",
+                "<Expose>",
+                "<Visibility>",
+                "<<TreeviewSelect>>",
+                "<MouseWheel>",
+                "<Button-4>",
+                "<Button-5>",
+            ):
                 self.tree.bind(sequence, self._schedule_refresh, add="+")
             self.tree.bind("<Destroy>", self._on_destroy, add="+")
             self._schedule_refresh()
@@ -92,11 +108,13 @@ class _StatusBadgeOverlay:
         try:
             if not self.tree.winfo_exists() or self.canvas is None or not self.status_col:
                 return
+
             visible = []
             for item_id in self.tree.get_children(""):
                 bbox = self.tree.bbox(item_id, self.status_col)
                 if bbox and bbox[2] > 0 and bbox[3] > 0:
                     visible.append((item_id, bbox))
+
             if not visible:
                 self.canvas.place_forget()
                 return
@@ -106,21 +124,28 @@ class _StatusBadgeOverlay:
             col_width = max(1, int(self.tree.column(self.status_col, "width")))
             body_top = first_bbox[1]
             height = max(1, self.tree.winfo_height() - body_top)
+
             self.canvas.configure(width=col_width, height=height)
+            # bbox() returns coordinates relative to the Treeview, and the
+            # canvas is now also a child of the Treeview: no parent-coordinate
+            # conversion is needed.
             self.canvas.place(x=col_x, y=body_top, anchor="nw")
             self.canvas.lift()
             self.canvas.delete("all")
 
             badge_font = tkfont.Font(family="Segoe UI", size=8, weight="bold")
             col_index = list(self.tree["columns"]).index(self.status_col)
+
             for item_id, bbox in visible:
                 values = self.tree.item(item_id, "values")
                 status = str(values[col_index]).strip() if col_index < len(values) else ""
                 if not status:
                     continue
+
                 _, cell_y, _, cell_h = bbox
                 local_y = cell_y - body_top
-                green = status.casefold() == "match"
+                normalized = status.strip().upper()
+                green = normalized == "MATCH"
                 label = "✓ MATCH" if green else f"✕ {status}"
                 outline = "#10b981" if green else "#ef4444"
                 fill = "#dcfce7" if green else "#fee2e2"
@@ -133,13 +158,22 @@ class _StatusBadgeOverlay:
                 y2 = y1 + badge_h
                 radius = badge_h / 2.0
                 _rounded_box(self.canvas, x1, y1, x2, y2, radius, fill=fill, outline=outline, width=1.5)
-                self.canvas.create_text((x1 + x2) / 2, (y1 + y2) / 2, text=label, fill=foreground, font=badge_font)
+                self.canvas.create_text(
+                    (x1 + x2) / 2,
+                    (y1 + y2) / 2,
+                    text=label,
+                    fill=foreground,
+                    font=badge_font,
+                )
         except (tk.TclError, ValueError, IndexError):
             return
 
     def _on_canvas_click(self, event):
         try:
-            row_id = self.tree.identify_row(event.y)
+            # event.y is relative to the overlay canvas. Convert it back to
+            # Treeview coordinates using the canvas' y position.
+            tree_y = event.y + int(self.canvas.winfo_y())
+            row_id = self.tree.identify_row(tree_y)
             if row_id:
                 self.tree.selection_set(row_id)
                 self.tree.focus(row_id)
