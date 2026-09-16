@@ -24,14 +24,12 @@ jobs:
           root = Path('.')
           desktop = root / 'desktop_app.py'
           text = desktop.read_text(encoding='utf-8')
-
           import_marker = 'from pdf_hover_indicator import get_cell_hover_box'
           direct_import = 'from status import install_status_display'
           if direct_import not in text:
               if import_marker not in text:
                   raise SystemExit('desktop_app status import marker not found')
               text = text.replace(import_marker, import_marker + '\n' + direct_import, 1)
-
           init_marker = '        self._build_ui()\n        install_pdf_drop_targets(self, self.pdf1_box, self.pdf2_box)'
           init_replacement = '        self._build_ui()\n        install_status_display(self)\n        install_pdf_drop_targets(self, self.pdf1_box, self.pdf2_box)'
           if 'install_status_display(self)' not in text:
@@ -40,15 +38,12 @@ jobs:
               text = text.replace(init_marker, init_replacement, 1)
           desktop.write_text(text, encoding='utf-8')
 
-          # status.py is now loaded directly by desktop_app; build_info must stay metadata-only.
           workflow = root / '.github/workflows/build-windows.yml'
           w = workflow.read_text(encoding='utf-8')
           w = w.replace("            'import status  # noqa: F401'\n", '')
           w = w.replace('python -c "import build_info; import status; print(\'Build metadata imports central status renderer\')"', 'python -c "import build_info; import desktop_app; import status; print(\'Direct desktop status import OK\')"')
           workflow.write_text(w, encoding='utf-8')
-
-          migration = root / '.github/workflows/finalize-status-source.yml'
-          migration.unlink()
+          (root / '.github/workflows/finalize-status-source.yml').unlink()
 
       - name: Validate and commit
         shell: bash
@@ -58,6 +53,6 @@ jobs:
           python -c "import desktop_app; import status; assert status.is_match_status('MATCH'); assert not status.is_match_status('MISMATCH'); print('Direct centralized status import OK')"
           git config user.name 'github-actions[bot]'
           git config user.email '41898282+github-actions[bot]@users.noreply.github.com'
-          git add desktop_app.py status.py .github/workflows/build-windows.yml .github/workflows/finalize-status-source.yml
+          git add -A
           git commit -m 'Finalize centralized status source'
           git push
