@@ -91,6 +91,22 @@ jobs:
         env:
           APP_VERSION: v0.5.4.${{ github.run_number }}
         run: pyinstaller --noconfirm --clean --onefile --windowed --additional-hooks-dir=. --collect-all pypdf --name "PDF_KW_Selector_$env:APP_VERSION" desktop_grouped_app.py
+      - name: Smoke test packaged EXE startup
+        shell: pwsh
+        env:
+          APP_VERSION: v0.5.4.${{ github.run_number }}
+        run: |
+          $exe = Join-Path $PWD "dist/PDF_KW_Selector_$env:APP_VERSION.exe"
+          if (-not (Test-Path -LiteralPath $exe)) { throw "Packaged EXE not found: $exe" }
+          Write-Host "Starting packaged EXE smoke test: $exe"
+          $proc = Start-Process -FilePath $exe -PassThru
+          Start-Sleep -Seconds 12
+          if ($proc.HasExited) {
+            throw "Packaged EXE crashed/exited during startup smoke test. ExitCode=$($proc.ExitCode)"
+          }
+          Write-Host "Packaged EXE stayed running for 12 seconds: startup OK"
+          Stop-Process -Id $proc.Id -Force -ErrorAction SilentlyContinue
+          Start-Sleep -Seconds 2
       - name: Prepare release assets
         shell: pwsh
         env:
