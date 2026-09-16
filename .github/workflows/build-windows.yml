@@ -42,7 +42,7 @@ jobs:
           $oldInit = 'self.tabs.tab(0,text="DANFOS")'
           $newInit = 'install_status_display(self); self.tabs.tab(0,text="DANFOS")'
           if (-not $text.Contains($oldInit)) { throw 'Status renderer install target was not found.' }
-          $text = $text.Replace($oldInit,$newInit,1)
+          $text = $text.Replace($oldInit,$newInit)
           Set-Content -Path $path -Value $text -Encoding UTF8
           python -m py_compile status.py desktop_grouped_app.py
       - name: Run centralized status tests
