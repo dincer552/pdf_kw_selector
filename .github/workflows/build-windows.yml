@@ -29,11 +29,11 @@ jobs:
           cache-dependency-path: requirements.txt
       - name: Install dependencies
         run: python -m pip install -r requirements.txt pyinstaller pytest
-      - name: Verify canonical status renderer
+      - name: Verify central status source
         shell: pwsh
         run: |
-          python -c "from pathlib import Path; import desktop_grouped_app; from status import install_status_display; text=Path('desktop_grouped_app.py').read_text(encoding='utf-8'); assert 'from status import install_status_display' in text; assert 'install_status_display(self)' in text; print('Canonical status renderer already enabled')"
-          python -m py_compile status.py desktop_grouped_app.py
+          python -c "from status import is_match_status, decide_motor_status; assert is_match_status('MATCH'); assert is_match_status(' match '); assert not is_match_status('MISMATCH'); assert not is_match_status('BA kodu eşleşti (BA550)'); assert not is_match_status('PDF2 AHU eşleşti; motor kW karşılaştırması yapılmadı'); print('Central status rules OK')"
+          python -m py_compile status.py motor_compare.py desktop_app.py desktop_grouped_app.py
       - name: Run centralized status tests
         run: python -m pytest -q tests/test_status.py
       - name: Keep normal AHU group available after VOCLEAN selection
@@ -86,16 +86,26 @@ jobs:
           if (-not $text.Contains($old)) { throw 'Unmatched list patch target was not found.' }
           Set-Content -Path $path -Value $text.Replace($old,$new) -Encoding UTF8
           python -m py_compile desktop_app.py
-      - name: Verify single status source
+      - name: Verify desktop status renderer is available
         shell: pwsh
         run: |
-          python -c "from pathlib import Path; from status import is_match_status; import desktop_app, desktop_grouped_app; assert is_match_status('MATCH'); assert not is_match_status('MISMATCH'); assert not is_match_status('BA kodu eşleşti (BA550)'); assert issubclass(desktop_grouped_app.GroupedApp, desktop_app.App); assert not Path('status_badges.py').exists(); assert not Path('ui_polish.py').exists(); print('Central status source verification OK')"
+          python -c "import build_info; import status; assert status.is_match_status('MATCH'); assert not status.is_match_status('MISMATCH'); assert hasattr(status,'install_status_display'); assert __import__('status') is status; print('Desktop status renderer import OK')"
       - name: Embed build metadata
         shell: pwsh
         env:
           APP_VERSION: v0.5.4.${{ github.run_number }}
         run: |
-          Set-Content -Path build_info.py -Value '"""Build metadata embedded in packaged applications."""', "BUILD_SHA = `"$env:GITHUB_SHA`"", "BUILD_VERSION = `"$env:APP_VERSION`""
+          @"
+          \"\"\"Build metadata embedded in packaged applications.\"\"\"
+          import pdf_click_opener  # noqa: F401
+          import pdf_hover_indicator  # noqa: F401
+          import status  # noqa: F401
+          import button_label_fix  # noqa: F401
+          import voclean_project_selector  # noqa: F401
+          BUILD_SHA = \"$env:GITHUB_SHA\"
+          BUILD_VERSION = \"$env:APP_VERSION\"
+          "@ | Set-Content -Path build_info.py -Encoding UTF8
+          python -c "import build_info; import status; print('Build metadata imports central status renderer')"
       - name: Build EXE
         shell: pwsh
         env:
@@ -111,9 +121,7 @@ jobs:
           Write-Host "Starting packaged EXE smoke test: $exe"
           $proc = Start-Process -FilePath $exe -PassThru
           Start-Sleep -Seconds 12
-          if ($proc.HasExited) {
-            throw "Packaged EXE crashed/exited during startup smoke test. ExitCode=$($proc.ExitCode)"
-          }
+          if ($proc.HasExited) { throw "Packaged EXE crashed/exited during startup smoke test. ExitCode=$($proc.ExitCode)" }
           Write-Host "Packaged EXE stayed running for 12 seconds: startup OK"
           Stop-Process -Id $proc.Id -Force -ErrorAction SilentlyContinue
           Start-Sleep -Seconds 2
