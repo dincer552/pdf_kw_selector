@@ -14,7 +14,7 @@ from result_grouping import group_result_rows
 from updater import apply_update
 from confirmation_workflow import analyze_with_confirmations
 from pdf_master_scan import scan_pdf
-from status import install_status_display
+from status import apply_status_tag, install_status_display, status_display_text
 
 def _path_strings(items): return [str(getattr(item,"path",item)) for item in (items or [])]
 def _confirmed_analyze(pdf1_inputs,pdf2_inputs,progress_callback=None):
@@ -116,7 +116,8 @@ class GroupedApp(BaseApp):
                     rows.append((document.project.project_name or "-",Path(document.path).name,f"{motor.value_kw:g}",str(motor.page_number),"-","-",f"PDF2 AHU eşleşmesi yok; beklenen {prefix[:-1]}-xxxxx",str(document.path),motor.page_number,None,1))
         rows.sort(key=lambda r:(str(r[0]).casefold(),str(r[1]).casefold(),str(r[3]),str(r[5]).casefold()))
         for r in rows:
-            item_id = self.voclean_tree.insert("","end",values=(r[0],r[1],r[2],r[3],r[4],r[5],r[6]))
+            item_id = self.voclean_tree.insert("","end",values=(r[0],r[1],r[2],r[3],r[4],r[5],status_display_text(r[6])))
+            apply_status_tag(self.voclean_tree, item_id, r[6])
             self._voclean_cell_data[item_id] = {"pdf1_path": r[7], "pdf1_page": r[8], "pdf2_path": r[9], "pdf2_page": r[10], "pdf1_name": r[1], "pdf2_name": r[4]}
         self.tabs.tab(self.voclean_tab,text=f"VOCLEAN ({len(self._vocclean_pdf_keys)})")
     def _render_sysreco(self):
@@ -146,7 +147,7 @@ class GroupedApp(BaseApp):
             for ahu_id in tuple(document.equipment) or ("-",): rows.append((document.project.project_name or "-",ahu_id or "-",Path(document.path).name,pdf2,status,str(document.path),ebm_page,str(pdf2_paths[0]) if pdf2_paths else None,1))
         rows.sort(key=lambda r:(str(r[1]).casefold(),str(r[2]).casefold(),str(r[0]).casefold()))
         for r in rows:
-            item_id = self.ebm_tree.insert("","end",values=(r[0],r[1],r[2],r[3],r[4])); self._ebm_cell_data[item_id] = {"pdf1_path": r[5], "pdf1_page": r[6], "pdf2_path": r[7], "pdf2_page": r[8], "pdf1_name": r[2], "pdf2_name": r[3]}
+            item_id = self.ebm_tree.insert("","end",values=(r[0],r[1],r[2],r[3],status_display_text(r[4]))); apply_status_tag(self.ebm_tree, item_id, r[4]); self._ebm_cell_data[item_id] = {"pdf1_path": r[5], "pdf1_page": r[6], "pdf2_path": r[7], "pdf2_page": r[8], "pdf1_name": r[2], "pdf2_name": r[3]}
         self.tabs.tab(self.ebm_tab,text=f"EBM-PAPST ({len(self._ebm_pdf_keys)})")
     def _selected_pdf_keys(self):
         result=set()
@@ -252,6 +253,8 @@ class GroupedApp(BaseApp):
             self._tree_cell_data = {}
             for row in grouped:
                 item_id=self.tree.insert("","end",values=row,tags=("mismatch",) if len(row)>5 and str(row[5]).strip()=="MISMATCH" else ())
+                if len(row) > 5:
+                    apply_status_tag(self.tree, item_id, row[5])
                 if len(row)>9:
                     p1_p=int(row[7]) if str(row[7]).strip().isdigit() else None; p2_p=int(row[9]) if str(row[9]).strip().isdigit() else None
                     self._tree_cell_data[item_id]={"pdf1_path":row[6] or None,"pdf1_page":p1_p,"pdf2_path":row[8] or None,"pdf2_page":p2_p}

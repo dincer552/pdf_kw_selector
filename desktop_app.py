@@ -20,7 +20,7 @@ from updater import check_for_update, download_update, restart_with_update
 from ahu_matching import normalize_equipment_id
 from build_info import BUILD_SHA, BUILD_VERSION
 from pdf_hover_indicator import get_cell_hover_box
-from status import install_status_display
+from status import apply_status_tag, install_status_display, status_display_text
 
 VERSION = BUILD_VERSION
 UPDATE_CHECK_INTERVAL_MS = 15 * 60 * 1000
@@ -588,13 +588,14 @@ class App(tk.Tk):
                 comparison.component_label,
                 self._fmt(comparison.pdf1_kw),
                 self._fmt(comparison.pdf2_kw),
-                comparison.status,
+                status_display_text(comparison.status),
                 comparison.pdf1_path or "",
                 str(comparison.pdf1_page or "") if comparison.pdf1_page else "",
                 comparison.pdf2_path or "",
                 str(comparison.pdf2_page or "") if comparison.pdf2_page else "",
             )
             item_id = self.tree.insert("", "end", tags=(tag,), values=row_vals)
+            apply_status_tag(self.tree, item_id, comparison.status)
             self._tree_cell_data[item_id] = {
                 "pdf1_path": comparison.pdf1_path,
                 "pdf1_page": comparison.pdf1_page,
