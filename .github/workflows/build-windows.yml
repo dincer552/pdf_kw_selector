@@ -29,21 +29,10 @@ jobs:
           cache-dependency-path: requirements.txt
       - name: Install dependencies
         run: python -m pip install -r requirements.txt pyinstaller pytest
-      - name: Enable canonical status renderer
+      - name: Verify canonical status renderer
         shell: pwsh
         run: |
-          $path = 'desktop_grouped_app.py'
-          $text = Get-Content -Path $path -Raw -Encoding UTF8
-          $nl = [Environment]::NewLine
-          $oldImport = 'from updater import apply_update' + $nl
-          $newImport = 'from updater import apply_update' + $nl + 'from status import install_status_display' + $nl
-          if (-not $text.Contains($oldImport)) { throw 'Status renderer import target was not found.' }
-          if (-not $text.Contains('from status import install_status_display')) { $text = $text.Replace($oldImport,$newImport) }
-          $oldInit = 'self.tabs.tab(0,text="DANFOS")'
-          $newInit = 'install_status_display(self); self.tabs.tab(0,text="DANFOS")'
-          if (-not $text.Contains($oldInit)) { throw 'Status renderer install target was not found.' }
-          $text = $text.Replace($oldInit,$newInit)
-          Set-Content -Path $path -Value $text -Encoding UTF8
+          python -c "from pathlib import Path; import desktop_grouped_app; from status import install_status_display; text=Path('desktop_grouped_app.py').read_text(encoding='utf-8'); assert 'from status import install_status_display' in text; assert 'install_status_display(self)' in text; print('Canonical status renderer already enabled')"
           python -m py_compile status.py desktop_grouped_app.py
       - name: Run centralized status tests
         run: python -m pytest -q tests/test_status.py
@@ -63,10 +52,13 @@ jobs:
         run: |
           $path = 'desktop_grouped_app.py'
           $text = Get-Content -Path $path -Raw -Encoding UTF8
-          $old = 'from updater import apply_update' + [Environment]::NewLine + 'from status import install_status_display' + [Environment]::NewLine + 'from confirmation_workflow import analyze_with_confirmations'
-          $new = 'from updater import apply_update' + [Environment]::NewLine + 'from status import install_status_display' + [Environment]::NewLine + 'import voclean_project_selector' + [Environment]::NewLine + 'from confirmation_workflow import analyze_with_confirmations'
-          if (-not $text.Contains($old)) { throw 'Grouped app VOCLEAN import target was not found.' }
-          Set-Content -Path $path -Value $text.Replace($old,$new) -Encoding UTF8
+          $import = 'import voclean_project_selector'
+          if (-not $text.Contains($import)) {
+            $anchor = 'from confirmation_workflow import analyze_with_confirmations'
+            if (-not $text.Contains($anchor)) { throw 'Grouped app confirmation workflow import target was not found.' }
+            $text = $text.Replace($anchor, $import + [Environment]::NewLine + $anchor)
+          }
+          Set-Content -Path $path -Value $text -Encoding UTF8
           python -m py_compile desktop_grouped_app.py voclean_project_selector.py
       - name: Ensure VOCLEAN table PDF headers
         shell: pwsh
