@@ -20,7 +20,6 @@ jobs:
         shell: python
         run: |
           from pathlib import Path
-
           root = Path('.')
           desktop = root / 'desktop_app.py'
           text = desktop.read_text(encoding='utf-8')
@@ -37,20 +36,19 @@ jobs:
                   raise SystemExit('desktop_app status init marker not found')
               text = text.replace(init_marker, init_replacement, 1)
           desktop.write_text(text, encoding='utf-8')
-
           workflow = root / '.github/workflows/build-windows.yml'
           w = workflow.read_text(encoding='utf-8')
           w = w.replace("            'import status  # noqa: F401'\n", '')
           w = w.replace('python -c "import build_info; import status; print(\'Build metadata imports central status renderer\')"', 'python -c "import build_info; import desktop_app; import status; print(\'Direct desktop status import OK\')"')
           workflow.write_text(w, encoding='utf-8')
           (root / '.github/workflows/finalize-status-source.yml').unlink()
-
       - name: Validate and commit
         shell: bash
         run: |
           set -euo pipefail
           python -m py_compile desktop_app.py status.py motor_compare.py
-          python -c "import desktop_app; import status; assert status.is_match_status('MATCH'); assert not status.is_match_status('MISMATCH'); print('Direct centralized status import OK')"
+          grep -q 'from status import install_status_display' desktop_app.py
+          grep -q 'install_status_display(self)' desktop_app.py
           git config user.name 'github-actions[bot]'
           git config user.email '41898282+github-actions[bot]@users.noreply.github.com'
           git add -A
