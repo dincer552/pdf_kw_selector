@@ -26,7 +26,7 @@ def test_only_literal_match_is_green():
     assert not is_match_status("ONLY_IN_PDF2")
 
 
-def test_normal_match_and_mismatch_are_decided centrally():
+def test_normal_match_and_mismatch_are_decided_centrally():
     match = decide_motor_status(motor(7.5), motor(7.5))
     mismatch = decide_motor_status(motor(7.5), motor(4.0))
     assert match.status == STATUS_MATCH
