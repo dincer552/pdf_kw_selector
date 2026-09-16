@@ -1,5 +1,7 @@
 from types import SimpleNamespace
 
+from pytest import approx
+
 from status import (
     STATUS_EBM_PAPST,
     STATUS_MATCH,
@@ -38,7 +40,7 @@ def test_normal_match_and_mismatch_are_decided_centrally():
 def test_legacy_1_1_to_1_5_exception_is_still_match():
     result = decide_motor_status(motor(1.1), motor(1.5))
     assert result.status == STATUS_MATCH
-    assert result.difference_kw == 0.4
+    assert result.difference_kw == approx(0.4)
     assert "1.1" in result.explanation and "1.5" in result.explanation
 
 
