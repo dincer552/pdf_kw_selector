@@ -20,6 +20,7 @@ from updater import check_for_update, download_update, restart_with_update
 from ahu_matching import normalize_equipment_id
 from build_info import BUILD_SHA, BUILD_VERSION
 from pdf_hover_indicator import get_cell_hover_box
+from status import install_status_display
 
 VERSION = BUILD_VERSION
 UPDATE_CHECK_INTERVAL_MS = 15 * 60 * 1000
@@ -43,6 +44,7 @@ class App(tk.Tk):
         self._progress_latest = None
         self._init_modern_theme()
         self._build_ui()
+        install_status_display(self)
         install_pdf_drop_targets(self, self.pdf1_box, self.pdf2_box)
         self.after(5000, self._schedule_update_check)
 
