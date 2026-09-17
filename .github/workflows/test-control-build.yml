@@ -25,7 +25,7 @@ jobs:
           git -C external/umut-test-pro fetch --depth 1 origin $commit
           git -C external/umut-test-pro checkout $commit
           nuget restore external/umut-test-pro/TestKontrolProg.sln
-          msbuild external/umut-test-pro/TestKontrolProg.sln /m /p:Configuration=Release /p:Platform=AnyCPU
+          msbuild external/umut-test-pro/TestKontrolProg.sln /m /p:Configuration=Release /p:Platform="Any CPU"
           $exe = 'external/umut-test-pro/TestKontrolProg/bin/Release/TestKontrolProg.exe'
           if (-not (Test-Path -LiteralPath $exe)) { throw "Build output not found: $exe" }
           Write-Host "TestKontrolProg build OK: $exe"
