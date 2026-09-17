@@ -9,6 +9,7 @@ on:
 jobs:
   build-test-control:
     runs-on: windows-latest
+    timeout-minutes: 10
     steps:
       - name: Checkout
         uses: actions/checkout@v4
@@ -25,7 +26,7 @@ jobs:
           git -C external/umut-test-pro fetch --depth 1 origin $commit
           git -C external/umut-test-pro checkout $commit
           nuget restore external/umut-test-pro/TestKontrolProg.sln
-          msbuild external/umut-test-pro/TestKontrolProg.sln /m /p:Configuration=Release /p:Platform="Any CPU"
+          msbuild external/umut-test-pro/TestKontrolProg/TestKontrolProg.csproj /m /p:Configuration=Release /p:Platform="Any CPU"
           $exe = 'external/umut-test-pro/TestKontrolProg/bin/Release/TestKontrolProg.exe'
           if (-not (Test-Path -LiteralPath $exe)) { throw "Build output not found: $exe" }
           Write-Host "TestKontrolProg build OK: $exe"
