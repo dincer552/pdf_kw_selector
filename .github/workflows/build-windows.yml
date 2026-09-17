@@ -35,7 +35,7 @@ jobs:
         shell: pwsh
         run: |
           $repo = 'https://github.com/dincer552/umut-test-pro.git'
-          $commit = 'b6699e550189db140557f2ed013e48eb7c6458a3'
+          $commit = '2c5296bfb53a80535351b85675a860cd8648bc3a'
           New-Item -ItemType Directory -Force -Path external | Out-Null
           git clone --no-checkout --filter=blob:none $repo external/umut-test-pro
           git -C external/umut-test-pro fetch --depth 1 origin $commit
