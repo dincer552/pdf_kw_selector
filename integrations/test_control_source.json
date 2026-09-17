@@ -1,0 +1,8 @@
+{
+  "name": "TestKontrolProg",
+  "source_repository": "dincer552/umut-test-pro",
+  "source_ref": "main",
+  "source_commit": "b6699e550189db140557f2ed013e48eb7c6458a3",
+  "target_framework": ".NET Framework 4.7.2",
+  "integration": "The Windows build compiles the source repository at this pinned commit, bundles its Release output inside the PDF kW Selector one-file EXE, and exposes it through the TEST KONTROL header button."
+}
