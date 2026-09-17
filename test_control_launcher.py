@@ -8,7 +8,7 @@ import tkinter as tk
 from tkinter import messagebox, ttk
 
 
-INTEGRATED_TEST_CONTROL = "dincer552/umut-test-pro@b6699e550189db140557f2ed013e48eb7c6458a3"
+INTEGRATED_TEST_CONTROL = "dincer552/umut-test-pro@d5950497f49a43a1fe0a7a34e79b4ee316b777ac"
 
 
 def _candidate_paths() -> list[Path]:
