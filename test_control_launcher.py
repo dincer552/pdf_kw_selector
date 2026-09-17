@@ -5,7 +5,7 @@ from pathlib import Path
 import subprocess
 import sys
 import tkinter as tk
-from tkinter import messagebox
+from tkinter import messagebox, ttk
 
 
 INTEGRATED_TEST_CONTROL = "dincer552/umut-test-pro@b6699e550189db140557f2ed013e48eb7c6458a3"
@@ -53,7 +53,7 @@ def open_test_control(parent: tk.Misc | None = None) -> None:
 
 
 def install_test_control_button(app: tk.Misc) -> None:
-    """Add a top-level TEST KONTROL button to the existing Tkinter header."""
+    """Add TEST KONTROL to the upper-right of the existing PDF Check header."""
     header = getattr(app, "_header_frame", None)
     if header is None:
         for child in app.winfo_children():
@@ -67,20 +67,11 @@ def install_test_control_button(app: tk.Misc) -> None:
     if header is None:
         return
 
-    button = tk.Button(
+    button = ttk.Button(
         header,
         text="TEST KONTROL",
         command=lambda: open_test_control(app),
-        bg="#0f766e",
-        fg="#ffffff",
-        activebackground="#115e59",
-        activeforeground="#ffffff",
-        relief="flat",
-        bd=0,
-        padx=12,
-        pady=5,
-        font=("Segoe UI", 9, "bold"),
-        cursor="hand2",
+        style="Primary.TButton",
     )
     button.pack(side="right", padx=(6, 0))
     app.test_control_button = button
