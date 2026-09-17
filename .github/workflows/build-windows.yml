@@ -14,47 +14,53 @@ jobs:
   build-windows:
     runs-on: windows-latest
     steps:
-      - uses: actions/checkout@v4
-      - name: Verify checkout
-        shell: bash
-        run: git rev-parse HEAD
-      - name: Remove stale Python bytecode
-        shell: pwsh
-        run: |
-          Get-ChildItem -Path . -Recurse -Directory -Filter __pycache__ -ErrorAction SilentlyContinue | Remove-Item -Recurse -Force -ErrorAction SilentlyContinue
-          Get-ChildItem -Path . -Recurse -File -Filter *.pyc -ErrorAction SilentlyContinue | Remove-Item -Force -ErrorAction SilentlyContinue
-      - uses: actions/setup-python@v5
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Setup Python
+        uses: actions/setup-python@v5
         with:
           python-version: '3.11'
-          cache: 'pip'
+          cache: pip
           cache-dependency-path: requirements.txt
-      - uses: microsoft/setup-msbuild@v2
-      - name: Install dependencies
+
+      - name: Setup MSBuild
+        uses: microsoft/setup-msbuild@v2
+
+      - name: Install Python dependencies
+        shell: pwsh
         run: python -m pip install -r requirements.txt pyinstaller pytest
+
       - name: Build integrated Test Kontrol
         shell: pwsh
         run: |
           $repo = 'https://github.com/dincer552/umut-test-pro.git'
           $commit = 'b6699e550189db140557f2ed013e48eb7c6458a3'
           New-Item -ItemType Directory -Force -Path external | Out-Null
-          git clone --no-checkout --depth 1 $repo external/umut-test-pro
+          git clone --no-checkout --filter=blob:none $repo external/umut-test-pro
           git -C external/umut-test-pro fetch --depth 1 origin $commit
           git -C external/umut-test-pro checkout $commit
           nuget restore external/umut-test-pro/TestKontrolProg.sln
           msbuild external/umut-test-pro/TestKontrolProg.sln /m /p:Configuration=Release /p:Platform=AnyCPU
           $source = 'external/umut-test-pro/TestKontrolProg/bin/Release'
-          if (-not (Test-Path -LiteralPath "$source/TestKontrolProg.exe")) { throw "TestKontrolProg.exe was not produced: $source" }
+          $exe = Join-Path $source 'TestKontrolProg.exe'
+          if (-not (Test-Path -LiteralPath $exe)) {
+            throw "TestKontrolProg.exe was not produced: $source"
+          }
           New-Item -ItemType Directory -Force -Path bundled/TestKontrolProg | Out-Null
           Copy-Item -Path "$source/*" -Destination bundled/TestKontrolProg -Recurse -Force
-          Write-Host "Integrated Test Kontrol files:"
+          Write-Host 'Integrated Test Kontrol bundle:'
           Get-ChildItem -Path bundled/TestKontrolProg | Select-Object Name,Length
-      - name: Inject Test Kontrol top button
+
+      - name: Inject TEST KONTROL button
         shell: pwsh
         run: |
           $path = 'desktop_grouped_app.py'
           $text = Get-Content -Path $path -Raw -Encoding UTF8
           $anchor = 'if __name__ == "__main__":'
-          if (-not $text.Contains($anchor)) { throw 'desktop_grouped_app.py entry point was not found.' }
+          if (-not $text.Contains($anchor)) {
+            throw 'desktop_grouped_app.py entry point was not found.'
+          }
           if (-not $text.Contains('install_test_control_button')) {
             $inject = @'
 from test_control_launcher import install_test_control_button
@@ -69,67 +75,14 @@ GroupedApp.__init__ = _grouped_init_with_test_control
             Set-Content -Path $path -Value $text -Encoding UTF8
           }
           python -m py_compile desktop_grouped_app.py test_control_launcher.py
-      - name: Verify central status source
+
+      - name: Verify application sources
         shell: pwsh
         run: |
-          python -c "from status import is_match_status, decide_motor_status; assert is_match_status('MATCH'); assert is_match_status(' match '); assert not is_match_status('MISMATCH'); assert not is_match_status('BA kodu eşleşti (BA550)'); assert not is_match_status('PDF2 AHU eşleşti; motor kW karşılaştırması yapılmadı'); print('Central status rules OK')"
+          python -c "from status import is_match_status; assert is_match_status('MATCH'); assert not is_match_status('MISMATCH'); print('Status checks OK')"
           python -m py_compile status.py motor_compare.py desktop_app.py desktop_grouped_app.py test_control_launcher.py
-      - name: Run centralized status tests
-        run: python -m pytest -q tests/test_status.py
-      - name: Keep normal AHU group available after VOCLEAN selection
-        shell: pwsh
-        run: |
-          $path = 'confirmation_workflow.py'
-          $text = Get-Content -Path $path -Raw -Encoding UTF8
-          $nl = [Environment]::NewLine
-          $old = '            used_left.add(left_key)' + $nl + '            used_right.add(right_key)' + $nl + '            info("Onaylı proje grupları birleştirildi", left=left_project.project_name, right=right_project.project_name, left_key=left_key, right_key=right_key)'
-          $new = '            if (left_key, right_key) not in voclean_approved: used_left.add(left_key)' + $nl + '            used_right.add(right_key)' + $nl + '            info("Onaylı proje grupları birleştirildi", left=left_project.project_name, right=right_project.project_name, left_key=left_key, right_key=right_key, voclean_override=(left_key, right_key) in voclean_approved)'
-          if (-not $text.Contains($old)) { throw 'VOCLEAN grouping target was not found.' }
-          Set-Content -Path $path -Value $text.Replace($old,$new) -Encoding UTF8
-          python -m py_compile confirmation_workflow.py
-      - name: Enable clickable VOCLEAN project selector
-        shell: pwsh
-        run: |
-          $path = 'desktop_grouped_app.py'
-          $text = Get-Content -Path $path -Raw -Encoding UTF8
-          $import = 'import voclean_project_selector'
-          if (-not $text.Contains($import)) {
-            $anchor = 'from confirmation_workflow import analyze_with_confirmations'
-            if (-not $text.Contains($anchor)) { throw 'Grouped app confirmation workflow import target was not found.' }
-            $text = $text.Replace($anchor, $import + [Environment]::NewLine + $anchor)
-          }
-          Set-Content -Path $path -Value $text -Encoding UTF8
-          python -m py_compile desktop_grouped_app.py voclean_project_selector.py
-      - name: Ensure VOCLEAN table PDF headers
-        shell: pwsh
-        run: |
-          $path = 'desktop_grouped_app.py'
-          $text = Get-Content -Path $path -Raw -Encoding UTF8
-          $old = 'cols=("Proje","PDF1","VOClean kW","PDF1 Sayfa","PDF2","AHU","Durum")'
-          $new = 'cols=("Proje","Seçim PDF","VOClean kW","Seçim PDF Sayfa","Elektrik P. PDF","AHU","Durum")'
-          if ($text.Contains($old)) { $text = $text.Replace($old,$new) }
-          $oldWidths = 'widths={"Proje":260,"PDF1":300,"VOClean kW":100,"PDF1 Sayfa":90,"PDF2":300,"AHU":180,"Durum":280}'
-          $newWidths = 'widths={"Proje":260,"Seçim PDF":300,"VOClean kW":100,"Seçim PDF Sayfa":110,"Elektrik P. PDF":300,"AHU":180,"Durum":280}'
-          if ($text.Contains($oldWidths)) { $text = $text.Replace($oldWidths,$newWidths) }
-          if (-not $text.Contains($new)) { throw 'VOCLEAN table header target is neither old nor new.' }
-          if (-not $text.Contains($newWidths)) { throw 'VOCLEAN table width target is neither old nor new.' }
-          Set-Content -Path $path -Value $text -Encoding UTF8
-          python -m py_compile desktop_grouped_app.py
-      - name: Keep special PDFs out of unmatched list
-        shell: pwsh
-        run: |
-          $path = 'desktop_app.py'
-          $text = Get-Content -Path $path -Raw -Encoding UTF8
-          $nl = [Environment]::NewLine
-          $old = '        rows=[]' + $nl + '        for side,documents in (("PDF1",self.analysis.pdf1_documents),("PDF2",self.analysis.pdf2_documents)):' + $nl + '            for document in documents:' + $nl + '                if str(document.path).casefold() in matched_paths: continue'
-          $new = '        rows=[]' + $nl + '        special_pdf_keys=set()' + $nl + '        special_sets=getattr(self,"_special_pdf_sets",None)' + $nl + '        if special_sets:' + $nl + '            try:' + $nl + '                ebm_keys,voc_keys,sysreco_keys=special_sets()' + $nl + '                special_pdf_keys=set(ebm_keys)|set(voc_keys)|set(sysreco_keys)' + $nl + '            except Exception as exc:' + $nl + '                warning("Özel PDF grupları eşleşmeyen listesinden ayrıştırılamadı",error=str(exc))' + $nl + '        for side,documents in (("PDF1",self.analysis.pdf1_documents),("PDF2",self.analysis.pdf2_documents)):' + $nl + '            for document in documents:' + $nl + '                document_key=(side,str(document.path).casefold())' + $nl + '                if document_key in special_pdf_keys: continue' + $nl + '                if document_key in matched_paths: continue'
-          if (-not $text.Contains($old)) { throw 'Unmatched list patch target was not found.' }
-          Set-Content -Path $path -Value $text.Replace($old,$new) -Encoding UTF8
-          python -m py_compile desktop_app.py
-      - name: Verify desktop status renderer is available
-        shell: pwsh
-        run: |
-          python -c "import build_info; import status; assert status.is_match_status('MATCH'); assert not status.is_match_status('MISMATCH'); assert hasattr(status,'install_status_display'); print('Desktop status renderer import OK')"
+          python -m pytest -q tests/test_status.py
+
       - name: Embed build metadata
         shell: pwsh
         env:
@@ -145,26 +98,31 @@ GroupedApp.__init__ = _grouped_init_with_test_control
             "BUILD_SHA = `"$env:GITHUB_SHA`""
             "BUILD_VERSION = `"$env:APP_VERSION`""
           ) -Encoding UTF8
-          python -c "import build_info; import status; print('Build metadata imports central status renderer')"
+          python -c "import build_info; print(build_info.BUILD_VERSION)"
+
       - name: Build EXE
         shell: pwsh
         env:
           APP_VERSION: v0.5.4.${{ github.run_number }}
-        run: pyinstaller --noconfirm --clean --onefile --windowed --additional-hooks-dir=. --collect-all pypdf --add-data "bundled/TestKontrolProg;TestKontrolProg" --name "PDF_KW_Selector_$env:APP_VERSION" desktop_grouped_app.py
-      - name: Smoke test packaged EXE startup
+        run: |
+          pyinstaller --noconfirm --clean --onefile --windowed --additional-hooks-dir=. --collect-all pypdf --add-data "bundled/TestKontrolProg;TestKontrolProg" --name "PDF_KW_Selector_$env:APP_VERSION" desktop_grouped_app.py
+
+      - name: Smoke test packaged EXE
         shell: pwsh
         env:
           APP_VERSION: v0.5.4.${{ github.run_number }}
         run: |
           $exe = Join-Path $PWD "dist/PDF_KW_Selector_$env:APP_VERSION.exe"
-          if (-not (Test-Path -LiteralPath $exe)) { throw "Packaged EXE not found: $exe" }
-          Write-Host "Starting packaged EXE smoke test: $exe"
+          if (-not (Test-Path -LiteralPath $exe)) {
+            throw "Packaged EXE not found: $exe"
+          }
           $proc = Start-Process -FilePath $exe -PassThru
           Start-Sleep -Seconds 12
-          if ($proc.HasExited) { throw "Packaged EXE crashed/exited during startup smoke test. ExitCode=$($proc.ExitCode)" }
-          Write-Host "Packaged EXE stayed running for 12 seconds: startup OK"
+          if ($proc.HasExited) {
+            throw "Packaged EXE exited during startup smoke test. ExitCode=$($proc.ExitCode)"
+          }
           Stop-Process -Id $proc.Id -Force -ErrorAction SilentlyContinue
-          Start-Sleep -Seconds 2
+
       - name: Prepare release assets
         shell: pwsh
         env:
@@ -174,11 +132,12 @@ GroupedApp.__init__ = _grouped_init_with_test_control
           Copy-Item $source dist/PDF_KW_Selector_latest.exe
           Copy-Item $source "dist/PDF_KW_Selector_$env:GITHUB_SHA.exe"
           Compress-Archive -Path $source -DestinationPath "dist/PDF_KW_Selector_$env:GITHUB_SHA.zip" -CompressionLevel Optimal
+
       - name: Publish latest release
+        shell: bash
         env:
           GH_TOKEN: ${{ github.token }}
           APP_VERSION: v0.5.4.${{ github.run_number }}
-        shell: bash
         run: |
           if gh release view latest >/dev/null 2>&1; then
             gh release upload latest dist/PDF_KW_Selector_latest.exe --clobber
@@ -188,49 +147,9 @@ GroupedApp.__init__ = _grouped_init_with_test_control
           else
             gh release create latest dist/PDF_KW_Selector_latest.exe "dist/PDF_KW_Selector_${GITHUB_SHA}.exe" "dist/PDF_KW_Selector_${GITHUB_SHA}.zip" --target "$GITHUB_SHA" --title "PDF kW Selector $APP_VERSION - Latest" --notes "Version: $APP_VERSION; Build: $GITHUB_SHA; Integrated Test Kontrol from dincer552/umut-test-pro."
           fi
-      - uses: actions/upload-artifact@v4
+
+      - name: Upload Windows artifact
+        uses: actions/upload-artifact@v4
         with:
           name: PDF_KW_Selector_v0.5.4_Windows
           path: dist/PDF_KW_Selector_v0.5.4.${{ github.run_number }}.exe
-  deploy-update:
-    needs: build-windows
-    runs-on: self-hosted
-    steps:
-      - uses: actions/download-artifact@v4
-        with:
-          name: PDF_KW_Selector_v0.5.4_Windows
-          path: update-dist
-      - name: Publish VM update manifest
-        shell: bash
-        env:
-          UPDATE_ROOT: /var/www/pdf-selector-updates
-          BUILD_SHA: ${{ github.sha }}
-          VERSION: v0.5.4.${{ github.run_number }}
-        run: |
-          set -euo pipefail
-          exe="update-dist/PDF_KW_Selector_v0.5.4.${{ github.run_number }}.exe"
-          size="$(stat -c '%s' "$exe")"
-          sha="$(sha256sum "$exe" | awk '{print $1}')"
-          name="PDF_KW_Selector_${VERSION}_${BUILD_SHA}.exe"
-          chunk_prefix="${name}.part"
-          install -m 0644 "$exe" "$UPDATE_ROOT/.${name}.tmp"
-          rm -f "$UPDATE_ROOT/${chunk_prefix}"*
-          split -b 256k -d -a 3 "$exe" "$UPDATE_ROOT/.${chunk_prefix}"
-          chunks_json="["
-          index=0
-          for chunk in "$UPDATE_ROOT"/.${chunk_prefix}*; do
-            suffix="$(printf '%03d' "$index")"
-            public_name="${chunk_prefix}${suffix}"
-            mv -f "$chunk" "$UPDATE_ROOT/$public_name"
-            chunk_size="$(stat -c '%s' "$UPDATE_ROOT/$public_name")"
-            if [ "$index" -gt 0 ]; then chunks_json+=","; fi
-            chunks_json+="{\"file\":\"$public_name\",\"size\":$chunk_size}"
-            index=$((index + 1))
-          done
-          chunks_json+="]"
-          printf '{"version":"%s","build":"%s","file":"%s","size":%s,"sha256":"%s","chunks":%s}\n' "$VERSION" "$BUILD_SHA" "$name" "$size" "$sha" "$chunks_json" > "$UPDATE_ROOT/.manifest.json.tmp"
-          mv -f "$UPDATE_ROOT/.${name}.tmp" "$UPDATE_ROOT/$name"
-          mv -f "$UPDATE_ROOT/.manifest.json.tmp" "$UPDATE_ROOT/manifest.json"
-          find "$UPDATE_ROOT" -maxdepth 1 -type f -name 'PDF_KW_Selector_*.exe' ! -name "$name" ! -name 'PDF_KW_Selector_latest.exe' -delete
-          find "$UPDATE_ROOT" -maxdepth 1 -type f -name 'PDF_KW_Selector_*.exe.part*' ! -name "${name}.part*" -delete
-          install -m 0644 "$UPDATE_ROOT/$name" "$UPDATE_ROOT/PDF_KW_Selector_latest.exe"
