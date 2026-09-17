@@ -1,4 +1,4 @@
-name: Build Windows Test EXE v2
+name: Build Windows Test EXE
 
 on:
   workflow_dispatch:
@@ -8,7 +8,7 @@ on:
       - integrate-test-control
 
 permissions:
-  contents: write
+  contents: read
 
 jobs:
   build-windows:
@@ -101,45 +101,31 @@ GroupedApp.__init__ = _grouped_init_with_test_control
           APP_VERSION: v0.5.4.${{ github.run_number }}
         run: pyinstaller --noconfirm --clean --onefile --windowed --additional-hooks-dir=. --collect-all pypdf --add-data "bundled/TestKontrolProg;TestKontrolProg" --name "PDF_KW_Selector_$env:APP_VERSION" desktop_grouped_app.py
 
-      - name: Smoke test packaged EXE
+      - name: Verify packaged EXE and integrated Test Kontrol
         shell: pwsh
         env:
           APP_VERSION: v0.5.4.${{ github.run_number }}
         run: |
           $exe = Join-Path $PWD "dist/PDF_KW_Selector_$env:APP_VERSION.exe"
           if (-not (Test-Path -LiteralPath $exe)) { throw "Packaged EXE not found: $exe" }
+          $testControl = Join-Path $PWD 'bundled/TestKontrolProg/TestKontrolProg.exe'
+          if (-not (Test-Path -LiteralPath $testControl)) { throw "Integrated TestKontrolProg.exe missing: $testControl" }
+          Write-Host "Packaged EXE: $exe"
+          Write-Host "Integrated Test Kontrol: $testControl"
+
+      - name: Smoke test packaged EXE
+        shell: pwsh
+        env:
+          APP_VERSION: v0.5.4.${{ github.run_number }}
+        run: |
+          $exe = Join-Path $PWD "dist/PDF_KW_Selector_$env:APP_VERSION.exe"
           $proc = Start-Process -FilePath $exe -PassThru
           Start-Sleep -Seconds 12
           if ($proc.HasExited) { throw "Packaged EXE exited during startup smoke test. ExitCode=$($proc.ExitCode)" }
           Stop-Process -Id $proc.Id -Force -ErrorAction SilentlyContinue
 
-      - name: Prepare release assets
-        shell: pwsh
-        env:
-          APP_VERSION: v0.5.4.${{ github.run_number }}
-        run: |
-          $source = "dist/PDF_KW_Selector_$env:APP_VERSION.exe"
-          Copy-Item $source dist/PDF_KW_Selector_latest.exe
-          Copy-Item $source "dist/PDF_KW_Selector_$env:GITHUB_SHA.exe"
-          Compress-Archive -Path $source -DestinationPath "dist/PDF_KW_Selector_$env:GITHUB_SHA.zip" -CompressionLevel Optimal
-
-      - name: Publish latest release
-        shell: bash
-        env:
-          GH_TOKEN: ${{ github.token }}
-          APP_VERSION: v0.5.4.${{ github.run_number }}
-        run: |
-          if gh release view latest >/dev/null 2>&1; then
-            gh release upload latest dist/PDF_KW_Selector_latest.exe --clobber
-            gh release upload latest "dist/PDF_KW_Selector_${GITHUB_SHA}.exe" --clobber
-            gh release upload latest "dist/PDF_KW_Selector_${GITHUB_SHA}.zip" --clobber
-            gh release edit latest --title "PDF kW Selector $APP_VERSION - Latest" --notes "Version: $APP_VERSION; Build: $GITHUB_SHA; Integrated Test Kontrol from dincer552/umut-test-pro."
-          else
-            gh release create latest dist/PDF_KW_Selector_latest.exe "dist/PDF_KW_Selector_${GITHUB_SHA}.exe" "dist/PDF_KW_Selector_${GITHUB_SHA}.zip" --target "$GITHUB_SHA" --title "PDF kW Selector $APP_VERSION - Latest" --notes "Version: $APP_VERSION; Build: $GITHUB_SHA; Integrated Test Kontrol from dincer552/umut-test-pro."
-          fi
-
       - name: Upload Windows artifact
         uses: actions/upload-artifact@v4
         with:
-          name: PDF_KW_Selector_v0.5.4_Windows
+          name: PDF_KW_Selector_TestControl_Windows
           path: dist/PDF_KW_Selector_v0.5.4.${{ github.run_number }}.exe
