@@ -1,0 +1,15 @@
+name: Actions Health Probe
+
+on:
+  workflow_dispatch:
+  push:
+    branches:
+      - dincer552-fix-github-updates
+
+jobs:
+  probe:
+    runs-on: windows-latest
+    steps:
+      - name: Probe
+        shell: pwsh
+        run: Write-Host 'GitHub Actions runner started successfully'
