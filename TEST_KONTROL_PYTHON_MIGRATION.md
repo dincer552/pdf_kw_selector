@@ -41,11 +41,11 @@ PDF_KW_SELECTOR.exe
 
 ## Faz 0 — Referansın dondurulması
 
-- ☐ `dincer552/umut-test-pro` mevcut C# yapısı ve davranışları referans olarak belirlenecek.
-- ☐ `Datas.cs`, `Form1`, `FanKontrol`, `DamperKontrol`, `FiltreKontrol`, `Moduller`, `Sensorler`, `UserControl` ve rapor üretimi incelenecek.
-- ☐ Mevcut fonksiyon listesi çıkarılacak.
+- ☑ `dincer552/umut-test-pro` mevcut C# yapısı ve davranışları referans olarak belirlendi.
+- ☑ `Datas.cs`, `Form1`, `FanKontrol`, `DamperKontrol`, `FiltreKontrol`, `Moduller`, `Sensorler`, `UserControl` ve rapor üretimi incelendi.
+- ☑ Mevcut fonksiyon listesi çıkarıldı ve `test_control/REFERENCE.md` içine kaydedildi.
 
-**Tamamlanma şartı:** C# uygulamasındaki taşınacak fonksiyonların listesi netleşmiş olacak.
+**Tamamlanma şartı:** C# uygulamasındaki taşınacak fonksiyonların listesi netleşmiş oldu.
 
 ## Faz 1 — Python Test Control veri modeli
 
@@ -293,8 +293,10 @@ Tekrar test/build
 
 # Şu anki durum
 
-**Başlangıç:** Tüm aşamalar `☐` durumunda.
+**Faz 0 tamamlandı ☑**
 
-İlk uygulanacak iş: **Faz 0 → Faz 1 → Faz 2**.
+Referans envanteri: `test_control/REFERENCE.md`
+
+**Sıradaki aşama: Faz 1 — Python Test Control veri modeli.**
 
 Bu dosya, Python Test Kontrol entegrasyonunun ana yol haritasıdır. Her tamamlanan aşamada güncellenmelidir.
