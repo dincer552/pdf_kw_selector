@@ -58,6 +58,7 @@ jobs:
           if (-not (Test-Path -LiteralPath $exe)) { throw "TestKontrolProg.exe was not produced: $source" }
           New-Item -ItemType Directory -Force -Path bundled/TestKontrolProg | Out-Null
           Copy-Item -Path "$source/*" -Destination bundled/TestKontrolProg -Recurse -Force
+          Write-Host 'Integrated Test Kontrol build OK'
 
       - name: Add TEST KONTROL button
         shell: pwsh
@@ -67,15 +68,15 @@ jobs:
           $anchor = 'if __name__ == "__main__":'
           if (-not $text.Contains($anchor)) { throw 'desktop_grouped_app.py entry point was not found.' }
           if (-not $text.Contains('install_test_control_button')) {
-            $inject = @'
-from test_control_launcher import install_test_control_button
-_original_grouped_init = GroupedApp.__init__
-def _grouped_init_with_test_control(self):
-    _original_grouped_init(self)
-    install_test_control_button(self)
-GroupedApp.__init__ = _grouped_init_with_test_control
-
-'@
+            $inject = @(
+              'from test_control_launcher import install_test_control_button'
+              '_original_grouped_init = GroupedApp.__init__'
+              'def _grouped_init_with_test_control(self):'
+              '    _original_grouped_init(self)'
+              '    install_test_control_button(self)'
+              'GroupedApp.__init__ = _grouped_init_with_test_control'
+              ''
+            ) -join [Environment]::NewLine
             $text = $text.Replace($anchor, $inject + $anchor)
             Set-Content -Path $path -Value $text -Encoding UTF8
           }
