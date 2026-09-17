@@ -42,6 +42,7 @@ class App(tk.Tk):
         self._progress_lock = threading.Lock()
         self._progress_pending = False
         self._progress_latest = None
+        self._analysis_json = ""
         self._init_modern_theme()
         self._build_ui()
         install_status_display(self)
@@ -143,11 +144,12 @@ class App(tk.Tk):
         # Notebook tabs
         tabs = ttk.Notebook(self)
         tabs.pack(fill="both", expand=True, padx=10, pady=(8, 0))
-        tabs.bind("<<NotebookTabChanged>>", lambda e: self._cell_hover_box.hide(), add="+")
+        tabs.bind("<<NotebookTabChanged>>", self._on_tab_changed, add="+")
         self.tabs = tabs
         result_tab = ttk.Frame(tabs, style="White.TFrame")
         unmatched_tab = ttk.Frame(tabs, style="White.TFrame")
         log_tab = ttk.Frame(tabs, style="White.TFrame")
+        self.log_tab = log_tab
         tabs.add(result_tab, text="DANFOSS / MOTOR")
         tabs.add(unmatched_tab, text="EŞLEŞMEYEN PDF'LER (0)")
         tabs.add(log_tab, text=">_ LOGLAR")
@@ -517,6 +519,7 @@ class App(tk.Tk):
         self._refresh_file_list("PDF1")
         self._refresh_file_list("PDF2")
         self.analysis = None
+        self._analysis_json = ""
         for item in self.tree.get_children():
             self.tree.delete(item)
         self._clear_unmatched()
@@ -602,7 +605,7 @@ class App(tk.Tk):
                 "pdf2_path": comparison.pdf2_path,
                 "pdf2_page": comparison.pdf2_page,
             }
-        info("GUI sonuç tablosu oluşturuldu",comparisons=len(comparisons),counts=counts,grouped_ahu_count=group_number); self.status.configure(text=f"✓ Proje {len(self.analysis.project_matches)} | AHU {len(self.analysis.ahu_matches)} | Motor {len(self.analysis.motor_comparisons)} | MATCH {counts['MATCH']} | MISMATCH {counts['MISMATCH']} | PDF1 {counts['ONLY_IN_PDF1']} | PDF2 {counts['ONLY_IN_PDF2']}"); self._set_detail(json.dumps(self.analysis.to_dict(),ensure_ascii=False,indent=2)); self.refresh_logs()
+        info("GUI sonuç tablosu oluşturuldu",comparisons=len(comparisons),counts=counts,grouped_ahu_count=group_number); self.status.configure(text=f"✓ Proje {len(self.analysis.project_matches)} | AHU {len(self.analysis.ahu_matches)} | Motor {len(self.analysis.motor_comparisons)} | MATCH {counts['MATCH']} | MISMATCH {counts['MISMATCH']} | PDF1 {counts['ONLY_IN_PDF1']} | PDF2 {counts['ONLY_IN_PDF2']}"); self._analysis_json=json.dumps(self.analysis.to_dict(),ensure_ascii=False,indent=2); self._set_detail(self._analysis_json); self.refresh_logs()
     def _render_unmatched(self):
         for item in self.unmatched_tree.get_children(): self.unmatched_tree.delete(item)
         self._unmatched_cell_data = {}
@@ -669,14 +672,25 @@ class App(tk.Tk):
         self._download_running=False; exception("GUI güncelleme uygulama hatası",exc,version=info_data.get("version"),asset_id=info_data.get("asset_id"),asset_name=info_data.get("asset_name")); messagebox.showerror("Güncelleme",f"Güncelleme başarısız:\n{type(exc).__name__}: {exc}\n\nDetay HATA / İŞLEM LOGLARI sekmesinde."); self.status.configure(text="Güncelleme başarısız"); self.update_detail.set("Güncelleme başarısız"); self.refresh_logs()
     @staticmethod
     def _fmt(value): return "-" if value is None else f"{value:g}"
+    def _on_tab_changed(self, _event=None):
+        self._cell_hover_box.hide()
+        if self.tabs.select() != str(self.log_tab):
+            return
+        # Tk can skip repainting Text widgets on an inactive Notebook page
+        # after a long background analysis. Reload both panels when opened.
+        if self._analysis_json:
+            self._set_detail(self._analysis_json)
+        self.refresh_logs()
+
     def _set_detail(self,text):
         self.detail.configure(state="normal"); self.detail.delete("1.0","end")
-        if text:self.detail.insert("1.0",text)
-        self.detail.configure(state="disabled")
+        if text:self.detail.insert("1.0",str(text))
+        self.detail.configure(state="disabled"); self.detail.update_idletasks()
     def refresh_logs(self):
         try:
             if not hasattr(self,"log_text"):return
-            text=read_log(); self.log_text.delete("1.0","end"); self.log_text.insert("1.0",text); self.log_text.see("end")
+            text=read_log() or "Henüz görüntülenecek log kaydı yok."
+            self.log_text.configure(state="normal"); self.log_text.delete("1.0","end"); self.log_text.insert("1.0",text); self.log_text.see("end"); self.log_text.update_idletasks()
         except Exception as exc:exception("GUI log ekranı yenilenemedi",exc)
     def open_log_file(self):
         path=log_file(); path.parent.mkdir(parents=True,exist_ok=True)
