@@ -110,7 +110,7 @@ jobs:
         run: |
           $path = 'desktop_grouped_app.py'
           $text = Get-Content -Path $path -Raw -Encoding UTF8
-          $anchor = 'if __name__ == "__main__":'
+          $anchor = 'if __name__=="__main__":'
           if (-not $text.Contains($anchor)) { throw 'desktop_grouped_app.py entry point was not found.' }
           if (-not $text.Contains('install_test_control_button')) {
             $inject = @(
