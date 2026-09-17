@@ -1,0 +1,37 @@
+name: Test Kontrol Build Validation
+
+on:
+  workflow_dispatch:
+  push:
+    branches:
+      - dincer552-fix-github-updates
+
+jobs:
+  build-test-control:
+    runs-on: windows-latest
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Setup MSBuild
+        uses: microsoft/setup-msbuild@v2
+
+      - name: Build TestKontrolProg
+        shell: pwsh
+        run: |
+          $repo = 'https://github.com/dincer552/umut-test-pro.git'
+          $commit = 'b6699e550189db140557f2ed013e48eb7c6458a3'
+          git clone --no-checkout --filter=blob:none $repo external/umut-test-pro
+          git -C external/umut-test-pro fetch --depth 1 origin $commit
+          git -C external/umut-test-pro checkout $commit
+          nuget restore external/umut-test-pro/TestKontrolProg.sln
+          msbuild external/umut-test-pro/TestKontrolProg.sln /m /p:Configuration=Release /p:Platform=AnyCPU
+          $exe = 'external/umut-test-pro/TestKontrolProg/bin/Release/TestKontrolProg.exe'
+          if (-not (Test-Path -LiteralPath $exe)) { throw "Build output not found: $exe" }
+          Write-Host "TestKontrolProg build OK: $exe"
+
+      - name: Upload TestKontrolProg build
+        uses: actions/upload-artifact@v4
+        with:
+          name: TestKontrolProg-Release
+          path: external/umut-test-pro/TestKontrolProg/bin/Release/*
