@@ -5,6 +5,7 @@ on:
   push:
     branches:
       - dincer552-fix-github-updates
+      - integrate-test-control
 
 permissions:
   contents: write
@@ -27,13 +28,52 @@ jobs:
           python-version: '3.11'
           cache: 'pip'
           cache-dependency-path: requirements.txt
+      - uses: microsoft/setup-msbuild@v2
       - name: Install dependencies
         run: python -m pip install -r requirements.txt pyinstaller pytest
+      - name: Build integrated Test Kontrol
+        shell: pwsh
+        run: |
+          $repo = 'https://github.com/dincer552/umut-test-pro.git'
+          $commit = 'b6699e550189db140557f2ed013e48eb7c6458a3'
+          New-Item -ItemType Directory -Force -Path external | Out-Null
+          git clone --no-checkout --depth 1 $repo external/umut-test-pro
+          git -C external/umut-test-pro fetch --depth 1 origin $commit
+          git -C external/umut-test-pro checkout $commit
+          nuget restore external/umut-test-pro/TestKontrolProg.sln
+          msbuild external/umut-test-pro/TestKontrolProg.sln /m /p:Configuration=Release /p:Platform=AnyCPU
+          $source = 'external/umut-test-pro/TestKontrolProg/bin/Release'
+          if (-not (Test-Path -LiteralPath "$source/TestKontrolProg.exe")) { throw "TestKontrolProg.exe was not produced: $source" }
+          New-Item -ItemType Directory -Force -Path bundled/TestKontrolProg | Out-Null
+          Copy-Item -Path "$source/*" -Destination bundled/TestKontrolProg -Recurse -Force
+          Write-Host "Integrated Test Kontrol files:"
+          Get-ChildItem -Path bundled/TestKontrolProg | Select-Object Name,Length
+      - name: Inject Test Kontrol top button
+        shell: pwsh
+        run: |
+          $path = 'desktop_grouped_app.py'
+          $text = Get-Content -Path $path -Raw -Encoding UTF8
+          $anchor = 'if __name__ == "__main__":'
+          if (-not $text.Contains($anchor)) { throw 'desktop_grouped_app.py entry point was not found.' }
+          if (-not $text.Contains('install_test_control_button')) {
+            $inject = @'
+from test_control_launcher import install_test_control_button
+_original_grouped_init = GroupedApp.__init__
+def _grouped_init_with_test_control(self):
+    _original_grouped_init(self)
+    install_test_control_button(self)
+GroupedApp.__init__ = _grouped_init_with_test_control
+
+'@
+            $text = $text.Replace($anchor, $inject + $anchor)
+            Set-Content -Path $path -Value $text -Encoding UTF8
+          }
+          python -m py_compile desktop_grouped_app.py test_control_launcher.py
       - name: Verify central status source
         shell: pwsh
         run: |
           python -c "from status import is_match_status, decide_motor_status; assert is_match_status('MATCH'); assert is_match_status(' match '); assert not is_match_status('MISMATCH'); assert not is_match_status('BA kodu eşleşti (BA550)'); assert not is_match_status('PDF2 AHU eşleşti; motor kW karşılaştırması yapılmadı'); print('Central status rules OK')"
-          python -m py_compile status.py motor_compare.py desktop_app.py desktop_grouped_app.py
+          python -m py_compile status.py motor_compare.py desktop_app.py desktop_grouped_app.py test_control_launcher.py
       - name: Run centralized status tests
         run: python -m pytest -q tests/test_status.py
       - name: Keep normal AHU group available after VOCLEAN selection
@@ -110,7 +150,7 @@ jobs:
         shell: pwsh
         env:
           APP_VERSION: v0.5.4.${{ github.run_number }}
-        run: pyinstaller --noconfirm --clean --onefile --windowed --additional-hooks-dir=. --collect-all pypdf --name "PDF_KW_Selector_$env:APP_VERSION" desktop_grouped_app.py
+        run: pyinstaller --noconfirm --clean --onefile --windowed --additional-hooks-dir=. --collect-all pypdf --add-data "bundled/TestKontrolProg;TestKontrolProg" --name "PDF_KW_Selector_$env:APP_VERSION" desktop_grouped_app.py
       - name: Smoke test packaged EXE startup
         shell: pwsh
         env:
@@ -144,9 +184,9 @@ jobs:
             gh release upload latest dist/PDF_KW_Selector_latest.exe --clobber
             gh release upload latest "dist/PDF_KW_Selector_${GITHUB_SHA}.exe" --clobber
             gh release upload latest "dist/PDF_KW_Selector_${GITHUB_SHA}.zip" --clobber
-            gh release edit latest --title "PDF kW Selector $APP_VERSION - Latest" --notes "Version: $APP_VERSION; Build: $GITHUB_SHA; Centralized status rules and renderer."
+            gh release edit latest --title "PDF kW Selector $APP_VERSION - Latest" --notes "Version: $APP_VERSION; Build: $GITHUB_SHA; Integrated Test Kontrol from dincer552/umut-test-pro@$APP_VERSION."
           else
-            gh release create latest dist/PDF_KW_Selector_latest.exe "dist/PDF_KW_Selector_${GITHUB_SHA}.exe" "dist/PDF_KW_Selector_${GITHUB_SHA}.zip" --target "$GITHUB_SHA" --title "PDF kW Selector $APP_VERSION - Latest" --notes "Version: $APP_VERSION; Build: $GITHUB_SHA; Centralized status rules and renderer."
+            gh release create latest dist/PDF_KW_Selector_latest.exe "dist/PDF_KW_Selector_${GITHUB_SHA}.exe" "dist/PDF_KW_Selector_${GITHUB_SHA}.zip" --target "$GITHUB_SHA" --title "PDF kW Selector $APP_VERSION - Latest" --notes "Version: $APP_VERSION; Build: $GITHUB_SHA; Integrated Test Kontrol from dincer552/umut-test-pro."
           fi
       - uses: actions/upload-artifact@v4
         with:
