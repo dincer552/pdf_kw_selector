@@ -12,6 +12,7 @@ from drag_drop import install_pdf_drop_targets
 from pdf_viewer import open_pdf_at_page
 from result_grouping import group_result_rows
 from updater import apply_update
+import voclean_project_selector
 from confirmation_workflow import analyze_with_confirmations
 from pdf_master_scan import scan_pdf
 from status import apply_status_tag, install_status_display, status_display_text
@@ -35,7 +36,7 @@ class GroupedApp(BaseApp):
         self.ebm_tree.bind("<Leave>", lambda e: (self.ebm_tree.configure(cursor=""), self._cell_hover_box.hide()))
         self.ebm_tree.bind("<MouseWheel>", lambda e: self._cell_hover_box.hide(), add="+")
     def _build_voclean_tab(self):
-        tab=ttk.Frame(self.tabs, style="White.TFrame"); self.tabs.add(tab,text="VOCLEAN (0)"); cols=("Proje","PDF1","VOClean kW","PDF1 Sayfa","PDF2","AHU","Durum"); self.voclean_tree=ttk.Treeview(tab,columns=cols,show="headings"); widths={"Proje":260,"PDF1":300,"VOClean kW":100,"PDF1 Sayfa":90,"PDF2":300,"AHU":180,"Durum":280}
+        tab=ttk.Frame(self.tabs, style="White.TFrame"); self.tabs.add(tab,text="VOCLEAN (0)"); cols=("Proje","Seçim PDF","VOClean kW","Seçim PDF Sayfa","Elektrik P. PDF","AHU","Durum"); self.voclean_tree=ttk.Treeview(tab,columns=cols,show="headings"); widths={"Proje":260,"Seçim PDF":300,"VOClean kW":100,"Seçim PDF Sayfa":110,"Elektrik P. PDF":300,"AHU":180,"Durum":280}
         for col in cols:self.voclean_tree.heading(col,text=col);self.voclean_tree.column(col,width=widths[col],anchor="w")
         scroll=ttk.Scrollbar(tab,orient="vertical",command=lambda *args: (self.voclean_tree.yview(*args), self._cell_hover_box.hide()));self.voclean_tree.configure(yscrollcommand=scroll.set);self.voclean_tree.pack(side="left",fill="both",expand=True,padx=(5,0),pady=5);scroll.pack(side="right",fill="y",padx=(0,5),pady=5);self.voclean_tab=tab
         self._voclean_cell_data: dict[str, dict] = {}
