@@ -54,7 +54,7 @@ class App(tk.Tk):
         """Use the packaged AHU Match icon for the title bar and taskbar."""
         try:
             base = Path(getattr(sys, "_MEIPASS", Path(__file__).resolve().parent))
-            icon_path = base / "AHU_Match.ico"
+            icon_path = base / "favicon.ico"
             if icon_path.exists():
                 self.iconbitmap(default=str(icon_path))
         except Exception as exc:
