@@ -36,56 +36,6 @@ jobs:
           python -m py_compile status.py motor_compare.py desktop_app.py desktop_grouped_app.py
       - name: Run centralized status tests
         run: python -m pytest -q tests/test_status.py
-      - name: Keep normal AHU group available after VOCLEAN selection
-        shell: pwsh
-        run: |
-          $path = 'confirmation_workflow.py'
-          $text = Get-Content -Path $path -Raw -Encoding UTF8
-          $nl = [Environment]::NewLine
-          $old = '            used_left.add(left_key)' + $nl + '            used_right.add(right_key)' + $nl + '            info("Onaylı proje grupları birleştirildi", left=left_project.project_name, right=right_project.project_name, left_key=left_key, right_key=right_key)'
-          $new = '            if (left_key, right_key) not in voclean_approved: used_left.add(left_key)' + $nl + '            used_right.add(right_key)' + $nl + '            info("Onaylı proje grupları birleştirildi", left=left_project.project_name, right=right_project.project_name, left_key=left_key, right_key=right_key, voclean_override=(left_key, right_key) in voclean_approved)'
-          if (-not $text.Contains($old)) { throw 'VOCLEAN grouping target was not found.' }
-          Set-Content -Path $path -Value $text.Replace($old,$new) -Encoding UTF8
-          python -m py_compile confirmation_workflow.py
-      - name: Enable clickable VOCLEAN project selector
-        shell: pwsh
-        run: |
-          $path = 'desktop_grouped_app.py'
-          $text = Get-Content -Path $path -Raw -Encoding UTF8
-          $import = 'import voclean_project_selector'
-          if (-not $text.Contains($import)) {
-            $anchor = 'from confirmation_workflow import analyze_with_confirmations'
-            if (-not $text.Contains($anchor)) { throw 'Grouped app confirmation workflow import target was not found.' }
-            $text = $text.Replace($anchor, $import + [Environment]::NewLine + $anchor)
-          }
-          Set-Content -Path $path -Value $text -Encoding UTF8
-          python -m py_compile desktop_grouped_app.py voclean_project_selector.py
-      - name: Ensure VOCLEAN table PDF headers
-        shell: pwsh
-        run: |
-          $path = 'desktop_grouped_app.py'
-          $text = Get-Content -Path $path -Raw -Encoding UTF8
-          $old = 'cols=("Proje","PDF1","VOClean kW","PDF1 Sayfa","PDF2","AHU","Durum")'
-          $new = 'cols=("Proje","Seçim PDF","VOClean kW","Seçim PDF Sayfa","Elektrik P. PDF","AHU","Durum")'
-          if ($text.Contains($old)) { $text = $text.Replace($old,$new) }
-          $oldWidths = 'widths={"Proje":260,"PDF1":300,"VOClean kW":100,"PDF1 Sayfa":90,"PDF2":300,"AHU":180,"Durum":280}'
-          $newWidths = 'widths={"Proje":260,"Seçim PDF":300,"VOClean kW":100,"Seçim PDF Sayfa":110,"Elektrik P. PDF":300,"AHU":180,"Durum":280}'
-          if ($text.Contains($oldWidths)) { $text = $text.Replace($oldWidths,$newWidths) }
-          if (-not $text.Contains($new)) { throw 'VOCLEAN table header target is neither old nor new.' }
-          if (-not $text.Contains($newWidths)) { throw 'VOCLEAN table width target is neither old nor new.' }
-          Set-Content -Path $path -Value $text -Encoding UTF8
-          python -m py_compile desktop_grouped_app.py
-      - name: Keep special PDFs out of unmatched list
-        shell: pwsh
-        run: |
-          $path = 'desktop_app.py'
-          $text = Get-Content -Path $path -Raw -Encoding UTF8
-          $nl = [Environment]::NewLine
-          $old = '        rows=[]' + $nl + '        for side,documents in (("PDF1",self.analysis.pdf1_documents),("PDF2",self.analysis.pdf2_documents)):' + $nl + '            for document in documents:' + $nl + '                if str(document.path).casefold() in matched_paths: continue'
-          $new = '        rows=[]' + $nl + '        special_pdf_keys=set()' + $nl + '        special_sets=getattr(self,"_special_pdf_sets",None)' + $nl + '        if special_sets:' + $nl + '            try:' + $nl + '                ebm_keys,voc_keys,sysreco_keys=special_sets()' + $nl + '                special_pdf_keys=set(ebm_keys)|set(voc_keys)|set(sysreco_keys)' + $nl + '            except Exception as exc:' + $nl + '                warning("Özel PDF grupları eşleşmeyen listesinden ayrıştırılamadı",error=str(exc))' + $nl + '        for side,documents in (("PDF1",self.analysis.pdf1_documents),("PDF2",self.analysis.pdf2_documents)):' + $nl + '            for document in documents:' + $nl + '                document_key=(side,str(document.path).casefold())' + $nl + '                if document_key in special_pdf_keys: continue' + $nl + '                if document_key in matched_paths: continue'
-          if (-not $text.Contains($old)) { throw 'Unmatched list patch target was not found.' }
-          Set-Content -Path $path -Value $text.Replace($old,$new) -Encoding UTF8
-          python -m py_compile desktop_app.py
       - name: Verify desktop status renderer is available
         shell: pwsh
         run: |
@@ -101,7 +51,6 @@ jobs:
             'import pdf_hover_indicator  # noqa: F401'
             'import status  # noqa: F401'
             'import button_label_fix  # noqa: F401'
-            'import voclean_project_selector  # noqa: F401'
             "BUILD_SHA = `"$env:GITHUB_SHA`""
             "BUILD_VERSION = `"$env:APP_VERSION`""
           ) -Encoding UTF8
