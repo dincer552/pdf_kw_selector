@@ -354,9 +354,10 @@ def analyze_with_confirmations(pdf1_paths, pdf2_paths, progress_callback=None):
                     right_source=right_project.project_source,
                 ),
             ))
-            used_left.add(left_key)
+            if (left_key, right_key) not in voclean_approved:
+                used_left.add(left_key)
             used_right.add(right_key)
-            info("Onaylı proje grupları birleştirildi", left=left_project.project_name, right=right_project.project_name, left_key=left_key, right_key=right_key)
+            info("Onaylı proje grupları birleştirildi", left=left_project.project_name, right=right_project.project_name, left_key=left_key, right_key=right_key, voclean_override=(left_key, right_key) in voclean_approved)
 
         remaining_left = {key: docs for key, docs in left_group_map.items() if key not in used_left}
         remaining_right = {key: docs for key, docs in right_group_map.items() if key not in used_right}
