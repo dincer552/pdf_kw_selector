@@ -428,3 +428,13 @@ her şey     → 🔴 kırmızı
 ```
 
 Hesaplama kuralları ile görsel renklerin birbirine karıştırılmaması temel mimari prensiptir.
+
+---
+
+# GitHub yazma testi
+
+Bu bölüm, GitHub repository üzerinde doğrudan README yazma yetkisinin test edilmesi için eklendi.
+
+Test tarihi: 18.09.2026
+
+Amaç: README.md dosyasına doğrudan değişiklik yapılıp commit oluşturulabildiğini doğrulamak.
