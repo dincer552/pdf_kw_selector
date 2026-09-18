@@ -1,0 +1,15 @@
+<svg xmlns="http://www.w3.org/2000/svg" width="256" height="256" viewBox="0 0 256 256">
+<defs>
+<linearGradient id="bg" x1="0" y1="0" x2="1" y2="1"><stop stop-color="#f8fbff"/><stop offset="1" stop-color="#dfe8f4"/></linearGradient>
+<linearGradient id="red" x1="0" y1="0" x2="1" y2="1"><stop stop-color="#ff493d"/><stop offset="1" stop-color="#d92720"/></linearGradient>
+<linearGradient id="blue" x1="0" y1="0" x2="1" y2="1"><stop stop-color="#1e78e8"/><stop offset="1" stop-color="#0757bf"/></linearGradient>
+</defs>
+<rect x="8" y="8" width="240" height="240" rx="38" fill="url(#bg)" stroke="#d4deea" stroke-width="4"/>
+<path d="M30 52h62l25 25v111H30z" fill="#fff" stroke="url(#red)" stroke-width="12" stroke-linejoin="round"/>
+<path d="M164 77l25-25h37v136h-62z" fill="#fff" stroke="url(#blue)" stroke-width="12" stroke-linejoin="round"/>
+<text x="55" y="128" font-family="Arial,Segoe UI,sans-serif" font-size="24" font-weight="700" fill="#d92720">PDF</text>
+<text x="178" y="128" font-family="Arial,Segoe UI,sans-serif" font-size="24" font-weight="700" fill="#0757bf">PDF</text>
+<path d="M51 149h48M51 162h38M171 149h48M171 162h38" stroke="#93a2b7" stroke-width="5" stroke-linecap="round"/>
+<path d="M92 128h20l-7-8 7-7 18 18-18 18-7-7 7-8H92z" fill="#475569"/>
+<path d="M164 128h-20l7-8-7-7 18-18 7 7-7 8h20z" fill="#475569"/>
+</svg>
