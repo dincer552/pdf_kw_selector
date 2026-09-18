@@ -14,14 +14,6 @@ jobs:
     runs-on: windows-latest
     steps:
       - uses: actions/checkout@v4
-      - name: Verify checkout
-        shell: bash
-        run: git rev-parse HEAD
-      - name: Remove stale Python bytecode
-        shell: pwsh
-        run: |
-          Get-ChildItem -Path . -Recurse -Directory -Filter __pycache__ -ErrorAction SilentlyContinue | Remove-Item -Recurse -Force -ErrorAction SilentlyContinue
-          Get-ChildItem -Path . -Recurse -File -Filter *.pyc -ErrorAction SilentlyContinue | Remove-Item -Force -ErrorAction SilentlyContinue
       - uses: actions/setup-python@v5
         with:
           python-version: '3.11'
@@ -29,17 +21,12 @@ jobs:
           cache-dependency-path: requirements.txt
       - name: Install dependencies
         run: python -m pip install -r requirements.txt pyinstaller pytest
-      - name: Verify central status source
+      - name: Validate status and GUI source
         shell: pwsh
         run: |
-          python -c "from status import is_match_status, decide_motor_status; assert is_match_status('MATCH'); assert is_match_status(' match '); assert not is_match_status('MISMATCH'); assert not is_match_status('BA kodu eşleşti (BA550)'); assert not is_match_status('PDF2 AHU eşleşti; motor kW karşılaştırması yapılmadı'); print('Central status rules OK')"
+          python -m pytest -q tests/test_status.py
           python -m py_compile status.py motor_compare.py desktop_app.py desktop_grouped_app.py
-      - name: Run centralized status tests
-        run: python -m pytest -q tests/test_status.py
-      - name: Verify desktop status renderer is available
-        shell: pwsh
-        run: |
-          python -c "import build_info; import status; assert status.is_match_status('MATCH'); assert not status.is_match_status('MISMATCH'); assert hasattr(status,'install_status_display'); print('Desktop status renderer import OK')"
+          python -c "import desktop_app; import desktop_grouped_app; import voclean_project_selector; from status import install_status_display; assert hasattr(desktop_grouped_app.GroupedApp, '_build_voclean_tab'); print('Source validation OK')"
       - name: Embed build metadata
         shell: pwsh
         env:
