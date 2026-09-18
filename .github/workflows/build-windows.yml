@@ -46,7 +46,7 @@ jobs:
         shell: pwsh
         env:
           APP_VERSION: v0.5.4.${{ github.run_number }}
-        run: pyinstaller --noconfirm --clean --onefile --windowed --additional-hooks-dir=. --collect-all pypdf --name "PDF_KW_Selector_$env:APP_VERSION" desktop_grouped_app.py
+        run: pyinstaller --noconfirm --clean --onefile --windowed --icon "favicon.ico" --add-data "favicon.ico;." --additional-hooks-dir=. --collect-all pypdf --name "PDF_KW_Selector_$env:APP_VERSION" desktop_grouped_app.py
       - name: Smoke test packaged EXE startup
         shell: pwsh
         env:
