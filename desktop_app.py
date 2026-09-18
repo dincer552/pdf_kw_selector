@@ -29,8 +29,9 @@ UPDATE_CHECK_INTERVAL_MS = 15 * 60 * 1000
 class App(tk.Tk):
     def __init__(self):
         super().__init__()
-        self.title(f"PDF kW Selector {VERSION} — Batch Motor Analysis")
+        self.title(f"AHU Match {VERSION} — PDF / AHU / Motor Analysis")
         self.geometry("1300x820")
+        self._set_app_icon()
         self.minsize(1100, 700)
         self._cell_hover_box = get_cell_hover_box()
         self.pdf1_inputs: list[PdfInput] = []
@@ -48,6 +49,20 @@ class App(tk.Tk):
         install_status_display(self)
         install_pdf_drop_targets(self, self.pdf1_box, self.pdf2_box)
         self.after(5000, self._schedule_update_check)
+
+    def _set_app_icon(self):
+        """Use the packaged AHU Match icon for the title bar and taskbar."""
+        try:
+            base = Path(getattr(sys, "_MEIPASS", Path(__file__).resolve().parent))
+            icon_path = base / "AHU_Match.ico"
+            if icon_path.exists():
+                self.iconbitmap(default=str(icon_path))
+        except Exception as exc:
+            try:
+                from app_logger import debug
+                debug("AHU Match icon yüklenemedi", error=str(exc))
+            except Exception:
+                pass
 
     def _init_modern_theme(self):
         try:
@@ -120,7 +135,7 @@ class App(tk.Tk):
         
         title_box = ttk.Frame(header, style="White.TFrame")
         title_box.pack(side="left")
-        ttk.Label(title_box, text="PDF kW SELECTOR", style="Title.TLabel").pack(anchor="w")
+        ttk.Label(title_box, text="AHU MATCH", style="Title.TLabel").pack(anchor="w")
         ttk.Label(title_box, text="Project → AHU → Motor Anma Gücü Karşılaştırma ve Doğrulama", style="Muted.TLabel").pack(anchor="w")
 
         self.update_check_button = ttk.Button(header, text="↻", width=3, command=self._manual_update_check, style="Secondary.TButton")
