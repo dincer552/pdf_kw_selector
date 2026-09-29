@@ -70,6 +70,27 @@ jobs:
           Copy-Item $source dist/PDF_KW_Selector_latest.exe
           Copy-Item $source "dist/PDF_KW_Selector_$env:GITHUB_SHA.exe"
           Compress-Archive -Path $source -DestinationPath "dist/PDF_KW_Selector_$env:GITHUB_SHA.zip" -CompressionLevel Optimal
+
+          $chunkSize = 2MB
+          $buffer = New-Object byte[] $chunkSize
+          $inputStream = [System.IO.File]::OpenRead("dist/PDF_KW_Selector_latest.exe")
+          $index = 0
+          try {
+            while (($read = $inputStream.Read($buffer, 0, $buffer.Length)) -gt 0) {
+              $partName = "dist/PDF_KW_Selector_latest.part{0:D3}" -f $index
+              $outputStream = [System.IO.File]::Create($partName)
+              try {
+                $outputStream.Write($buffer, 0, $read)
+              } finally {
+                $outputStream.Dispose()
+              }
+              Write-Host "Created $partName ($read bytes)"
+              $index++
+            }
+          } finally {
+            $inputStream.Dispose()
+          }
+          Write-Host "Created $index update parts (2 MiB maximum)."
       - name: Publish latest release
         env:
           GH_TOKEN: ${{ github.token }}
