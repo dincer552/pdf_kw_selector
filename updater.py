@@ -160,8 +160,6 @@ def check_for_update(current_exe: Path | None = None, current_version: str | Non
         raise RuntimeError(f"Mevcut program sürümü okunamadı: {current_version or '-'}")
 
     available = latest_tuple > current_tuple
-    current = Path(current_exe or sys.executable).resolve()
-    current_digest = _sha256(current).lower() if current.exists() else ""
     remote_digest = str(asset.get("digest") or "").replace("sha256:", "").lower()
     release_build_sha = _release_build_sha(release)
     download_url = asset.get("browser_download_url") or asset.get("url")
@@ -200,7 +198,6 @@ def check_for_update(current_exe: Path | None = None, current_version: str | Non
         "asset_name": asset.get("name") or ASSET_NAME,
         "asset_size": asset.get("size"),
         "digest": remote_digest,
-        "current_digest": current_digest,
         "chunks": chunks,
         "available": available,
     }
