@@ -40,6 +40,10 @@ class App(tk.Tk):
         self._analysis_running = False
         self._update_check_running = False
         self._available_update = None
+        self._update_available = False
+        self._manual_update_button = None
+        self._update_button = None
+        self._update_build_label = None
         self._progress_lock = threading.Lock()
         self._progress_pending = False
         self._progress_latest = None
@@ -91,6 +95,7 @@ class App(tk.Tk):
         style.configure("Muted.TLabel", background=card_bg, foreground=text_muted, font=("Segoe UI", 8))
         style.configure("Title.TLabel", background=card_bg, foreground=text_dark, font=("Segoe UI", 13, "bold"))
         style.configure("Badge.TLabel", background="#eff6ff", foreground=primary_color, font=("Segoe UI", 8, "bold"), padding=(6, 2))
+        style.configure("UpdateBuild.TLabel", background=card_bg, foreground=primary_color, font=("Segoe UI", 8, "bold"))
 
         # Primary Button (ANALİZ BAŞLA)
         style.configure("Primary.TButton", background=primary_color, foreground="#ffffff", font=("Segoe UI", 9, "bold"), borderwidth=0, padding=(12, 6))
@@ -138,8 +143,14 @@ class App(tk.Tk):
         ttk.Label(title_box, text="AHU MATCH", style="Title.TLabel").pack(anchor="w")
         ttk.Label(title_box, text="Project → AHU → Motor Anma Gücü Karşılaştırma ve Doğrulama", style="Muted.TLabel").pack(anchor="w")
 
-        self.update_check_button = ttk.Button(header, text="↻", width=3, command=self._manual_update_check, style="Secondary.TButton")
-        self.update_check_button.pack(side="right", padx=(6, 0))
+        update_controls = ttk.Frame(header, style="White.TFrame")
+        update_controls.pack(side="right", padx=(6, 0))
+        self._manual_update_button = ttk.Button(update_controls, text="↻", width=2, command=self._manual_update_check, style="Secondary.TButton")
+        self._manual_update_button.grid(row=0, column=0, padx=(0, 6), sticky="s")
+        self._update_button = ttk.Button(update_controls, text="Güncelle", width=9, command=self.download_available_update, style="Secondary.TButton", state="disabled")
+        self._update_button.grid(row=0, column=1, sticky="s")
+        self._update_build_label = ttk.Label(update_controls, text="", style="UpdateBuild.TLabel")
+        self._update_build_label.grid(row=1, column=1, pady=(2, 0), sticky="n")
         ttk.Label(header, text=f"{VERSION}", style="Badge.TLabel").pack(side="right", padx=(0, 6))
 
         # PDF Drop / Selection Boxes
@@ -228,13 +239,6 @@ class App(tk.Tk):
         ttk.Button(buttons, text="▶ ANALİZ BAŞLA", style="Primary.TButton", command=self.compare).pack(side="left", padx=(0, 6))
         ttk.Button(buttons, text="↺ TEMİZLE", style="Secondary.TButton", command=self.clear_inputs).pack(side="left", padx=3)
 
-        self.update_notice = ttk.Frame(update_area, style="White.TFrame")
-        self.update_notice.place(relx=1, rely=1, anchor="se")
-        self.update_notice_label = ttk.Label(self.update_notice, text="Yeni sürüm mevcut", foreground="#16803d", font=("Segoe UI", 8))
-        self.update_notice_label.pack(side="left", padx=(0, 6))
-        ttk.Button(self.update_notice, text="İNDİR", style="Small.Secondary.TButton", command=self.download_available_update).pack(side="left")
-        self.update_notice.place_forget()
-
         self.status = ttk.Label(buttons, text="Hazır", anchor="e")
         self.status.pack(side="right")
 
@@ -251,11 +255,27 @@ class App(tk.Tk):
 
     def _manual_update_check(self):
         if self._update_check_running or getattr(self, "_download_running", False): return
-        self._update_check_running = True; self._manual_check_active = True; self._update_check_spinner_index = 0; self._spin_update_check_button(); self.status.configure(text="Hazır"); self.update_detail.set("Güncellemeler kontrol ediliyor..."); self.update_panel.pack(fill="x"); self.update_idletasks(); threading.Thread(target=self._check_updates_background, daemon=True).start()
+        self._update_check_running = True
+        self._manual_check_active = True
+        self._update_check_spinner_index = 0
+        self._spin_update_check_button()
+        self.status.configure(text="Hazır")
+        self.update_detail.set("Güncellemeler kontrol ediliyor...")
+        self.update_panel.pack(fill="x")
+        self.update_idletasks()
+        threading.Thread(target=self._check_updates_background, daemon=True).start()
 
     def _spin_update_check_button(self):
-        if not getattr(self, "_manual_check_active", False): self.update_check_button.configure(text="↻", state="normal"); return
-        symbols=("↻","⟳","↺","⟲"); index=self._update_check_spinner_index % len(symbols); self.update_check_button.configure(text=symbols[index],state="disabled"); self._update_check_spinner_index+=1; self.after(180,self._spin_update_check_button)
+        if not getattr(self, "_manual_check_active", False):
+            if self._manual_update_button is not None:
+                self._manual_update_button.configure(text="↻", state="normal")
+            return
+        symbols = ("↻", "⟳", "↺", "⟲")
+        index = self._update_check_spinner_index % len(symbols)
+        if self._manual_update_button is not None:
+            self._manual_update_button.configure(text=symbols[index], state="disabled")
+        self._update_check_spinner_index += 1
+        self.after(180, self._spin_update_check_button)
 
     @staticmethod
     def _format_bytes(size_bytes: int) -> str:
@@ -650,41 +670,156 @@ class App(tk.Tk):
         self.update_progress.set(percent); self.update_detail.set(text)
 
     def _schedule_update_check(self):
-        if not self._update_check_running:self._update_check_running=True; threading.Thread(target=self._check_updates_background,daemon=True).start()
-        self.after(UPDATE_CHECK_INTERVAL_MS,self._schedule_update_check)
+        if not self._update_check_running:
+            self._update_check_running = True
+            threading.Thread(target=self._check_updates_background, daemon=True).start()
+        self.after(UPDATE_CHECK_INTERVAL_MS, self._schedule_update_check)
+
     def _check_updates_background(self):
-        try: info_data=check_for_update(Path(sys.executable),VERSION,BUILD_SHA); self.after(0,self._update_check_finished,info_data,None)
-        except Exception as exc:self.after(0,self._update_check_finished,None,exc)
-    def _update_check_finished(self,info_data,exc):
-        self._update_check_running=False; self._manual_check_active=False; self.update_check_button.configure(text="↻",state="normal")
-        if exc: exception("Arka plan güncelleme kontrolü hatası",exc); return
-        if not info_data["available"]: self._available_update=None; self.update_notice.place_forget(); self.update_detail.set("Güncelleme hazır"); return
-        self._available_update=info_data
-        self.update_detail.set("")
-        self.status.configure(text="Hazır")
-        self.update_notice_label.configure(text=f"Yeni sürüm mevcut: {info_data['version']}")
-        self.update_notice.place(relx=1, rely=1, anchor="se")
-        info("Yeni sürüm bulundu",version=info_data["version"],build_sha=info_data.get("build_sha"))
+        try:
+            info_data = check_for_update(Path(sys.executable), VERSION, BUILD_SHA)
+            self.after(0, self._update_check_finished, info_data, None)
+        except Exception as exc:
+            self.after(0, self._update_check_finished, None, exc)
+
+    def _update_check_finished(self, info_data, exc):
+        self._update_check_running = False
+        self._manual_check_active = False
+        if self._manual_update_button is not None:
+            self._manual_update_button.configure(text="↻", state="normal")
+        if exc:
+            self._update_available = False
+            self._available_update = None
+            if self._update_button is not None:
+                self._update_button.configure(text="Güncelle", state="disabled")
+            if self._update_build_label is not None:
+                self._update_build_label.configure(text="")
+            exception("Arka plan güncelleme kontrolü hatası", exc)
+            return
+        available = bool(info_data and info_data.get("available"))
+        self._update_available = available
+        self._available_update = info_data if available else None
+        if self._update_button is not None:
+            self._update_button.configure(text="Güncelle", state="normal" if available else "disabled")
+        if self._update_build_label is not None:
+            if available and info_data:
+                version = str(info_data.get("version") or "").strip().lstrip("vV")
+                self._update_build_label.configure(text=f"v{version}" if version else "Yeni sürüm")
+            else:
+                self._update_build_label.configure(text="")
+        if available and info_data:
+            self.update_detail.set("Yeni sürüm hazır")
+            self.status.configure(text=f"Yeni sürüm bulundu: {info_data['version']}")
+            info("Yeni sürüm bulundu", version=info_data["version"], build_sha=info_data.get("build_sha"))
+        else:
+            self.update_detail.set("Güncelleme hazır")
+
     def download_available_update(self):
-        if self._update_check_running or getattr(self,"_download_running",False):return
-        self._update_check_running=True; self._download_running=True; self.status.configure(text="Hazır"); self.update_detail.set("En güncel sürüm kontrol ediliyor..."); self.update_panel.pack(fill="x"); self.update_idletasks(); threading.Thread(target=self._refresh_update_before_download,daemon=True).start()
+        if not self._update_available or self._update_check_running or getattr(self, "_download_running", False): return
+        self._update_check_running = True
+        self._download_running = True
+        if self._update_button is not None:
+            self._update_button.configure(text="Kontrol...", state="disabled")
+        self.status.configure(text="Hazır")
+        self.update_detail.set("En güncel sürüm kontrol ediliyor...")
+        self.update_panel.pack(fill="x")
+        self.update_idletasks()
+        threading.Thread(target=self._refresh_update_before_download, daemon=True).start()
+
     def _refresh_update_before_download(self):
-        try: info_data=check_for_update(Path(sys.executable),VERSION,BUILD_SHA); self.after(0,self._download_check_finished,info_data,None)
-        except Exception as exc:self.after(0,self._download_check_finished,None,exc)
-    def _download_check_finished(self,info_data,exc):
-        self._update_check_running=False
-        if exc: self._download_running=False; self._available_update=None; self.update_panel.pack_forget(); exception("İndirme öncesi güncelleme kontrolü hatası",exc); messagebox.showerror("Güncelleme",f"Güncel sürüm kontrol edilemedi:\n{type(exc).__name__}: {exc}"); self.status.configure(text="Güncelleme kontrolü başarısız"); return
-        if not info_data["available"]: self._download_running=False; self._available_update=None; self.update_notice.place_forget(); self.update_panel.pack_forget(); self.status.configure(text="Program güncel"); self.update_detail.set("Program güncel"); info("İndirme öncesi kontrolde yeni güncelleme bulunamadı"); return
-        self._available_update=info_data; self.update_notice_label.configure(text=f"Yeni sürüm mevcut: {info_data['version']}"); self.update_notice.place_forget(); self.status.configure(text="Yeni sürüm indiriliyor..."); self.update_progress.set(0); self.update_detail.set("İndirme başlıyor..."); threading.Thread(target=self._download_update_background,args=(info_data,),daemon=True).start()
-    def _download_update_background(self,info_data):
-        try: temp_exe=download_update(info_data["download_url"],expected_digest=info_data.get("digest"),asset_id=info_data.get("asset_id"),browser_download_url=info_data.get("browser_download_url"),expected_size=info_data.get("asset_size"),asset_name=info_data.get("asset_name"),chunks=info_data.get("chunks"),progress_callback=lambda stage,done,total,speed:self.after(0,self._update_progress,stage,done,total,speed)); self.after(0,self._update_install,temp_exe,info_data)
-        except Exception as exc:self.after(0,self._update_failed,exc,info_data)
-    def _update_progress(self,stage,done,total,speed):
-        percent=(done/total*100) if total else 0; total_mb=f"{total/1048576:.1f}" if total else "?"; done_mb=f"{done/1048576:.1f}"; speed_mb=speed/1048576; self.update_progress.set(percent); self.update_detail.set(f"İndirme %{percent:.1f} • {done_mb}/{total_mb} MB • {speed_mb:.2f} MB/sn"); info("Güncelleme indirme ilerlemesi",percent=round(percent,1),downloaded_mb=round(done/1048576,2),total_mb=round(total/1048576,2) if total else None,speed_mb_s=round(speed_mb,2)); self.refresh_logs()
-    def _update_install(self,temp_exe,info_data):
-        self._download_running=False; self.update_progress.set(100); self.update_detail.set("Kurulum hazırlanıyor..."); self.status.configure(text="Güncelleme kuruluyor..."); info("Güncelleme kurulumu başlıyor",temp=str(temp_exe)); self.refresh_logs(); restart_with_update(temp_exe,Path(sys.executable))
-    def _update_failed(self,exc,info_data):
-        self._download_running=False; exception("GUI güncelleme uygulama hatası",exc,version=info_data.get("version"),asset_id=info_data.get("asset_id"),asset_name=info_data.get("asset_name")); messagebox.showerror("Güncelleme",f"Güncelleme başarısız:\n{type(exc).__name__}: {exc}\n\nDetay HATA / İŞLEM LOGLARI sekmesinde."); self.status.configure(text="Güncelleme başarısız"); self.update_detail.set("Güncelleme başarısız"); self.refresh_logs()
+        try:
+            info_data = check_for_update(Path(sys.executable), VERSION, BUILD_SHA)
+            self.after(0, self._download_check_finished, info_data, None)
+        except Exception as exc:
+            self.after(0, self._download_check_finished, None, exc)
+
+    def _download_check_finished(self, info_data, exc):
+        self._update_check_running = False
+        if exc:
+            self._download_running = False
+            self._update_available = False
+            self._available_update = None
+            if self._update_button is not None:
+                self._update_button.configure(text="Güncelle", state="disabled")
+            if self._update_build_label is not None:
+                self._update_build_label.configure(text="")
+            exception("İndirme öncesi güncelleme kontrolü hatası", exc)
+            messagebox.showerror("Güncelleme", f"Güncel sürüm kontrol edilemedi:\n{type(exc).__name__}: {exc}")
+            self.status.configure(text="Güncelleme kontrolü başarısız")
+            return
+        if not info_data or not info_data.get("available"):
+            self._download_running = False
+            self._update_available = False
+            self._available_update = None
+            if self._update_button is not None:
+                self._update_button.configure(text="Güncelle", state="disabled")
+            if self._update_build_label is not None:
+                self._update_build_label.configure(text="")
+            self.update_detail.set("Program güncel")
+            self.status.configure(text="Program güncel")
+            info("İndirme öncesi kontrolde yeni güncelleme bulunamadı")
+            return
+        self._available_update = info_data
+        if self._update_button is not None:
+            self._update_button.configure(text="İndiriliyor...", state="disabled")
+        if self._update_build_label is not None:
+            version = str(info_data.get("version") or "").strip().lstrip("vV")
+            self._update_build_label.configure(text=f"v{version}" if version else "Yeni sürüm")
+        self.status.configure(text="Yeni sürüm indiriliyor...")
+        self.update_progress.set(0)
+        self.update_detail.set("İndirme başlıyor...")
+        threading.Thread(target=self._download_update_background, args=(info_data,), daemon=True).start()
+
+    def _download_update_background(self, info_data):
+        try:
+            temp_exe = download_update(
+                info_data["download_url"],
+                expected_digest=info_data.get("digest"),
+                asset_id=info_data.get("asset_id"),
+                browser_download_url=info_data.get("browser_download_url"),
+                expected_size=info_data.get("asset_size"),
+                asset_name=info_data.get("asset_name"),
+                chunks=info_data.get("chunks"),
+                progress_callback=lambda stage, done, total, speed: self.after(
+                    0, self._update_progress, stage, done, total, speed
+                ),
+            )
+            self.after(0, self._update_install, temp_exe, info_data)
+        except Exception as exc:
+            self.after(0, self._update_failed, exc, info_data)
+
+    def _update_progress(self, stage, done, total, speed):
+        percent = (done / total * 100) if total else 0
+        total_mb = f"{total / 1048576:.1f}" if total else "?"
+        done_mb = f"{done / 1048576:.1f}"
+        speed_mb = speed / 1048576
+        self.update_progress.set(percent)
+        self.update_detail.set(f"İndirme %{percent:.1f} • {done_mb}/{total_mb} MB • {speed_mb:.2f} MB/sn")
+        info("Güncelleme indirme ilerlemesi", percent=round(percent,1), downloaded_mb=round(done/1048576,2), total_mb=round(total/1048576,2) if total else None, speed_mb_s=round(speed_mb,2))
+
+    def _update_install(self, temp_exe, info_data):
+        self._download_running = False
+        self._update_available = False
+        self.update_progress.set(100)
+        self.update_detail.set("Kurulum hazırlanıyor...")
+        self.status.configure(text="Güncelleme kuruluyor...")
+        if self._update_button is not None:
+            self._update_button.configure(text="Yüklendi", state="disabled")
+        info("Güncelleme kurulumu başlıyor", temp=str(temp_exe))
+        self.refresh_logs()
+        restart_with_update(temp_exe, Path(sys.executable))
+
+    def _update_failed(self, exc, info_data):
+        self._download_running = False
+        self._update_available = bool(info_data and info_data.get("available"))
+        exception("GUI güncelleme uygulama hatası", exc, version=info_data.get("version") if info_data else None, asset_id=info_data.get("asset_id") if info_data else None, asset_name=info_data.get("asset_name") if info_data else None)
+        if self._update_button is not None:
+            self._update_button.configure(text="Güncelle", state="normal" if self._update_available else "disabled")
+        messagebox.showerror("Güncelleme", f"Güncelleme başarısız:\n{type(exc).__name__}: {exc}\n\nDetay HATA / İŞLEM LOGLARI sekmesinde.")
+        self.status.configure(text="Güncelleme başarısız")
+        self.update_detail.set("Güncelleme başarısız")
+        self.refresh_logs()
+
     @staticmethod
     def _fmt(value): return "-" if value is None else f"{value:g}"
     def _on_tab_changed(self, _event=None):
