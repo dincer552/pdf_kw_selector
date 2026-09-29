@@ -19,6 +19,12 @@ jobs:
           python-version: '3.11'
           cache: 'pip'
           cache-dependency-path: requirements.txt
+      - name: Clean stale Python bytecode
+        shell: pwsh
+        run: |
+          Get-ChildItem -Path . -Recurse -Force -Include *.pyc,__pycache__ -ErrorAction SilentlyContinue |
+            Remove-Item -Recurse -Force -ErrorAction SilentlyContinue
+          Write-Host "Stale Python bytecode cleaned."
       - name: Install dependencies
         run: python -m pip install -r requirements.txt pyinstaller pytest
       - name: Validate status and GUI source
@@ -38,6 +44,7 @@ jobs:
             'import pdf_hover_indicator  # noqa: F401'
             'import status  # noqa: F401'
             'import button_label_fix  # noqa: F401'
+            'import voclean_project_selector  # noqa: F401'
             "BUILD_SHA = `"$env:GITHUB_SHA`""
             "BUILD_VERSION = `"$env:APP_VERSION`""
           ) -Encoding UTF8
@@ -46,7 +53,7 @@ jobs:
         shell: pwsh
         env:
           APP_VERSION: v0.5.4.${{ github.run_number }}
-        run: pyinstaller --noconfirm --clean --onefile --windowed --icon "favicon.ico" --add-data "favicon.ico;." --additional-hooks-dir=. --collect-all pypdf --name "PDF_KW_Selector_$env:APP_VERSION" desktop_grouped_app.py
+        run: python -m PyInstaller --noconfirm --clean --onefile --windowed --icon "favicon.ico" --add-data "favicon.ico;." --additional-hooks-dir=. --collect-all pypdf --name "PDF_KW_Selector_$env:APP_VERSION" desktop_grouped_app.py
       - name: Smoke test packaged EXE startup
         shell: pwsh
         env:
