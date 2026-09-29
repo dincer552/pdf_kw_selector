@@ -255,440 +255,185 @@ class App(tk.Tk):
 
     def _manual_update_check(self):
         if self._update_check_running or getattr(self, "_download_running", False): return
-        self._update_check_running = True; self._manual_check_active = True; self._update_check_spinner_index = 0; self._spin_update_check_button(); self.status.configure(text="Hazır"); self.update_detail.set("Güncellemeler kontrol ediliyor..."); self.update_panel.pack(fill="x"); self.update_idletasks(); threading.Thread(target=self._check_updates_background, daemon=True).start()
+        self._update_check_running = True
+        self._manual_check_active = True
+        self._update_check_spinner_index = 0
+        self._spin_update_check_button()
+        self.status.configure(text="Hazır")
+        self.update_detail.set("Güncellemeler kontrol ediliyor...")
+        self.update_panel.pack(fill="x")
+        self.update_idletasks()
+        threading.Thread(target=self._check_updates_background, daemon=True).start()
 
     def _spin_update_check_button(self):
-        if not getattr(self, "_manual_check_active", False): self.update_check_button.configure(text="↻", state="normal"); return
-        symbols=("↻","⟳","↺","⟲"); index=self._update_check_spinner_index % len(symbols); self.update_check_button.configure(text=symbols[index],state="disabled"); self._update_check_spinner_index+=1; self.after(180,self._spin_update_check_button)
-
-    @staticmethod
-    def _format_bytes(size_bytes: int) -> str:
-        if size_bytes < 1024:
-            return f"{size_bytes} B"
-        elif size_bytes < 1024 * 1024:
-            return f"{size_bytes / 1024:.1f} KB"
-        else:
-            return f"{size_bytes / (1024 * 1024):.1f} MB"
-
-    def _file_box(self, parent, title, side):
-        frame = ttk.Frame(parent, style="White.TFrame", padding=10)
-        # Inner border effect
-        inner_box = tk.Frame(frame, bg="#ffffff", highlightbackground="#e2e8f0", highlightthickness=1, padx=8, pady=8)
-        inner_box.pack(fill="both", expand=True)
-
-        # Header inside the card
-        head_row = tk.Frame(inner_box, bg="#ffffff")
-        head_row.pack(fill="x", pady=(0, 6))
-
-        badge_color = "#eff6ff" if side == "PDF1" else "#f5f3ff"
-        badge_fg = "#2563eb" if side == "PDF1" else "#4f46e5"
-        side_badge = tk.Label(head_row, text=f" {side} ", bg=badge_color, fg=badge_fg, font=("Segoe UI", 9, "bold"), relief="flat")
-        side_badge.pack(side="left", padx=(0, 6))
-
-        info_col = tk.Frame(head_row, bg="#ffffff")
-        info_col.pack(side="left")
-        tk.Label(info_col, text=title, font=("Segoe UI", 10, "bold"), bg="#ffffff", fg="#0f172a").pack(anchor="w")
-        sub_desc = "Ekipman ve motor seçim dokümanları" if side == "PDF1" else "Bağlantı şemaları ve pano çizimleri"
-        tk.Label(info_col, text=sub_desc, font=("Segoe UI", 8), bg="#ffffff", fg="#94a3b8").pack(anchor="w")
-
-        btn_col = tk.Frame(head_row, bg="#ffffff")
-        btn_col.pack(side="right")
-
-        count_badge = tk.Label(btn_col, text="0 PDF", bg="#ffffff", fg="#475569", font=("Segoe UI", 8, "bold"), relief="solid", bd=1, padx=6, pady=2)
-        count_badge.pack(side="left", padx=(0, 6))
-
-        ttk.Button(btn_col, text="+ PDF EKLE", style="Secondary.TButton", command=lambda: self.add_files(side)).pack(side="left", padx=2)
-        ttk.Button(btn_col, text="+ KLASÖR EKLE", style="Secondary.TButton", command=lambda: self.add_folder(side)).pack(side="left", padx=2)
-
-        # Animated drop banner (hidden until files are dragged over this box)
-        banner_bg = "#eff6ff" if side == "PDF1" else "#f5f3ff"
-        banner_border = "#2563eb" if side == "PDF1" else "#7c3aed"
-        banner_fg = "#1d4ed8" if side == "PDF1" else "#6d28d9"
-        banner_text = "⬇  SEÇİM ÇIKTISI (PDF1) BURAYA BIRAKIN  ⬇" if side == "PDF1" else "⬇  ELEKTRİK PROJESİ (PDF2) BURAYA BIRAKIN  ⬇"
-
-        drop_banner = tk.Frame(inner_box, bg=banner_bg, highlightbackground=banner_border, highlightthickness=2, padx=8, pady=6)
-        banner_label = tk.Label(drop_banner, text=banner_text, bg=banner_bg, fg=banner_fg, font=("Segoe UI", 9, "bold"))
-        banner_label.pack(fill="both", expand=True)
-
-        # Inner scrollable list area
-        list_container = tk.Frame(inner_box, bg="#f8fafc", highlightbackground="#e2e8f0", highlightthickness=1)
-        list_container.pack(fill="both", expand=True, pady=(4, 0))
-
-        canvas = tk.Canvas(list_container, bg="#f8fafc", highlightthickness=0, height=95)
-        scrollbar = ttk.Scrollbar(list_container, orient="vertical", command=canvas.yview)
-        scrollable_frame = tk.Frame(canvas, bg="#f8fafc")
-
-        scrollable_frame.bind(
-            "<Configure>",
-            lambda e, c=canvas: c.configure(scrollregion=c.bbox("all"))
-        )
-        canvas_window = canvas.create_window((0, 0), window=scrollable_frame, anchor="nw")
-
-        def _on_canvas_resize(event, c=canvas, cw=canvas_window):
-            c.itemconfig(cw, width=event.width)
-        canvas.bind("<Configure>", _on_canvas_resize)
-        canvas.configure(yscrollcommand=scrollbar.set)
-
-        canvas.pack(side="left", fill="both", expand=True)
-        scrollbar.pack(side="right", fill="y")
-
-        # Store references
-        if side == "PDF1":
-            self._pdf1_scroll_frame = scrollable_frame
-            self._pdf1_canvas = canvas
-            self._pdf1_badge = count_badge
-            self._pdf1_inner_box = inner_box
-            self._pdf1_drop_banner = drop_banner
-            self._pdf1_banner_label = banner_label
-            self._pdf1_list_container = list_container
-            self._pdf1_head_row = head_row
-            self._pdf1_is_drag_active = False
-            self._pdf1_anim_job = None
-        else:
-            self._pdf2_scroll_frame = scrollable_frame
-            self._pdf2_canvas = canvas
-            self._pdf2_badge = count_badge
-            self._pdf2_inner_box = inner_box
-            self._pdf2_drop_banner = drop_banner
-            self._pdf2_banner_label = banner_label
-            self._pdf2_list_container = list_container
-            self._pdf2_head_row = head_row
-            self._pdf2_is_drag_active = False
-            self._pdf2_anim_job = None
-
-        self._refresh_file_list(side)
-        return count_badge, frame
-
-    def set_drag_active(self, side: str, active: bool):
-        """Visually activate or deactivate the drop zone with clear animated feedback."""
-        is_active = getattr(self, f"_{side.lower()}_is_drag_active", False)
-        if is_active == active:
+        if not getattr(self, "_manual_check_active", False):
+            if self._manual_update_button is not None:
+                self._manual_update_button.configure(text="↻", state="normal")
             return
-
-        setattr(self, f"_{side.lower()}_is_drag_active", active)
-        inner_box = getattr(self, f"_{side.lower()}_inner_box", None)
-        drop_banner = getattr(self, f"_{side.lower()}_drop_banner", None)
-        list_container = getattr(self, f"_{side.lower()}_list_container", None)
-        head_row = getattr(self, f"_{side.lower()}_head_row", None)
-
-        if not inner_box or not drop_banner:
-            return
-
-        # Cancel any active pulse animation timer
-        anim_job = getattr(self, f"_{side.lower()}_anim_job", None)
-        if anim_job is not None:
-            try:
-                self.after_cancel(anim_job)
-            except Exception:
-                pass
-            setattr(self, f"_{side.lower()}_anim_job", None)
-
-        if active:
-            # Show animated banner above the list container
-            drop_banner.pack(fill="x", pady=(0, 6), before=list_container)
-            reg = getattr(self, "_register_drop_target", None)
-            if reg:
-                reg(drop_banner, side)
-
-            tint_bg = "#eff6ff" if side == "PDF1" else "#f5f3ff"
-            inner_box.configure(bg=tint_bg)
-            if head_row:
-                head_row.configure(bg=tint_bg)
-
-            # Start pulsating animation loop
-            self._run_drag_pulse_animation(side, 0)
-        else:
-            # Hide banner and restore clean normal appearance
-            drop_banner.pack_forget()
-            inner_box.configure(highlightbackground="#e2e8f0", highlightthickness=1, bg="#ffffff")
-            if head_row:
-                head_row.configure(bg="#ffffff")
-
-    def _run_drag_pulse_animation(self, side: str, step: int):
-        """Pulsating border color and icon animation during drag-over."""
-        if not getattr(self, f"_{side.lower()}_is_drag_active", False):
-            return
-
-        inner_box = getattr(self, f"_{side.lower()}_inner_box", None)
-        drop_banner = getattr(self, f"_{side.lower()}_drop_banner", None)
-        banner_label = getattr(self, f"_{side.lower()}_banner_label", None)
-
-        if not inner_box or not drop_banner:
-            return
-
-        if side == "PDF1":
-            palette = ["#2563eb", "#3b82f6", "#60a5fa", "#3b82f6"]
-            icons = ["⬇  SEÇİM ÇIKTISI (PDF1) BURAYA BIRAKIN  ⬇", "⤓  SEÇİM ÇIKTISI (PDF1) BURAYA BIRAKIN  ⤓"]
-        else:
-            palette = ["#7c3aed", "#8b5cf6", "#a78bfa", "#8b5cf6"]
-            icons = ["⬇  ELEKTRİK PROJESİ (PDF2) BURAYA BIRAKIN  ⬇", "⤓  ELEKTRİK PROJESİ (PDF2) BURAYA BIRAKIN  ⤓"]
-
-        color = palette[step % len(palette)]
-        icon_text = icons[(step // 2) % len(icons)]
-
-        try:
-            inner_box.configure(highlightbackground=color, highlightthickness=2)
-            drop_banner.configure(highlightbackground=color)
-            if banner_label:
-                banner_label.configure(text=icon_text)
-        except Exception:
-            pass
-
-        job = self.after(130, lambda: self._run_drag_pulse_animation(side, step + 1))
-        setattr(self, f"_{side.lower()}_anim_job", job)
-
-    def remove_file(self, side: str, index: int):
-        target = self.pdf1_inputs if side == "PDF1" else self.pdf2_inputs
-        if 0 <= index < len(target):
-            removed = target.pop(index)
-            info("PDF girişi silindi", side=side, path=str(removed.path))
-            self._refresh_file_list(side)
-
-    def _refresh_file_list(self, side: str):
-        target = self.pdf1_inputs if side == "PDF1" else self.pdf2_inputs
-        scroll_frame = getattr(self, f"_{side.lower()}_scroll_frame", None)
-        badge = getattr(self, f"_{side.lower()}_badge", None)
-        if scroll_frame is None:
-            return
-
-        if badge:
-            badge.configure(text=f"{len(target)} PDF")
-
-        for child in scroll_frame.winfo_children():
-            child.destroy()
-
-        if not target:
-            empty_lbl = tk.Label(
-                scroll_frame,
-                text="PDF dosyalarını buraya sürükleyin veya '+ PDF EKLE' butonunu kullanın",
-                bg="#f8fafc",
-                fg="#94a3b8",
-                font=("Segoe UI", 8),
-                pady=20
-            )
-            empty_lbl.pack(fill="both", expand=True)
-            reg = getattr(self, "_register_drop_target", None)
-            if reg:
-                reg(empty_lbl, side)
-            return
-
-        for idx, item in enumerate(target):
-            card = tk.Frame(scroll_frame, bg="#ffffff", highlightbackground="#e2e8f0", highlightthickness=1, padx=6, pady=4)
-            card.pack(fill="x", expand=True, padx=4, pady=2)
-
-            icon = tk.Label(card, text="📄", bg="#ffffff", fg="#2563eb", font=("Segoe UI", 10))
-            icon.pack(side="left", padx=(0, 6))
-
-            text_box = tk.Frame(card, bg="#ffffff")
-            text_box.pack(side="left", fill="both", expand=True)
-
-            fname = Path(item.path).name
-            tk.Label(text_box, text=fname, bg="#ffffff", fg="#0f172a", font=("Segoe UI", 9, "bold"), anchor="w").pack(fill="x", anchor="w")
-
-            size_str = self._format_bytes(getattr(item, "size_bytes", 0))
-            sub_info = f"{size_str} • {str(item.path)}"
-            if len(sub_info) > 60:
-                sub_info = sub_info[:57] + "..."
-            tk.Label(text_box, text=sub_info, bg="#ffffff", fg="#64748b", font=("Segoe UI", 8), anchor="w").pack(fill="x", anchor="w")
-
-            # Silme butonu (Trash can button 🗑)
-            del_btn = tk.Button(
-                card,
-                text="🗑",
-                bg="#ffffff",
-                fg="#94a3b8",
-                activeforeground="#ef4444",
-                activebackground="#fee2e2",
-                font=("Segoe UI", 10),
-                relief="flat",
-                bd=0,
-                cursor="hand2",
-                command=lambda i=idx, s=side: self.remove_file(s, i)
-            )
-            del_btn.pack(side="right", padx=(4, 2))
-
-        reg = getattr(self, "_register_drop_target", None)
-        if reg:
-            reg(scroll_frame, side)
-
-    def add_files(self, side):
-        self._merge_inputs(side, list(filedialog.askopenfilenames(title=f"{side} PDF seç", filetypes=[("PDF", "*.pdf")])))
-
-    def add_folder(self, side):
-        path = filedialog.askdirectory(title=f"{side} PDF klasörü seç")
-        if path:
-            self._merge_inputs(side, [path])
-
-    def _merge_inputs(self, side, paths):
-        discovered = discover_pdfs(paths, recursive=True)
-        target = self.pdf1_inputs if side == "PDF1" else self.pdf2_inputs
-        known = {str(x.path).casefold() for x in target}
-        for path in discovered:
-            if str(path).casefold() not in known:
-                target.append(path)
-                known.add(str(path).casefold())
-        self._refresh_file_list(side)
-        info("PDF girişleri güncellendi", side=side, count=len(target), paths=[str(x.path) for x in target])
-
-    def clear_inputs(self):
-        if self._analysis_running:
-            return
-        self.pdf1_inputs.clear()
-        self.pdf2_inputs.clear()
-        self._refresh_file_list("PDF1")
-        self._refresh_file_list("PDF2")
-        self.analysis = None
-        self._analysis_json = ""
-        for item in self.tree.get_children():
-            self.tree.delete(item)
-        self._clear_unmatched()
-        self._clear_analysis_detail()
-        self.status.configure(text="Hazır")
-        self.update_progress.set(0)
-        self.update_detail.set("Güncelleme hazır")
-        self.update_panel.pack_forget()
-        self._clear_grouped_results()
-        info("PDF seçimleri ve analiz sonuçları temizlendi")
-
-    def _clear_analysis_detail(self): self._set_detail("")
-    def _clear_grouped_results(self): return
-
-    def compare(self):
-        if self._analysis_running:return
-        if not self.pdf1_inputs or not self.pdf2_inputs: messagebox.showwarning("Eksik seçim","PDF1 ve PDF2 tarafına en az birer PDF/klasör ekleyin."); return
-        self._analysis_running=True; self.update_progress.set(0); self.update_detail.set("PDF taraması başlıyor..."); self.update_panel.pack(fill="x"); self.status.configure(text="PDF'ler taranıyor..."); self.update_idletasks(); pdf1=[str(x.path) for x in self.pdf1_inputs]; pdf2=[str(x.path) for x in self.pdf2_inputs]; threading.Thread(target=self._prepare_analysis,args=(pdf1,pdf2),daemon=True).start()
-
-    def _queue_analysis_progress(self,stage,done,total,detail):
-        with self._progress_lock:
-            self._progress_latest=(stage,done,total,detail)
-            if self._progress_pending:return
-            self._progress_pending=True
-        self.after(0,self._flush_analysis_progress)
-
-    def _flush_analysis_progress(self):
-        with self._progress_lock:
-            latest=self._progress_latest; self._progress_pending=False
-        if latest is not None:self._analysis_progress(*latest)
-
-    def _prepare_analysis(self,pdf1_paths,pdf2_paths):
-        try:
-            scan_pdfs([(p,"PDF1") for p in pdf1_paths]+[(p,"PDF2") for p in pdf2_paths],progress_callback=self._queue_analysis_progress)
-            self.after(0,self._run_analysis_after_scan,pdf1_paths,pdf2_paths)
-        except Exception as exc:self.after(0,self._analysis_failed,exc)
-
-    def _run_analysis_after_scan(self,pdf1_paths,pdf2_paths):
-        self.status.configure(text="Eşleştirme ve motor analizi yapılıyor..."); self.update_detail.set("Eşleştirme ve motor analizi başlıyor..."); self.update_idletasks(); threading.Thread(target=self._analyze_background,args=(pdf1_paths,pdf2_paths),daemon=True).start()
-
-    def _analyze_background(self,pdf1_paths,pdf2_paths):
-        try:
-            analysis=analyze_batch(pdf1_paths,pdf2_paths,progress_callback=self._queue_analysis_progress)
-            self.after(0,self._analysis_finished,analysis)
-        except Exception as exc:self.after(0,self._analysis_failed,exc)
-
-    def _analysis_finished(self,analysis):
-        try:
-            self.analysis=analysis; self._render_analysis(); self._render_unmatched(); self._post_analysis(); self._analysis_running=False; self.update_detail.set("Analiz tamamlandı • %100"); self.update_progress.set(100); self.status.configure(text=self.status.cget("text")); self.refresh_logs()
-        except Exception as exc:self._analysis_failed(exc)
-
-    def _post_analysis(self):pass
-    def _render_analysis(self):
-        for item in self.tree.get_children(): self.tree.delete(item)
-        counts={"MATCH":0,"MISMATCH":0,"ONLY_IN_PDF1":0,"ONLY_IN_PDF2":0}; ahu_context={}
-        for batch_ahu in self.analysis.ahu_matches:
-            left=normalize_equipment_id(batch_ahu.match.left_normalized); right=normalize_equipment_id(batch_ahu.match.right_normalized)
-            if left:ahu_context[left]=batch_ahu.project_name or "-"
-            if right:ahu_context[right]=batch_ahu.project_name or "-"
-        comparisons=list(self.analysis.motor_comparisons); comparisons.sort(key=lambda item:(ahu_context.get(normalize_equipment_id(item.equipment_id),"-").casefold(),normalize_equipment_id(item.equipment_id).casefold(),item.component_type.casefold(),item.component_index)); previous_group=None; group_number=0
-        self._tree_cell_data = {}
-        for comparison in comparisons:
-            counts[comparison.status]=counts.get(comparison.status,0)+1; ahu=normalize_equipment_id(comparison.equipment_id); project=ahu_context.get(ahu,"-"); group_key=(project.casefold(),ahu.casefold())
-            if group_key!=previous_group: group_number+=1; previous_group=group_key
-            tag="group_a" if group_number%2 else "group_b"
-            row_vals = (
-                project,
-                ahu,
-                comparison.component_label,
-                self._fmt(comparison.pdf1_kw),
-                self._fmt(comparison.pdf2_kw),
-                status_display_text(comparison.status),
-                comparison.pdf1_path or "",
-                str(comparison.pdf1_page or "") if comparison.pdf1_page else "",
-                comparison.pdf2_path or "",
-                str(comparison.pdf2_page or "") if comparison.pdf2_page else "",
-            )
-            item_id = self.tree.insert("", "end", tags=(tag,), values=row_vals)
-            apply_status_tag(self.tree, item_id, comparison.status)
-            self._tree_cell_data[item_id] = {
-                "pdf1_path": comparison.pdf1_path,
-                "pdf1_page": comparison.pdf1_page,
-                "pdf2_path": comparison.pdf2_path,
-                "pdf2_page": comparison.pdf2_page,
-            }
-        info("GUI sonuç tablosu oluşturuldu",comparisons=len(comparisons),counts=counts,grouped_ahu_count=group_number); self.status.configure(text=f"✓ Proje {len(self.analysis.project_matches)} | AHU {len(self.analysis.ahu_matches)} | Motor {len(self.analysis.motor_comparisons)} | MATCH {counts['MATCH']} | MISMATCH {counts['MISMATCH']} | PDF1 {counts['ONLY_IN_PDF1']} | PDF2 {counts['ONLY_IN_PDF2']}"); self._analysis_json=json.dumps(self.analysis.to_dict(),ensure_ascii=False,indent=2); self._set_detail(self._analysis_json); self.refresh_logs()
-    def _render_unmatched(self):
-        for item in self.unmatched_tree.get_children(): self.unmatched_tree.delete(item)
-        self._unmatched_cell_data = {}
-        matched_paths=set()
-        for ahu in self.analysis.ahu_matches:
-            matched_paths.update(str(path).casefold() for path in ahu.pdf1_files); matched_paths.update(str(path).casefold() for path in ahu.pdf2_files)
-        rows=[]
-        for side,documents in (("PDF1",self.analysis.pdf1_documents),("PDF2",self.analysis.pdf2_documents)):
-            for document in documents:
-                if str(document.path).casefold() in matched_paths: continue
-                project=document.project.project_name or "-"; ahus=", ".join(document.equipment) if document.equipment else "-"; reason="AHU eşleşmesine giremedi" if document.equipment else "Ekipman/AHU tespit edilemedi"; rows.append((side,Path(document.path).name,project,ahus,reason,str(document.path)))
-        rows.sort(key=lambda row:(row[0],row[1].casefold()))
-        for side,pdf,project,ahus,reason,path in rows:
-            item_id = self.unmatched_tree.insert("","end",values=(side,pdf,project,ahus,reason),tags=(path,))
-            self._unmatched_cell_data[item_id] = {"path": path, "name": pdf, "page": 1}
-        self.tabs.tab(1,text=f"EŞLEŞMEYEN PDF'LER ({len(rows)})"); info("Eşleşmeyen PDF listesi oluşturuldu",unmatched_count=len(rows),matched_ahu_pdf_count=len(matched_paths),unmatched=[{"side":r[0],"path":r[5],"project":r[2],"ahu":r[3],"reason":r[4]} for r in rows])
-    def _clear_unmatched(self):
-        if not hasattr(self,"unmatched_tree"):return
-        for item in self.unmatched_tree.get_children():self.unmatched_tree.delete(item)
-        if hasattr(self,"_unmatched_cell_data"):self._unmatched_cell_data.clear()
-        if hasattr(self,"tabs"):self.tabs.tab(1,text="EŞLEŞMEYEN PDF'LER (0)")
-    def _analysis_failed(self,exc):
-        self._analysis_running=False; exception("GUI sonuç tablosu oluşturma hatası",exc); messagebox.showerror("Sonuç gösterme hatası",f"{type(exc).__name__}: {exc}"); self.status.configure(text="Analiz başarısız"); self.update_detail.set("Analiz başarısız"); self.refresh_logs()
-    def _analysis_progress(self,stage,done,total,detail):
-        if stage=="scan": percent=done/max(total,1)*60; text=f"PDF tarama %{percent:.1f} • {done}/{total} dosya • {detail}"
-        else: percent=60+done/max(total,1)*40; text=f"Karşılaştırma %{percent:.1f} • {detail}"
-        self.update_progress.set(percent); self.update_detail.set(text)
+        symbols = ("↻", "⟳", "↺", "⟲")
+        index = self._update_check_spinner_index % len(symbols)
+        if self._manual_update_button is not None:
+            self._manual_update_button.configure(text=symbols[index], state="disabled")
+        self._update_check_spinner_index += 1
+        self.after(180, self._spin_update_check_button)
 
     def _schedule_update_check(self):
-        if not self._update_check_running:self._update_check_running=True; threading.Thread(target=self._check_updates_background,daemon=True).start()
-        self.after(UPDATE_CHECK_INTERVAL_MS,self._schedule_update_check)
+        if not self._update_check_running:
+            self._update_check_running = True
+            threading.Thread(target=self._check_updates_background, daemon=True).start()
+        self.after(UPDATE_CHECK_INTERVAL_MS, self._schedule_update_check)
+
     def _check_updates_background(self):
-        try: info_data=check_for_update(Path(sys.executable),VERSION,BUILD_SHA); self.after(0,self._update_check_finished,info_data,None)
-        except Exception as exc:self.after(0,self._update_check_finished,None,exc)
-    def _update_check_finished(self,info_data,exc):
-        self._update_check_running=False; self._manual_check_active=False; self.update_check_button.configure(text="↻",state="normal")
-        if exc: exception("Arka plan güncelleme kontrolü hatası",exc); return
-        if not info_data["available"]: self._available_update=None; self.update_notice.place_forget(); self.update_detail.set("Güncelleme hazır"); return
-        self._available_update=info_data
-        self.update_detail.set("")
-        self.status.configure(text="Hazır")
-        self.update_notice_label.configure(text=f"Yeni sürüm mevcut: {info_data['version']}")
-        self.update_notice.place(relx=1, rely=1, anchor="se")
-        info("Yeni sürüm bulundu",version=info_data["version"],build_sha=info_data.get("build_sha"))
+        try:
+            info_data = check_for_update(Path(sys.executable), VERSION, BUILD_SHA)
+            self.after(0, self._update_check_finished, info_data, None)
+        except Exception as exc:
+            self.after(0, self._update_check_finished, None, exc)
+
+    def _update_check_finished(self, info_data, exc):
+        self._update_check_running = False
+        self._manual_check_active = False
+        if self._manual_update_button is not None:
+            self._manual_update_button.configure(text="↻", state="normal")
+        if exc:
+            self._update_available = False
+            self._available_update = None
+            if self._update_button is not None:
+                self._update_button.configure(text="Güncelle", state="disabled")
+            if self._update_build_label is not None:
+                self._update_build_label.configure(text="")
+            exception("Arka plan güncelleme kontrolü hatası", exc)
+            return
+        available = bool(info_data and info_data.get("available"))
+        self._update_available = available
+        self._available_update = info_data if available else None
+        if self._update_button is not None:
+            self._update_button.configure(text="Güncelle", state="normal" if available else "disabled")
+        if self._update_build_label is not None:
+            if available and info_data:
+                version = str(info_data.get("version") or "").strip().lstrip("vV")
+                self._update_build_label.configure(text=f"v{version}" if version else "Yeni sürüm")
+            else:
+                self._update_build_label.configure(text="")
+        if available and info_data:
+            self.update_detail.set("Yeni sürüm hazır")
+            self.status.configure(text=f"Yeni sürüm bulundu: {info_data['version']}")
+            info("Yeni sürüm bulundu", version=info_data["version"], build_sha=info_data.get("build_sha"))
+        else:
+            self.update_detail.set("Güncelleme hazır")
+
     def download_available_update(self):
-        if self._update_check_running or getattr(self,"_download_running",False):return
-        self._update_check_running=True; self._download_running=True; self.status.configure(text="Hazır"); self.update_detail.set("En güncel sürüm kontrol ediliyor..."); self.update_panel.pack(fill="x"); self.update_idletasks(); threading.Thread(target=self._refresh_update_before_download,daemon=True).start()
+        if not self._update_available or self._update_check_running or getattr(self, "_download_running", False): return
+        self._update_check_running = True
+        self._download_running = True
+        if self._update_button is not None:
+            self._update_button.configure(text="Kontrol...", state="disabled")
+        self.status.configure(text="Hazır")
+        self.update_detail.set("En güncel sürüm kontrol ediliyor...")
+        self.update_panel.pack(fill="x")
+        self.update_idletasks()
+        threading.Thread(target=self._refresh_update_before_download, daemon=True).start()
+
     def _refresh_update_before_download(self):
-        try: info_data=check_for_update(Path(sys.executable),VERSION,BUILD_SHA); self.after(0,self._download_check_finished,info_data,None)
-        except Exception as exc:self.after(0,self._download_check_finished,None,exc)
-    def _download_check_finished(self,info_data,exc):
-        self._update_check_running=False
-        if exc: self._download_running=False; self._available_update=None; self.update_panel.pack_forget(); exception("İndirme öncesi güncelleme kontrolü hatası",exc); messagebox.showerror("Güncelleme",f"Güncel sürüm kontrol edilemedi:\n{type(exc).__name__}: {exc}"); self.status.configure(text="Güncelleme kontrolü başarısız"); return
-        if not info_data["available"]: self._download_running=False; self._available_update=None; self.update_notice.place_forget(); self.update_panel.pack_forget(); self.status.configure(text="Program güncel"); self.update_detail.set("Program güncel"); info("İndirme öncesi kontrolde yeni güncelleme bulunamadı"); return
-        self._available_update=info_data; self.update_notice_label.configure(text=f"Yeni sürüm mevcut: {info_data['version']}"); self.update_notice.place_forget(); self.status.configure(text="Yeni sürüm indiriliyor..."); self.update_progress.set(0); self.update_detail.set("İndirme başlıyor..."); threading.Thread(target=self._download_update_background,args=(info_data,),daemon=True).start()
-    def _download_update_background(self,info_data):
-        try: temp_exe=download_update(info_data["download_url"],expected_digest=info_data.get("digest"),asset_id=info_data.get("asset_id"),browser_download_url=info_data.get("browser_download_url"),expected_size=info_data.get("asset_size"),asset_name=info_data.get("asset_name"),chunks=info_data.get("chunks"),progress_callback=lambda stage,done,total,speed:self.after(0,self._update_progress,stage,done,total,speed)); self.after(0,self._update_install,temp_exe,info_data)
-        except Exception as exc:self.after(0,self._update_failed,exc,info_data)
-    def _update_progress(self,stage,done,total,speed):
-        percent=(done/total*100) if total else 0; total_mb=f"{total/1048576:.1f}" if total else "?"; done_mb=f"{done/1048576:.1f}"; speed_mb=speed/1048576; self.update_progress.set(percent); self.update_detail.set(f"İndirme %{percent:.1f} • {done_mb}/{total_mb} MB • {speed_mb:.2f} MB/sn"); info("Güncelleme indirme ilerlemesi",percent=round(percent,1),downloaded_mb=round(done/1048576,2),total_mb=round(total/1048576,2) if total else None,speed_mb_s=round(speed_mb,2)); self.refresh_logs()
-    def _update_install(self,temp_exe,info_data):
-        self._download_running=False; self.update_progress.set(100); self.update_detail.set("Kurulum hazırlanıyor..."); self.status.configure(text="Güncelleme kuruluyor..."); info("Güncelleme kurulumu başlıyor",temp=str(temp_exe)); self.refresh_logs(); restart_with_update(temp_exe,Path(sys.executable))
-    def _update_failed(self,exc,info_data):
-        self._download_running=False; exception("GUI güncelleme uygulama hatası",exc,version=info_data.get("version"),asset_id=info_data.get("asset_id"),asset_name=info_data.get("asset_name")); messagebox.showerror("Güncelleme",f"Güncelleme başarısız:\n{type(exc).__name__}: {exc}\n\nDetay HATA / İŞLEM LOGLARI sekmesinde."); self.status.configure(text="Güncelleme başarısız"); self.update_detail.set("Güncelleme başarısız"); self.refresh_logs()
+        try:
+            info_data = check_for_update(Path(sys.executable), VERSION, BUILD_SHA)
+            self.after(0, self._download_check_finished, info_data, None)
+        except Exception as exc:
+            self.after(0, self._download_check_finished, None, exc)
+
+    def _download_check_finished(self, info_data, exc):
+        self._update_check_running = False
+        if exc:
+            self._download_running = False
+            self._update_available = False
+            self._available_update = None
+            if self._update_button is not None:
+                self._update_button.configure(text="Güncelle", state="disabled")
+            if self._update_build_label is not None:
+                self._update_build_label.configure(text="")
+            exception("İndirme öncesi güncelleme kontrolü hatası", exc)
+            messagebox.showerror("Güncelleme", f"Güncel sürüm kontrol edilemedi:\n{type(exc).__name__}: {exc}")
+            self.status.configure(text="Güncelleme kontrolü başarısız")
+            return
+        if not info_data or not info_data.get("available"):
+            self._download_running = False
+            self._update_available = False
+            self._available_update = None
+            if self._update_button is not None:
+                self._update_button.configure(text="Güncelle", state="disabled")
+            if self._update_build_label is not None:
+                self._update_build_label.configure(text="")
+            self.update_detail.set("Program güncel")
+            self.status.configure(text="Program güncel")
+            info("İndirme öncesi kontrolde yeni güncelleme bulunamadı")
+            return
+        self._available_update = info_data
+        if self._update_button is not None:
+            self._update_button.configure(text="İndiriliyor...", state="disabled")
+        if self._update_build_label is not None:
+            version = str(info_data.get("version") or "").strip().lstrip("vV")
+            self._update_build_label.configure(text=f"v{version}" if version else "Yeni sürüm")
+        self.status.configure(text="Yeni sürüm indiriliyor...")
+        self.update_progress.set(0)
+        self.update_detail.set("İndirme başlıyor...")
+        threading.Thread(target=self._download_update_background, args=(info_data,), daemon=True).start()
+
+    def _download_update_background(self, info_data):
+        try:
+            temp_exe = download_update(
+                info_data["download_url"],
+                expected_digest=info_data.get("digest"),
+                asset_id=info_data.get("asset_id"),
+                browser_download_url=info_data.get("browser_download_url"),
+                expected_size=info_data.get("asset_size"),
+                asset_name=info_data.get("asset_name"),
+                chunks=info_data.get("chunks"),
+                progress_callback=lambda stage, done, total, speed: self.after(
+                    0, self._update_progress, stage, done, total, speed
+                ),
+            )
+            self.after(0, self._update_install, temp_exe, info_data)
+        except Exception as exc:
+            self.after(0, self._update_failed, exc, info_data)
+
+    def _update_progress(self, stage, done, total, speed):
+        percent = (done / total * 100) if total else 0
+        total_mb = f"{total / 1048576:.1f}" if total else "?"
+        done_mb = f"{done / 1048576:.1f}"
+        speed_mb = speed / 1048576
+        self.update_progress.set(percent)
+        self.update_detail.set(f"İndirme %{percent:.1f} • {done_mb}/{total_mb} MB • {speed_mb:.2f} MB/sn")
+        info("Güncelleme indirme ilerlemesi", percent=round(percent,1), downloaded_mb=round(done/1048576,2), total_mb=round(total/1048576,2) if total else None, speed_mb_s=round(speed_mb,2))
+
+    def _update_install(self, temp_exe, info_data):
+        self._download_running = False
+        self._update_available = False
+        self.update_progress.set(100)
+        self.update_detail.set("Kurulum hazırlanıyor...")
+        self.status.configure(text="Güncelleme kuruluyor...")
+        if self._update_button is not None:
+            self._update_button.configure(text="Yüklendi", state="disabled")
+        info("Güncelleme kurulumu başlıyor", temp=str(temp_exe))
+        self.refresh_logs()
+        restart_with_update(temp_exe, Path(sys.executable))
+
+    def _update_failed(self, exc, info_data):
+        self._download_running = False
+        self._update_available = bool(info_data and info_data.get("available"))
+        exception(
+            "GUI güncelleme uygulama hatası",
+            exc,
+            version=info_data.get("version") if info_data else None,
+            asset_id=info_data.get("asset_id") if info_data else None,
+            asset_name=info_data.get("asset_name") if info_data else None,
+        )
+        if self._update_button is not None:
+            self._update_button.configure(text="Güncelle", state="normal" if self._update_available else "disabled")
+        messagebox.showerror("Güncelleme", f"Güncelleme başarısız:\n{type(exc).__name__}: {exc}\n\nDetay HATA / İŞLEM LOGLARI sekmesinde.")
+        self.status.configure(text="Güncelleme başarısız")
+        self.update_detail.set("Güncelleme başarısız")
+        self.refresh_logs()
+
     @staticmethod
     def _fmt(value): return "-" if value is None else f"{value:g}"
     def _on_tab_changed(self, _event=None):
