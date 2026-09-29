@@ -77,56 +77,20 @@ jobs:
         shell: bash
         run: |
           if gh release view latest >/dev/null 2>&1; then
+            old_parts="$(gh release view latest --json assets --jq '.assets[].name' | grep -E '^PDF_KW_Selector_latest\.part[0-9]{3}$' || true)"
+            while IFS= read -r asset; do
+              [ -z "$asset" ] || gh release delete-asset latest "$asset" --yes || true
+            done <<< "$old_parts"
+
             gh release upload latest dist/PDF_KW_Selector_latest.exe --clobber
             gh release upload latest "dist/PDF_KW_Selector_${GITHUB_SHA}.exe" --clobber
             gh release upload latest "dist/PDF_KW_Selector_${GITHUB_SHA}.zip" --clobber
-            gh release edit latest --title "AHU Match $APP_VERSION - Latest" --notes "Version: $APP_VERSION; Build: $GITHUB_SHA; Centralized status rules and renderer."
+            gh release upload latest dist/PDF_KW_Selector_latest.part* --clobber
+            gh release edit latest --title "AHU Match $APP_VERSION - Latest" --notes "Version: $APP_VERSION; Build: $GITHUB_SHA; Updates use 2 MiB GitHub release parts."
           else
-            gh release create latest dist/PDF_KW_Selector_latest.exe "dist/PDF_KW_Selector_${GITHUB_SHA}.exe" "dist/PDF_KW_Selector_${GITHUB_SHA}.zip" --target "$GITHUB_SHA" --title "AHU Match $APP_VERSION - Latest" --notes "Version: $APP_VERSION; Build: $GITHUB_SHA; Centralized status rules and renderer."
+            gh release create latest dist/PDF_KW_Selector_latest.exe "dist/PDF_KW_Selector_${GITHUB_SHA}.exe" "dist/PDF_KW_Selector_${GITHUB_SHA}.zip" dist/PDF_KW_Selector_latest.part* --target "$GITHUB_SHA" --title "AHU Match $APP_VERSION - Latest" --notes "Version: $APP_VERSION; Build: $GITHUB_SHA; Updates use 2 MiB GitHub release parts."
           fi
       - uses: actions/upload-artifact@v4
         with:
           name: PDF_KW_Selector_v0.5.4_Windows
           path: dist/PDF_KW_Selector_v0.5.4.${{ github.run_number }}.exe
-  deploy-update:
-    needs: build-windows
-    runs-on: self-hosted
-    steps:
-      - uses: actions/download-artifact@v4
-        with:
-          name: PDF_KW_Selector_v0.5.4_Windows
-          path: update-dist
-      - name: Publish VM update manifest
-        shell: bash
-        env:
-          UPDATE_ROOT: /var/www/pdf-selector-updates
-          BUILD_SHA: ${{ github.sha }}
-          VERSION: v0.5.4.${{ github.run_number }}
-        run: |
-          set -euo pipefail
-          exe="update-dist/PDF_KW_Selector_v0.5.4.${{ github.run_number }}.exe"
-          size="$(stat -c '%s' "$exe")"
-          sha="$(sha256sum "$exe" | awk '{print $1}')"
-          name="PDF_KW_Selector_${VERSION}_${BUILD_SHA}.exe"
-          chunk_prefix="${name}.part"
-          install -m 0644 "$exe" "$UPDATE_ROOT/.${name}.tmp"
-          rm -f "$UPDATE_ROOT/${chunk_prefix}"*
-          split -b 256k -d -a 3 "$exe" "$UPDATE_ROOT/.${chunk_prefix}"
-          chunks_json="["
-          index=0
-          for chunk in "$UPDATE_ROOT"/.${chunk_prefix}*; do
-            suffix="$(printf '%03d' "$index")"
-            public_name="${chunk_prefix}${suffix}"
-            mv -f "$chunk" "$UPDATE_ROOT/$public_name"
-            chunk_size="$(stat -c '%s' "$UPDATE_ROOT/$public_name")"
-            if [ "$index" -gt 0 ]; then chunks_json+=","; fi
-            chunks_json+="{\"file\":\"$public_name\",\"size\":$chunk_size}"
-            index=$((index + 1))
-          done
-          chunks_json+="]"
-          printf '{"version":"%s","build":"%s","file":"%s","size":%s,"sha256":"%s","chunks":%s}\n' "$VERSION" "$BUILD_SHA" "$name" "$size" "$sha" "$chunks_json" > "$UPDATE_ROOT/.manifest.json.tmp"
-          mv -f "$UPDATE_ROOT/.${name}.tmp" "$UPDATE_ROOT/$name"
-          mv -f "$UPDATE_ROOT/.manifest.json.tmp" "$UPDATE_ROOT/manifest.json"
-          find "$UPDATE_ROOT" -maxdepth 1 -type f -name 'PDF_KW_Selector_*.exe' ! -name "$name" ! -name 'PDF_KW_Selector_latest.exe' -delete
-          find "$UPDATE_ROOT" -maxdepth 1 -type f -name 'PDF_KW_Selector_*.exe.part*' ! -name "${name}.part*" -delete
-          install -m 0644 "$UPDATE_ROOT/$name" "$UPDATE_ROOT/PDF_KW_Selector_latest.exe"
