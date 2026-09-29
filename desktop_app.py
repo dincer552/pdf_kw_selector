@@ -40,6 +40,10 @@ class App(tk.Tk):
         self._analysis_running = False
         self._update_check_running = False
         self._available_update = None
+        self._update_available = False
+        self._manual_update_button = None
+        self._update_button = None
+        self._update_build_label = None
         self._progress_lock = threading.Lock()
         self._progress_pending = False
         self._progress_latest = None
@@ -91,6 +95,7 @@ class App(tk.Tk):
         style.configure("Muted.TLabel", background=card_bg, foreground=text_muted, font=("Segoe UI", 8))
         style.configure("Title.TLabel", background=card_bg, foreground=text_dark, font=("Segoe UI", 13, "bold"))
         style.configure("Badge.TLabel", background="#eff6ff", foreground=primary_color, font=("Segoe UI", 8, "bold"), padding=(6, 2))
+        style.configure("UpdateBuild.TLabel", background=card_bg, foreground=primary_color, font=("Segoe UI", 8, "bold"))
 
         # Primary Button (ANALİZ BAŞLA)
         style.configure("Primary.TButton", background=primary_color, foreground="#ffffff", font=("Segoe UI", 9, "bold"), borderwidth=0, padding=(12, 6))
@@ -138,8 +143,14 @@ class App(tk.Tk):
         ttk.Label(title_box, text="AHU MATCH", style="Title.TLabel").pack(anchor="w")
         ttk.Label(title_box, text="Project → AHU → Motor Anma Gücü Karşılaştırma ve Doğrulama", style="Muted.TLabel").pack(anchor="w")
 
-        self.update_check_button = ttk.Button(header, text="↻", width=3, command=self._manual_update_check, style="Secondary.TButton")
-        self.update_check_button.pack(side="right", padx=(6, 0))
+        update_controls = ttk.Frame(header, style="White.TFrame")
+        update_controls.pack(side="right", padx=(6, 0))
+        self._manual_update_button = ttk.Button(update_controls, text="↻", width=2, command=self._manual_update_check, style="Secondary.TButton")
+        self._manual_update_button.grid(row=0, column=0, padx=(0, 6), sticky="s")
+        self._update_button = ttk.Button(update_controls, text="Güncelle", width=9, command=self.download_available_update, style="Secondary.TButton", state="disabled")
+        self._update_button.grid(row=0, column=1, sticky="s")
+        self._update_build_label = ttk.Label(update_controls, text="", style="UpdateBuild.TLabel")
+        self._update_build_label.grid(row=1, column=1, pady=(2, 0), sticky="n")
         ttk.Label(header, text=f"{VERSION}", style="Badge.TLabel").pack(side="right", padx=(0, 6))
 
         # PDF Drop / Selection Boxes
@@ -227,13 +238,6 @@ class App(tk.Tk):
         buttons.pack(fill="x")
         ttk.Button(buttons, text="▶ ANALİZ BAŞLA", style="Primary.TButton", command=self.compare).pack(side="left", padx=(0, 6))
         ttk.Button(buttons, text="↺ TEMİZLE", style="Secondary.TButton", command=self.clear_inputs).pack(side="left", padx=3)
-
-        self.update_notice = ttk.Frame(update_area, style="White.TFrame")
-        self.update_notice.place(relx=1, rely=1, anchor="se")
-        self.update_notice_label = ttk.Label(self.update_notice, text="Yeni sürüm mevcut", foreground="#16803d", font=("Segoe UI", 8))
-        self.update_notice_label.pack(side="left", padx=(0, 6))
-        ttk.Button(self.update_notice, text="İNDİR", style="Small.Secondary.TButton", command=self.download_available_update).pack(side="left")
-        self.update_notice.place_forget()
 
         self.status = ttk.Label(buttons, text="Hazır", anchor="e")
         self.status.pack(side="right")
