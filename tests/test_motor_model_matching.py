@@ -7,8 +7,16 @@ from coordinate_motor_discovery import (
     expand_model_quantity,
     parse_selection_motor_model,
 )
+from motor_fuse_matching import (
+    FUSE_CURRENT_RANGES,
+    check_fuse_current,
+    expected_fuse_rating,
+    parse_fuse_rating,
+)
 from stage2_pdf_discovery import (
+    _MOTOR_FUSE_BOX,
     _MOTOR_MODEL_BOXES,
+    discover_coordinate_pdf2_motor_fuses,
     discover_coordinate_pdf2_motor_models,
 )
 
@@ -91,6 +99,34 @@ def test_model_lists_compare_case_and_separator_insensitively_but_keep_counts():
     ) == "MODEL UYUŞMAZ"
 
 
+def test_fuse_current_bands_and_boundaries():
+    assert [
+        (item.rating_a, item.minimum_current_a, item.maximum_current_a)
+        for item in FUSE_CURRENT_RANGES
+    ] == [
+        (10, 0.0, 7.0),
+        (16, 7.0, 13.0),
+        (20, 13.0, 16.0),
+        (25, 16.0, 20.0),
+        (32, 20.0, 26.0),
+        (40, 26.0, 32.0),
+    ]
+    assert expected_fuse_rating(5.9) == 10
+    assert expected_fuse_rating(7) == 16
+    assert expected_fuse_rating(13) == 20
+    assert expected_fuse_rating(32) == 40
+    assert expected_fuse_rating(32.1) is None
+
+
+def test_fuse_check_accepts_only_the_current_band_rating():
+    assert check_fuse_current("5,9 A", "10 A").status == "MATCH"
+    assert check_fuse_current("5.9", "16A").status == "MISMATCH"
+    assert check_fuse_current("5.9", "6 A").status == "MISMATCH"
+    assert check_fuse_current(None, "10 A").status == "UNKNOWN"
+    assert parse_fuse_rating("3x10A") == 10
+    assert check_fuse_current("5.9", "6A").status == "MISMATCH"
+
+
 def test_pdf2_model_scan_checks_both_boxes_on_each_matching_connection_page(monkeypatch):
     class FakePage:
         def __init__(self, title):
@@ -130,3 +166,43 @@ def test_pdf2_model_scan_checks_both_boxes_on_each_matching_connection_page(monk
     ]
     assert len(calls) == 6
     assert all(box in _MOTOR_MODEL_BOXES for _, box in calls)
+
+
+def test_pdf2_fuse_scan_reads_only_the_fuse_box_on_every_supply_and_return_sheet(monkeypatch):
+    class FakePage:
+        def __init__(self, title):
+            self.title = title
+
+        def get_text(self, kind):
+            assert kind == "text"
+            return self.title
+
+    pages = [
+        FakePage("Supply Motor Connections-1"),
+        FakePage("Supply Motor Connections-1"),
+        FakePage("Return Motor Connections-1"),
+        FakePage("Other page 32A"),
+    ]
+    values = {
+        1: "3x10A 400V other label",
+        2: "text 16A",
+        3: "text 6A and other values",
+    }
+    calls = []
+
+    def read_box(page, box):
+        calls.append((pages.index(page) + 1, box))
+        return values.get(pages.index(page) + 1, "")
+
+    monkeypatch.setattr("stage2_pdf_discovery._coordinate_text_in_box", read_box)
+    results = discover_coordinate_pdf2_motor_fuses(pages)
+
+    assert [
+        (result.source_page, result.component_role, result.fuse_rating_a, result.pole_count)
+        for result in results
+    ] == [
+        (1, "supply_fan", 10, 3),
+        (2, "supply_fan", 16, None),
+        (3, "exhaust_fan", 6, None),
+    ]
+    assert calls == [(1, _MOTOR_FUSE_BOX), (2, _MOTOR_FUSE_BOX), (3, _MOTOR_FUSE_BOX)]

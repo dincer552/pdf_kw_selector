@@ -17,6 +17,7 @@ from confirmation_workflow import analyze_with_confirmations
 from pdf_master_scan import scan_pdf
 from status import apply_status_tag, install_status_display, status_display_text
 from coordinate_motor_discovery import compare_motor_model_lists, expand_model_quantity
+from motor_fuse_matching import FUSE_CURRENT_RANGES, check_fuse_current
 
 def _path_strings(items): return [str(getattr(item,"path",item)) for item in (items or [])]
 def _confirmed_analyze(pdf1_inputs,pdf2_inputs,progress_callback=None):
@@ -27,11 +28,11 @@ class GroupedApp(BaseApp):
     def __init__(self):
         super().__init__(); self._analysis_started_at=None; self._grouped_pdf1_scan_cache={}; self._ebm_pdf_keys=set(); self._vocclean_pdf_keys=set(); self._sysreco_pdf_keys=set(); self._unmatched_pdf_keys=set(); self._pdf_accounting_error_shown=False; self._build_ebm_tab(); self._build_voclean_tab(); self._build_sysreco_tab(); self.tabs.tab(0,text="DANFOS"); self.tabs.insert(1,self.ebm_tab); self.tabs.insert(2,self.voclean_tab); self.tabs.insert(3,self.sysreco_tab); self.unmatched_tab_index=lambda:4; self.tree.tag_configure("mismatch",background="#ffb3b3",foreground="#000000"); install_pdf_drop_targets(self,self.pdf1_box,self.pdf2_box); install_status_display(self)
     def _build_ebm_tab(self):
-        tab=ttk.Frame(self.tabs, style="White.TFrame"); self.tabs.add(tab,text="EBM-PAPST (0)"); cols=("Proje","AHU","Fan","Seçim çıktısı","Elektrik p.","Seçim motor modeli","Elektrik motor modeli","Durum"); self.ebm_tree=ttk.Treeview(tab,columns=cols,show="headings"); widths={"Proje":240,"AHU":120,"Fan":120,"Seçim çıktısı":260,"Elektrik p.":300,"Seçim motor modeli":250,"Elektrik motor modeli":250,"Durum":190}
+        tab=ttk.Frame(self.tabs, style="White.TFrame"); self.tabs.add(tab,text="EBM-PAPST (0)"); cols=("Proje","AHU","Fan","Seçim çıktısı","Elektrik p.","Seçim motor modeli / akımı","Elektrik motor modeli","Elektrik sigortası","Sigorta kontrolü","Durum"); widths={"Proje":240,"AHU":120,"Fan":120,"Seçim çıktısı":260,"Elektrik p.":300,"Seçim motor modeli / akımı":280,"Elektrik motor modeli":250,"Elektrik sigortası":190,"Sigorta kontrolü":300,"Durum":240}; ranges=" | ".join(f"{item.rating_a} A: {item.minimum_current_a:g}–<{item.maximum_current_a:g} A" for item in FUSE_CURRENT_RANGES[:-1]); ranges += f" | {FUSE_CURRENT_RANGES[-1].rating_a} A: {FUSE_CURRENT_RANGES[-1].minimum_current_a:g}–{FUSE_CURRENT_RANGES[-1].maximum_current_a:g} A"; range_label=ttk.Label(tab,text=f"Sigorta-akım limitleri: {ranges}",style="Muted.TLabel",anchor="w"); range_label.grid(row=0,column=0,columnspan=2,sticky="ew",padx=8,pady=(6,2)); self.ebm_tree=ttk.Treeview(tab,columns=cols,show="headings"); tab.grid_rowconfigure(1,weight=1); tab.grid_columnconfigure(0,weight=1)
         for col in cols:self.ebm_tree.heading(col,text=col);self.ebm_tree.column(col,width=widths[col],anchor="w")
         self.ebm_tree.tag_configure("model_match",background="#e6ffed",foreground="#116329")
         self.ebm_tree.tag_configure("model_mismatch",background="#ffebe9",foreground="#b62324")
-        tab.grid_rowconfigure(0,weight=1);tab.grid_columnconfigure(0,weight=1);scroll=ttk.Scrollbar(tab,orient="vertical",command=lambda *args: (self.ebm_tree.yview(*args), self._cell_hover_box.hide()));xscroll=ttk.Scrollbar(tab,orient="horizontal",command=self.ebm_tree.xview);self.ebm_tree.configure(yscrollcommand=scroll.set,xscrollcommand=xscroll.set);self.ebm_tree.grid(row=0,column=0,sticky="nsew",padx=(5,0),pady=(5,0));scroll.grid(row=0,column=1,sticky="ns",padx=(0,5),pady=(5,0));xscroll.grid(row=1,column=0,sticky="ew",padx=5,pady=(0,5));self.ebm_tab=tab
+        scroll=ttk.Scrollbar(tab,orient="vertical",command=lambda *args: (self.ebm_tree.yview(*args), self._cell_hover_box.hide()));xscroll=ttk.Scrollbar(tab,orient="horizontal",command=self.ebm_tree.xview);self.ebm_tree.configure(yscrollcommand=scroll.set,xscrollcommand=xscroll.set);self.ebm_tree.grid(row=1,column=0,sticky="nsew",padx=(5,0),pady=(2,0));scroll.grid(row=1,column=1,sticky="ns",padx=(0,5),pady=(2,0));xscroll.grid(row=2,column=0,sticky="ew",padx=5,pady=(0,5));self.ebm_tab=tab
         self._ebm_cell_data: dict[str, dict] = {}
         self.ebm_tree.bind("<Button-1>", self._on_ebm_cell_click)
         self.ebm_tree.bind("<Double-1>", self._on_ebm_cell_click)
@@ -156,7 +157,7 @@ class GroupedApp(BaseApp):
                     electrical_results = [model for pdf2_scan in pdf2_scans for model in pdf2_scan.pdf2_motor_models if model.component_role == role]
                     electrical_models = [model.model for model in electrical_results]
                     comparison = compare_motor_model_lists(selection_models,electrical_models)
-                    status = "MATCH" if comparison == "MODEL EŞLEŞTİ" else f"MISMATCH: {comparison}"
+                    model_matches = comparison == "MODEL EŞLEŞTİ"
                     selection_display = ", ".join(
                         " ".join(part for part in (
                             f"{model.model} ({model.quantity})" if model.quantity else model.model,
@@ -165,24 +166,47 @@ class GroupedApp(BaseApp):
                         for model in selection_results
                     ) or "-"
                     electrical_display = ", ".join(electrical_models) or "-"
+                    fuse_results = [fuse for pdf2_scan in pdf2_scans for fuse in pdf2_scan.pdf2_motor_fuses if fuse.component_role == role]
+                    fuse_display = ", ".join(
+                        f"{fuse.pole_count}x{fuse.fuse_rating_a}A" if fuse.pole_count else f"{fuse.fuse_rating_a}A"
+                        for fuse in fuse_results if fuse.fuse_rating_a is not None
+                    ) or "Sigorta bulunamadı"
+                    currents = [model.current for model in selection_results if model.current]
+                    fuse_ratings = [fuse.fuse_rating_a for fuse in fuse_results if fuse.fuse_rating_a is not None]
+                    fuse_checks = [check_fuse_current(current, rating) for current in currents for rating in fuse_ratings]
+                    if not currents:
+                        fuse_status = "UYGUN DEĞİL: seçim akımı bulunamadı"
+                    elif not fuse_checks:
+                        fuse_status = "UYGUN DEĞİL: elektrik sigortası bulunamadı"
+                    elif all(result.status == "MATCH" for result in fuse_checks):
+                        fuse_status = "UYGUN"
+                    else:
+                        failures = list(dict.fromkeys(result.explanation for result in fuse_checks if result.status != "MATCH"))
+                        fuse_status = "UYGUN DEĞİL: " + "; ".join(failures)
+                    fuse_matches = bool(fuse_checks) and all(result.status == "MATCH" for result in fuse_checks)
+                    status = "MATCH" if model_matches and fuse_matches else "MISMATCH"
+                    if not model_matches:
+                        status += f": {comparison}"
+                    if not fuse_matches:
+                        status += f": {fuse_status}"
                     selection_page = min((model.page_number for model in selection_results),default=1)
                     electrical_page = min((model.page_number for model in electrical_results),default=1)
                     rows.append((
                         document.project.project_name or "-",ahu_id or "-",label,
                         Path(document.path).name,", ".join(Path(path).name for path in pdf2_paths) or "-",
-                        selection_display,electrical_display,status,
+                        selection_display,electrical_display,fuse_display,fuse_status,status,
                         str(document.path),selection_page,pdf2_paths[0] if pdf2_paths else None,electrical_page,
                         "model_match" if status == "MATCH" else "model_mismatch",
                     ))
         rows.sort(key=lambda r:(str(r[1]).casefold(),str(r[2]).casefold(),str(r[0]).casefold()))
         for r in rows:
-            item_id = self.ebm_tree.insert("","end",values=r[:8],tags=(r[12],))
-            apply_status_tag(self.ebm_tree, item_id, r[7])
+            item_id = self.ebm_tree.insert("","end",values=r[:10],tags=(r[14],))
+            apply_status_tag(self.ebm_tree, item_id, r[9])
             self._ebm_cell_data[item_id] = {
-                "pdf1_path": r[8],
-                "pdf1_page": r[9],
-                "pdf2_path": r[10],
-                "pdf2_page": r[11],
+                "pdf1_path": r[10],
+                "pdf1_page": r[11],
+                "pdf2_path": r[12],
+                "pdf2_page": r[13],
                 "pdf1_name": r[3],
                 "pdf2_name": r[4],
             }

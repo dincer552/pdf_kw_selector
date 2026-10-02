@@ -8,11 +8,13 @@ from pathlib import Path
 import fitz
 from motor_database import MotorRecord, expand_motor_group
 from coordinate_motor_discovery import MotorModelResult
+from motor_fuse_matching import parse_fuse_rating
 
 # PDF2 coordinates are supplied in the PDF viewer coordinate system (origin bottom-left).
 # PyMuPDF uses origin top-left, so Y is converted before clipping.
 _MOTOR_KW_BOX = (23.0, 524.0, 69.0, 45.0)
 _MOTOR_MODEL_BOXES = ((447.0, 163.0, 136.0, 33.0), (982.0, 160.0, 167.0, 30.0))
+_MOTOR_FUSE_BOX = (34.0, 404.0, 58.0, 50.0)
 
 _CONNECTION_LABELS = (
     ("Supply Motor Connections-1", "Vantilatör", "supply_fan"),
@@ -39,6 +41,18 @@ class PDF2MotorResult:
     source_page: int
     source_text: str
     confidence: str = "high"
+
+    def to_dict(self) -> dict:
+        return asdict(self)
+
+
+@dataclass(frozen=True)
+class PDF2MotorFuseResult:
+    component_role: str
+    fuse_rating_a: int | None
+    pole_count: int | None
+    source_page: int
+    source_text: str
 
     def to_dict(self) -> dict:
         return asdict(self)
@@ -135,6 +149,39 @@ def discover_coordinate_pdf2_motor_models(document) -> tuple[MotorModelResult, .
     return tuple(results)
 
 
+def discover_coordinate_pdf2_motor_fuses(document) -> tuple[PDF2MotorFuseResult, ...]:
+    """Read fuse ratings only from the specified box on every matching fan sheet."""
+    if not document:
+        return ()
+
+    results: list[PDF2MotorFuseResult] = []
+    for page_number, page in enumerate(document, 1):
+        text = page.get_text("text") or ""
+        if re.search(r"\bSupply\s+Motor\s+Connections\s*[-–—]\s*1\b", text, re.I):
+            component_role = "supply_fan"
+        elif re.search(r"\bReturn\s+Motor\s+Connections\s*[-–—]\s*1\b", text, re.I):
+            component_role = "exhaust_fan"
+        else:
+            continue
+
+        fuse_text = _coordinate_text_in_box(page, _MOTOR_FUSE_BOX)
+        match = re.search(
+            r"(?<!\d)(?:(?P<poles>\d+)\s*[x×]\s*)?(?P<rating>\d+)\s*A\b",
+            fuse_text,
+            re.I,
+        )
+        results.append(
+            PDF2MotorFuseResult(
+                component_role=component_role,
+                fuse_rating_a=parse_fuse_rating(match.group(0)) if match else None,
+                pole_count=int(match.group("poles")) if match and match.group("poles") else None,
+                source_page=page_number,
+                source_text=fuse_text,
+            )
+        )
+    return tuple(results)
+
+
 def _coordinate_text_in_box(page: fitz.Page, box: tuple[float, float, float, float]) -> str:
     x, y, width, height = box
     page_height = float(page.rect.height)
@@ -156,4 +203,4 @@ def build_pdf2_motor_records(result: PDF2MotorResult, start_index: int = 1) -> l
     )
 
 
-__all__ = ["PDF2MotorResult", "discover_coordinate_pdf2_motor_powers", "discover_coordinate_pdf2_motor_models", "build_pdf2_motor_records"]
+__all__ = ["PDF2MotorResult", "PDF2MotorFuseResult", "discover_coordinate_pdf2_motor_powers", "discover_coordinate_pdf2_motor_models", "discover_coordinate_pdf2_motor_fuses", "build_pdf2_motor_records"]

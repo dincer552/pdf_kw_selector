@@ -9,7 +9,7 @@ from app_logger import exception, info, warning
 from project_discovery import ProjectDiscovery, ProjectCandidate, normalize_project_name
 from pdf1_field_discovery import discover_pdf1_project, discover_pdf1_unit_reference
 from stage1_page_discovery import MotorPowerResult, build_stage1_motor_records, _dedupe_motor_results
-from stage2_pdf_discovery import PDF2MotorResult, discover_coordinate_pdf2_motor_powers, build_pdf2_motor_records
+from stage2_pdf_discovery import PDF2MotorResult, PDF2MotorFuseResult, discover_coordinate_pdf2_motor_powers, discover_coordinate_pdf2_motor_fuses, build_pdf2_motor_records
 from coordinate_motor_discovery import MotorModelResult, discover_coordinate_motor_powers, discover_selection_motor_models
 from stage2_pdf_discovery import discover_coordinate_pdf2_motor_models
 
@@ -62,6 +62,7 @@ class MasterPDFScan:
     pdf1_ebm_pages: tuple[int, ...] = ()
     pdf1_motor_models: tuple[MotorModelResult, ...] = ()
     pdf2_motor_models: tuple[MotorModelResult, ...] = ()
+    pdf2_motor_fuses: tuple[PDF2MotorFuseResult, ...] = ()
 
     @property
     def page_count(self):
@@ -76,6 +77,7 @@ class MasterPDFScan:
             "pdf1_ebm_pages": list(self.pdf1_ebm_pages),
             "pdf1_motor_models": [x.to_dict() for x in self.pdf1_motor_models],
             "pdf2_motor_models": [x.to_dict() for x in self.pdf2_motor_models],
+            "pdf2_motor_fuses": [x.to_dict() for x in self.pdf2_motor_fuses],
         }
 
 
@@ -124,8 +126,9 @@ def _scan_single_pdf(path, side):
             ids = equipment.unique_ids(); equipment_id = ids[0] if ids else None
             motors = _scan_pdf2_motors(doc, equipment_id)
             motor_models = discover_coordinate_pdf2_motor_models(doc)
+            motor_fuses = discover_coordinate_pdf2_motor_fuses(doc)
             return MasterPDFScan(str(resolved), side, pages, project, equipment, pdf2_motors=motors,
-                pdf2_motor_models=motor_models)
+                pdf2_motor_models=motor_models, pdf2_motor_fuses=motor_fuses)
         raise ValueError(f"Unknown PDF side: {side}")
     finally:
         doc.close()
