@@ -6,15 +6,15 @@ from pathlib import Path
 import fitz
 from pdf_kw_selector import normalize_power
 from stage1_page_discovery import MotorPowerResult
-_DIRECTION_RECT=(197.0,695.0,68.0,15.0)
+_DIRECTION_RECT=(175.0,694.0,91.0,16.0)
 _RATED_POWER_RECT=(429.0,634.0,131.0,13.0)
 _MODEL_BRAND_RECT=(429.0,656.0,131.0,12.0)
+_SELECTION_MODEL_RECT=(162.0,634.0,127.0,25.0)
 _QTY_RE=re.compile(r"\(\s*(\d+)\s*[x×]\s*(\d+)\s*\)",re.I)
 _POWER_QTY_RE=re.compile(r"^\s*([0-9]+(?:[.,][0-9]+)?)\s*[x×]\s*\(\s*(\d+)\s*[x×]\s*(\d+)\s*\)\s*$",re.I)
 _POWER_ONLY_RE=re.compile(r"^\s*([0-9]+(?:[.,][0-9]+)?)\s*$")
-_SUPPLIER_MODEL_RE=re.compile(
- r"Supplier\s*/\s*Model\s*/\s*Quantity\s+in\s+WxH\s+"
- r"(?P<model>[A-Z0-9.-]+(?:/[A-Z0-9.-]+)*)\s*/\s*"
+_SELECTION_MODEL_RE=re.compile(
+ r"\b(?P<model>[A-Z0-9][A-Z0-9.-]*(?:/[A-Z0-9.-]+)*)\s*/\s*"
  r"(?P<quantity>\d+\s*[x×]\s*\d+)",
  re.I,
 )
@@ -74,8 +74,8 @@ def discover_selection_motor_models(path: str|Path|None=None,document=None):
   for page_number,page in enumerate(doc,1):
    if not _is_plug_fan_page(page):continue
    direction=re.sub(r"\s+"," ",_rect_text(page,_DIRECTION_RECT)).strip().casefold()
-   text=re.sub(r"\s+"," ",page.get_text("text") or "")
-   model_result=parse_selection_motor_model(text,direction,page_number)
+   model_text=_rect_text(page,_SELECTION_MODEL_RECT)
+   model_result=parse_selection_motor_model(model_text,direction,page_number)
    if model_result is not None:result.append(model_result)
  finally:
   if owns_document:doc.close()
@@ -87,7 +87,7 @@ def parse_selection_motor_model(text,direction,page_number=1):
  )
  if component_role is None:return None
  cleaned=re.sub(r"\s+"," ",str(text or ""))
- match=_SUPPLIER_MODEL_RE.search(cleaned)
+ match=_SELECTION_MODEL_RE.search(cleaned)
  if not match:return None
  model=match.group("model").strip().rstrip(".,;")
  quantity=re.sub(r"\s*[x×]\s*","x",match.group("quantity"))

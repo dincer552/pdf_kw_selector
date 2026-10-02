@@ -1,5 +1,8 @@
 from coordinate_motor_discovery import (
+    _DIRECTION_RECT,
+    _SELECTION_MODEL_RECT,
     compare_motor_model_lists,
+    discover_selection_motor_models,
     expand_model_quantity,
     parse_selection_motor_model,
 )
@@ -10,10 +13,7 @@ from stage2_pdf_discovery import (
 
 
 def test_selection_motor_model_parses_supply_and_exhaust_models_and_quantity():
-    text = (
-        "Plug fan Supply air Supplier / Model / Quantity in WxH "
-        "VBH0500CTTRS/L / 2x2"
-    )
+    text = "8300100068- VBH0500CTTRS/L / 2x2"
 
     result = parse_selection_motor_model(text, "Supply air", 6)
 
@@ -31,6 +31,48 @@ def test_selection_motor_model_parses_supply_and_exhaust_models_and_quantity():
     assert exhaust is not None
     assert exhaust.component_role == "exhaust_fan"
     assert exhaust.model == "VBH0450CTRNS/S"
+
+
+def test_selection_motor_models_read_direction_and_model_from_configured_boxes(monkeypatch):
+    class FakePage:
+        def __init__(self, text):
+            self.text = text
+
+        def get_text(self, kind):
+            assert kind == "text"
+            return self.text
+
+    pages = [
+        FakePage("Plug fan Supply air"),
+        FakePage("Plug fan Exhaust air"),
+        FakePage("Heating coil"),
+    ]
+    box_values = {
+        (0, _DIRECTION_RECT): "Supply air",
+        (0, _SELECTION_MODEL_RECT): "8300100068- VBH0500CTTRS/L / 2x2",
+        (1, _DIRECTION_RECT): "Exhaust air",
+        (1, _SELECTION_MODEL_RECT): "8300100069- VBH0450CTRNS/S / 1x1",
+    }
+    calls = []
+
+    def read_box(page, box):
+        page_number = pages.index(page)
+        calls.append((page_number, box))
+        return box_values.get((page_number, box), "")
+
+    monkeypatch.setattr("coordinate_motor_discovery._rect_text", read_box)
+    results = discover_selection_motor_models(document=pages)
+
+    assert [(r.page_number, r.component_role, r.model, r.quantity) for r in results] == [
+        (1, "supply_fan", "VBH0500CTTRS/L", "2x2"),
+        (2, "exhaust_fan", "VBH0450CTRNS/S", "1x1"),
+    ]
+    assert calls == [
+        (0, _DIRECTION_RECT),
+        (0, _SELECTION_MODEL_RECT),
+        (1, _DIRECTION_RECT),
+        (1, _SELECTION_MODEL_RECT),
+    ]
 
 
 def test_model_lists_compare_case_and_separator_insensitively_but_keep_counts():
