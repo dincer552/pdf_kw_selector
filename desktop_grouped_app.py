@@ -158,7 +158,10 @@ class GroupedApp(BaseApp):
                     comparison = compare_motor_model_lists(selection_models,electrical_models)
                     status = "MATCH" if comparison == "MODEL EŞLEŞTİ" else f"MISMATCH: {comparison}"
                     selection_display = ", ".join(
-                        f"{model.model} ({model.quantity})" if model.quantity else model.model
+                        " ".join(part for part in (
+                            f"{model.model} ({model.quantity})" if model.quantity else model.model,
+                            f"{model.current} A" if model.current else "",
+                        ) if part)
                         for model in selection_results
                     ) or "-"
                     electrical_display = ", ".join(electrical_models) or "-"

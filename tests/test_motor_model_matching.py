@@ -1,5 +1,6 @@
 from coordinate_motor_discovery import (
     _DIRECTION_RECT,
+    _SELECTION_CURRENT_RECT,
     _SELECTION_MODEL_RECT,
     compare_motor_model_lists,
     discover_selection_motor_models,
@@ -50,8 +51,10 @@ def test_selection_motor_models_read_direction_and_model_from_configured_boxes(m
     box_values = {
         (0, _DIRECTION_RECT): "Supply air",
         (0, _SELECTION_MODEL_RECT): "8300100068- VBH0500CTTRS/L / 2x2",
+        (0, _SELECTION_CURRENT_RECT): "9,60",
         (1, _DIRECTION_RECT): "Exhaust air",
         (1, _SELECTION_MODEL_RECT): "8300100069- VBH0450CTRNS/S / 1x1",
+        (1, _SELECTION_CURRENT_RECT): "7.25",
     }
     calls = []
 
@@ -63,15 +66,17 @@ def test_selection_motor_models_read_direction_and_model_from_configured_boxes(m
     monkeypatch.setattr("coordinate_motor_discovery._rect_text", read_box)
     results = discover_selection_motor_models(document=pages)
 
-    assert [(r.page_number, r.component_role, r.model, r.quantity) for r in results] == [
-        (1, "supply_fan", "VBH0500CTTRS/L", "2x2"),
-        (2, "exhaust_fan", "VBH0450CTRNS/S", "1x1"),
+    assert [(r.page_number, r.component_role, r.model, r.quantity, r.current) for r in results] == [
+        (1, "supply_fan", "VBH0500CTTRS/L", "2x2", "9,60"),
+        (2, "exhaust_fan", "VBH0450CTRNS/S", "1x1", "7.25"),
     ]
     assert calls == [
         (0, _DIRECTION_RECT),
         (0, _SELECTION_MODEL_RECT),
+        (0, _SELECTION_CURRENT_RECT),
         (1, _DIRECTION_RECT),
         (1, _SELECTION_MODEL_RECT),
+        (1, _SELECTION_CURRENT_RECT),
     ]
 
 

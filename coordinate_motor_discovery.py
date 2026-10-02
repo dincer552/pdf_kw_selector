@@ -10,6 +10,7 @@ _DIRECTION_RECT=(175.0,694.0,91.0,16.0)
 _RATED_POWER_RECT=(429.0,634.0,131.0,13.0)
 _MODEL_BRAND_RECT=(429.0,656.0,131.0,12.0)
 _SELECTION_MODEL_RECT=(162.0,634.0,127.0,25.0)
+_SELECTION_CURRENT_RECT=(429.0,578.0,129.0,13.0)
 _QTY_RE=re.compile(r"\(\s*(\d+)\s*[x×]\s*(\d+)\s*\)",re.I)
 _POWER_QTY_RE=re.compile(r"^\s*([0-9]+(?:[.,][0-9]+)?)\s*[x×]\s*\(\s*(\d+)\s*[x×]\s*(\d+)\s*\)\s*$",re.I)
 _POWER_ONLY_RE=re.compile(r"^\s*([0-9]+(?:[.,][0-9]+)?)\s*$")
@@ -18,6 +19,7 @@ _SELECTION_MODEL_RE=re.compile(
  r"(?P<quantity>\d+\s*[x×]\s*\d+)",
  re.I,
 )
+_CURRENT_RE=re.compile(r"([0-9]+(?:[.,][0-9]+)?)")
 
 @dataclass(frozen=True)
 class MotorModelResult:
@@ -26,9 +28,10 @@ class MotorModelResult:
  model:str
  quantity:str|None
  source_text:str
+ current:str|None=None
 
  def to_dict(self):
-  return {"page_number":self.page_number,"component_role":self.component_role,"model":self.model,"quantity":self.quantity,"source_text":self.source_text}
+  return {"page_number":self.page_number,"component_role":self.component_role,"model":self.model,"quantity":self.quantity,"current":self.current,"source_text":self.source_text}
 
 def _viewer_rect(page,box):
  x,y,w,h=box; ph=float(page.rect.height)
@@ -75,13 +78,14 @@ def discover_selection_motor_models(path: str|Path|None=None,document=None):
    if not _is_plug_fan_page(page):continue
    direction=re.sub(r"\s+"," ",_rect_text(page,_DIRECTION_RECT)).strip().casefold()
    model_text=_rect_text(page,_SELECTION_MODEL_RECT)
-   model_result=parse_selection_motor_model(model_text,direction,page_number)
+   current_text=_rect_text(page,_SELECTION_CURRENT_RECT)
+   model_result=parse_selection_motor_model(model_text,direction,page_number,current_text)
    if model_result is not None:result.append(model_result)
  finally:
   if owns_document:doc.close()
  return tuple(result)
 
-def parse_selection_motor_model(text,direction,page_number=1):
+def parse_selection_motor_model(text,direction,page_number=1,current_text=""):
  component_role={"supply air":"supply_fan","exhaust air":"exhaust_fan"}.get(
   re.sub(r"\s+"," ",str(direction or "")).strip().casefold()
  )
@@ -91,7 +95,9 @@ def parse_selection_motor_model(text,direction,page_number=1):
  if not match:return None
  model=match.group("model").strip().rstrip(".,;")
  quantity=re.sub(r"\s*[x×]\s*","x",match.group("quantity"))
- return MotorModelResult(page_number,component_role,model,quantity,match.group(0))
+ current_match=_CURRENT_RE.search(str(current_text or ""))
+ current=current_match.group(1) if current_match else None
+ return MotorModelResult(page_number,component_role,model,quantity,match.group(0),current)
 
 def normalize_motor_model(model):
  return re.sub(r"[^A-Z0-9]","",str(model or "").upper())
