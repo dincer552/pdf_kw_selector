@@ -49,6 +49,9 @@ jobs:
             "BUILD_VERSION = `"$env:APP_VERSION`""
           ) -Encoding UTF8
           python -c "import build_info; import status; print('Build metadata imports central status renderer')"
+      - name: Build high resolution app icon
+        shell: pwsh
+        run: python build_icon.py
       - name: Build EXE
         shell: pwsh
         env:
