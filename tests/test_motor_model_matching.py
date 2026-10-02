@@ -243,7 +243,9 @@ def test_pdf2_fuse_scan_reads_only_the_fuse_box_on_every_supply_and_return_sheet
 
 
 def test_single_fan_uses_alternate_electrical_fuse_coordinate(monkeypatch):
-    selection_result = type("SelectionMotor", (), {"quantity": "1x1"})()
+    selection_result = type(
+        "SelectionMotor", (), {"quantity": "1x1", "model": "VBH0500CTTRS/L"}
+    )()
     fan_count = len(expand_model_quantity(selection_result))
     assert motor_fuse_box_for_fan_count(fan_count) == _SINGLE_MOTOR_FUSE_BOX
     assert motor_fuse_box_for_fan_count(4) == _MOTOR_FUSE_BOX
