@@ -19,7 +19,16 @@ _SELECTION_MODEL_RE=re.compile(
  r"(?P<quantity>\d+\s*[x×]\s*\d+)",
  re.I,
 )
-_CURRENT_RE=re.compile(r"([0-9]+(?:[.,][0-9]+)?)")
+_CURRENT_VALUE_RE=re.compile(r"\s*([0-9]+(?:[.,][0-9]+)?)\s*A?\s*",re.I)
+_SELECTION_QUANTITY_RE=re.compile(r"(?<!\d)(\d+)\s*[x×]\s*(\d+)(?!\d)",re.I)
+_FAN_TYPE_CODE_RE=re.compile(r"\b[A-Z0-9]+(?:-[A-Z0-9]+)+\b",re.I)
+_FAN_TYPE_ROW_RE=re.compile(r"\bType\s+(?P<value>.*?)\s+Model\s+Brand\b",re.I|re.S)
+_SUPPLIER_QUANTITY_RE=re.compile(
+ r"Supplier\s*/\s*Model\s*/\s*Quantity\s+in\s+WxH\s*/?\s*"
+ r"(?P<quantity>\d+\s*[x×]\s*\d+)",
+ re.I,
+)
+_RATED_CURRENT_RE=re.compile(r"\bRated\s+Current\s*\[A\]\s*[:=]?\s*([0-9]+(?:[.,][0-9]+)?)",re.I)
 
 @dataclass(frozen=True)
 class MotorModelResult:
@@ -79,25 +88,46 @@ def discover_selection_motor_models(path: str|Path|None=None,document=None):
    direction=re.sub(r"\s+"," ",_rect_text(page,_DIRECTION_RECT)).strip().casefold()
    model_text=_rect_text(page,_SELECTION_MODEL_RECT)
    current_text=_rect_text(page,_SELECTION_CURRENT_RECT)
-   model_result=parse_selection_motor_model(model_text,direction,page_number,current_text)
+   page_text=page.get_text("text") or ""
+   if direction not in {"supply air","exhaust air"}:
+    direction_match=re.search(r"\bPlug\s+fan\s+(Supply\s+air|Exhaust\s+air)\b",page_text,re.I)
+    direction=direction_match.group(1).casefold() if direction_match else direction
+   if not _CURRENT_VALUE_RE.fullmatch(current_text):
+    current_match=_RATED_CURRENT_RE.search(page_text)
+    current_text=current_match.group(1) if current_match else current_text
+   model_result=parse_selection_motor_model(model_text,direction,page_number,current_text,page_text)
    if model_result is not None:result.append(model_result)
  finally:
   if owns_document:doc.close()
  return tuple(result)
 
-def parse_selection_motor_model(text,direction,page_number=1,current_text=""):
+def parse_selection_motor_model(text,direction,page_number=1,current_text="",page_text=""):
  component_role={"supply air":"supply_fan","exhaust air":"exhaust_fan"}.get(
   re.sub(r"\s+"," ",str(direction or "")).strip().casefold()
  )
  if component_role is None:return None
  cleaned=re.sub(r"\s+"," ",str(text or ""))
  match=_SELECTION_MODEL_RE.search(cleaned)
- if not match:return None
- model=match.group("model").strip().rstrip(".,;")
- quantity=re.sub(r"\s*[x×]\s*","x",match.group("quantity"))
- current_match=_CURRENT_RE.search(str(current_text or ""))
+ if match:
+  model=match.group("model").strip().rstrip(".,;")
+  quantity=re.sub(r"\s*[x×]\s*","x",match.group("quantity"))
+ else:
+  quantity_match=_SELECTION_QUANTITY_RE.search(cleaned)
+  if quantity_match is None:
+   supplier_quantity=_SUPPLIER_QUANTITY_RE.search(re.sub(r"\s+"," ",str(page_text or "")))
+   if supplier_quantity:
+    quantity_match=_SELECTION_QUANTITY_RE.search(supplier_quantity.group("quantity"))
+  if quantity_match is None:return None
+  quantity=f"{quantity_match.group(1)}x{quantity_match.group(2)}"
+  type_row=_FAN_TYPE_ROW_RE.search(re.sub(r"\s+"," ",str(page_text or "")))
+  if type_row is None:return None
+  model_match=_FAN_TYPE_CODE_RE.search(type_row.group("value"))
+  if model_match is None:return None
+  model=model_match.group(0).strip()
+ current_match=_CURRENT_VALUE_RE.fullmatch(str(current_text or ""))
  current=current_match.group(1) if current_match else None
- return MotorModelResult(page_number,component_role,model,quantity,match.group(0),current)
+  source_text=match.group(0) if match else f"{model} / {quantity}"
+  return MotorModelResult(page_number,component_role,model,quantity,source_text,current)
 
 def normalize_motor_model(model):
  return re.sub(r"[^A-Z0-9]","",str(model or "").upper())

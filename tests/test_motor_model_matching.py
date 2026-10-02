@@ -111,6 +111,36 @@ def test_supply_only_selection_contains_no_exhaust_fan_result(monkeypatch):
     assert [result.component_role for result in results] == ["supply_fan"]
 
 
+def test_selection_falls_back_to_type_row_and_rated_current_text(monkeypatch):
+    class FakePage:
+        def get_text(self, kind):
+            assert kind == "text"
+            return (
+                "Plug fan Supply air Section length [mm] 941,0 "
+                "Type K3G450-PA31-61 FAN (EBM) Model Brand "
+                "Supplier / Model / Quantity in WxH / 2x1 "
+                "Motor Full Load Efficiency [%] 88,95 "
+                "Rated Current [A] 6,80 Protection / Ins. & Temp. Class"
+            )
+
+    values = {
+        _DIRECTION_RECT: "Supply air",
+        _SELECTION_MODEL_RECT: "/ 2x1",
+        _SELECTION_CURRENT_RECT: "3 ph",
+    }
+    monkeypatch.setattr(
+        "coordinate_motor_discovery._rect_text",
+        lambda _page, box: values.get(box, ""),
+    )
+
+    results = discover_selection_motor_models(document=[FakePage()])
+
+    assert len(results) == 1
+    assert results[0].model == "K3G450-PA31-61"
+    assert results[0].quantity == "2x1"
+    assert results[0].current == "6,80"
+
+
 def test_model_lists_compare_case_and_separator_insensitively_but_keep_counts():
     assert compare_motor_model_lists(
         ["VBH0500CTTRS/L"] * 2,
