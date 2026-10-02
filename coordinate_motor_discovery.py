@@ -126,8 +126,8 @@ def parse_selection_motor_model(text,direction,page_number=1,current_text="",pag
   model=model_match.group(0).strip()
  current_match=_CURRENT_VALUE_RE.fullmatch(str(current_text or ""))
  current=current_match.group(1) if current_match else None
-  source_text=match.group(0) if match else f"{model} / {quantity}"
-  return MotorModelResult(page_number,component_role,model,quantity,source_text,current)
+ source_text=match.group(0) if match else f"{model} / {quantity}"
+ return MotorModelResult(page_number,component_role,model,quantity,source_text,current)
 
 def normalize_motor_model(model):
  return re.sub(r"[^A-Z0-9]","",str(model or "").upper())
