@@ -16,8 +16,10 @@ from motor_fuse_matching import (
 from stage2_pdf_discovery import (
     _MOTOR_FUSE_BOX,
     _MOTOR_MODEL_BOXES,
+    _SINGLE_MOTOR_FUSE_BOX,
     discover_coordinate_pdf2_motor_fuses,
     discover_coordinate_pdf2_motor_models,
+    motor_fuse_box_for_fan_count,
 )
 
 
@@ -205,25 +207,43 @@ def test_pdf2_fuse_scan_reads_only_the_fuse_box_on_every_supply_and_return_sheet
         FakePage("Other page 32A"),
     ]
     values = {
-        1: "3x10A 400V other label",
-        2: "text 16A",
-        3: "text 6A and other values",
+        (1, _MOTOR_FUSE_BOX): "3x10A 400V other label",
+        (2, _SINGLE_MOTOR_FUSE_BOX): "text 16A",
+        (3, _MOTOR_FUSE_BOX): "text 6A and other values",
     }
     calls = []
 
     def read_box(page, box):
-        calls.append((pages.index(page) + 1, box))
-        return values.get(pages.index(page) + 1, "")
+        page_number = pages.index(page) + 1
+        calls.append((page_number, box))
+        return values.get((page_number, box), "")
 
     monkeypatch.setattr("stage2_pdf_discovery._coordinate_text_in_box", read_box)
     results = discover_coordinate_pdf2_motor_fuses(pages)
 
     assert [
-        (result.source_page, result.component_role, result.fuse_rating_a, result.pole_count)
+        (
+            result.source_page,
+            result.component_role,
+            result.fuse_rating_a,
+            result.pole_count,
+            result.coordinate_box,
+        )
         for result in results
     ] == [
-        (1, "supply_fan", 10, 3),
-        (2, "supply_fan", 16, None),
-        (3, "exhaust_fan", 6, None),
+        (1, "supply_fan", 10, 3, _MOTOR_FUSE_BOX),
+        (2, "supply_fan", 16, None, _SINGLE_MOTOR_FUSE_BOX),
+        (3, "exhaust_fan", 6, None, _MOTOR_FUSE_BOX),
     ]
-    assert calls == [(1, _MOTOR_FUSE_BOX), (2, _MOTOR_FUSE_BOX), (3, _MOTOR_FUSE_BOX)]
+    assert calls == [
+        (page_number, box)
+        for page_number in (1, 2, 3)
+        for box in (_MOTOR_FUSE_BOX, _SINGLE_MOTOR_FUSE_BOX)
+    ]
+
+
+def test_single_fan_uses_alternate_electrical_fuse_coordinate(monkeypatch):
+    selection_result = type("SelectionMotor", (), {"quantity": "1x1"})()
+    fan_count = len(expand_model_quantity(selection_result))
+    assert motor_fuse_box_for_fan_count(fan_count) == _SINGLE_MOTOR_FUSE_BOX
+    assert motor_fuse_box_for_fan_count(4) == _MOTOR_FUSE_BOX

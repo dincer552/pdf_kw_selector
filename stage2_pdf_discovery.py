@@ -15,6 +15,13 @@ from motor_fuse_matching import parse_fuse_rating
 _MOTOR_KW_BOX = (23.0, 524.0, 69.0, 45.0)
 _MOTOR_MODEL_BOXES = ((447.0, 163.0, 136.0, 33.0), (982.0, 160.0, 167.0, 30.0))
 _MOTOR_FUSE_BOX = (34.0, 404.0, 58.0, 50.0)
+_SINGLE_MOTOR_FUSE_BOX = (32.0, 699.0, 61.0, 33.0)
+
+
+def motor_fuse_box_for_fan_count(fan_count: int):
+    """Select the electrical fuse coordinate for the fan quantity."""
+    return _SINGLE_MOTOR_FUSE_BOX if fan_count == 1 else _MOTOR_FUSE_BOX
+
 
 _CONNECTION_LABELS = (
     ("Supply Motor Connections-1", "Vantilatör", "supply_fan"),
@@ -52,6 +59,7 @@ class PDF2MotorFuseResult:
     fuse_rating_a: int | None
     pole_count: int | None
     source_page: int
+    coordinate_box: tuple[float, float, float, float]
     source_text: str
 
     def to_dict(self) -> dict:
@@ -164,21 +172,25 @@ def discover_coordinate_pdf2_motor_fuses(document) -> tuple[PDF2MotorFuseResult,
         else:
             continue
 
-        fuse_text = _coordinate_text_in_box(page, _MOTOR_FUSE_BOX)
-        match = re.search(
-            r"(?<!\d)(?:(?P<poles>\d+)\s*[x×]\s*)?(?P<rating>\d+)\s*A\b",
-            fuse_text,
-            re.I,
-        )
-        results.append(
-            PDF2MotorFuseResult(
-                component_role=component_role,
-                fuse_rating_a=parse_fuse_rating(match.group(0)) if match else None,
-                pole_count=int(match.group("poles")) if match and match.group("poles") else None,
-                source_page=page_number,
-                source_text=fuse_text,
+        for box in (_MOTOR_FUSE_BOX, _SINGLE_MOTOR_FUSE_BOX):
+            fuse_text = _coordinate_text_in_box(page, box)
+            match = re.search(
+                r"(?<!\d)(?:(?P<poles>\d+)\s*[x×]\s*)?(?P<rating>\d+)\s*A\b",
+                fuse_text,
+                re.I,
             )
-        )
+            if not match:
+                continue
+            results.append(
+                PDF2MotorFuseResult(
+                    component_role=component_role,
+                    fuse_rating_a=parse_fuse_rating(match.group(0)),
+                    pole_count=int(match.group("poles")) if match.group("poles") else None,
+                    source_page=page_number,
+                    coordinate_box=box,
+                    source_text=fuse_text,
+                )
+            )
     return tuple(results)
 
 

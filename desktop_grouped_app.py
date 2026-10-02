@@ -18,6 +18,7 @@ from pdf_master_scan import scan_pdf
 from status import apply_status_tag, install_status_display, status_display_text
 from coordinate_motor_discovery import compare_motor_model_lists, expand_model_quantity
 from motor_fuse_matching import FUSE_CURRENT_RANGES, check_fuse_current
+from stage2_pdf_discovery import motor_fuse_box_for_fan_count
 
 def _path_strings(items): return [str(getattr(item,"path",item)) for item in (items or [])]
 def _confirmed_analyze(pdf1_inputs,pdf2_inputs,progress_callback=None):
@@ -168,7 +169,14 @@ class GroupedApp(BaseApp):
                         for model in selection_results
                     ) or "-"
                     electrical_display = ", ".join(electrical_models) or "-"
-                    fuse_results = [fuse for pdf2_scan in pdf2_scans for fuse in pdf2_scan.pdf2_motor_fuses if fuse.component_role == role]
+                    fan_count = sum(len(expand_model_quantity(model)) for model in selection_results)
+                    fuse_box = motor_fuse_box_for_fan_count(fan_count)
+                    fuse_results = [
+                        fuse
+                        for pdf2_scan in pdf2_scans
+                        for fuse in pdf2_scan.pdf2_motor_fuses
+                        if fuse.component_role == role and fuse.coordinate_box == fuse_box
+                    ]
                     fuse_display = ", ".join(
                         f"{fuse.pole_count}x{fuse.fuse_rating_a}A" if fuse.pole_count else f"{fuse.fuse_rating_a}A"
                         for fuse in fuse_results if fuse.fuse_rating_a is not None
