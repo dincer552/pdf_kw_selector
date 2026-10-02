@@ -7,10 +7,12 @@ from pathlib import Path
 
 import fitz
 from motor_database import MotorRecord, expand_motor_group
+from coordinate_motor_discovery import MotorModelResult
 
 # PDF2 coordinates are supplied in the PDF viewer coordinate system (origin bottom-left).
 # PyMuPDF uses origin top-left, so Y is converted before clipping.
 _MOTOR_KW_BOX = (23.0, 524.0, 69.0, 45.0)
+_MOTOR_MODEL_BOXES = ((447.0, 163.0, 136.0, 33.0), (982.0, 160.0, 167.0, 30.0))
 
 _CONNECTION_LABELS = (
     ("Supply Motor Connections-1", "Vantilatör", "supply_fan"),
@@ -20,6 +22,11 @@ _CONNECTION_LABELS = (
 )
 
 _KW_RE = re.compile(r"(?P<value>\d+(?:[.,]\d+)?)\s*kW\b", re.I)
+_MODEL_RE = re.compile(
+    r"\b(?=[A-Z0-9./-]{5,}\b)(?=[A-Z0-9./-]*[A-Z])(?=[A-Z0-9./-]*\d)"
+    r"[A-Z0-9][A-Z0-9./-]*[A-Z0-9]\b",
+    re.I,
+)
 
 
 @dataclass(frozen=True)
@@ -94,6 +101,49 @@ def discover_coordinate_pdf2_motor_powers(
     return tuple(results)
 
 
+def discover_coordinate_pdf2_motor_models(document) -> tuple[MotorModelResult, ...]:
+    """Read motor model fields from every matching supply/return connection sheet."""
+    if not document:
+        return ()
+
+    results: list[MotorModelResult] = []
+    for page_number, page in enumerate(document, 1):
+        text = page.get_text("text") or ""
+        if re.search(r"\bSupply\s+Motor\s+Connections\s*[-–—]\s*1\b", text, re.I):
+            component_role = "supply_fan"
+        elif re.search(r"\bReturn\s+Motor\s+Connections\s*[-–—]\s*1\b", text, re.I):
+            component_role = "exhaust_fan"
+        else:
+            continue
+
+        for box in _MOTOR_MODEL_BOXES:
+            coordinate_text = _coordinate_text_in_box(page, box)
+            if not coordinate_text:
+                continue
+            match = _MODEL_RE.search(coordinate_text)
+            if not match:
+                continue
+            results.append(
+                MotorModelResult(
+                    page_number=page_number,
+                    component_role=component_role,
+                    model=match.group(0).strip(),
+                    quantity=None,
+                    source_text=coordinate_text,
+                )
+            )
+    return tuple(results)
+
+
+def _coordinate_text_in_box(page: fitz.Page, box: tuple[float, float, float, float]) -> str:
+    x, y, width, height = box
+    page_height = float(page.rect.height)
+    clip = fitz.Rect(x, page_height - (y + height), x + width, page_height - y)
+    words = page.get_text("words", clip=clip)
+    words.sort(key=lambda word: (word[1], word[0]))
+    return " ".join(word[4].strip() for word in words if word[4].strip()).strip()
+
+
 def build_pdf2_motor_records(result: PDF2MotorResult, start_index: int = 1) -> list[MotorRecord]:
     return expand_motor_group(
         equipment_id=result.equipment_id,
@@ -106,4 +156,4 @@ def build_pdf2_motor_records(result: PDF2MotorResult, start_index: int = 1) -> l
     )
 
 
-__all__ = ["PDF2MotorResult", "discover_coordinate_pdf2_motor_powers", "build_pdf2_motor_records"]
+__all__ = ["PDF2MotorResult", "discover_coordinate_pdf2_motor_powers", "discover_coordinate_pdf2_motor_models", "build_pdf2_motor_records"]

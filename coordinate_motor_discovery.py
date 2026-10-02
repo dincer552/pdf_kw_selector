@@ -1,5 +1,7 @@
 from __future__ import annotations
 import re
+from collections import Counter
+from dataclasses import dataclass
 from pathlib import Path
 import fitz
 from pdf_kw_selector import normalize_power
@@ -10,6 +12,23 @@ _MODEL_BRAND_RECT=(429.0,656.0,131.0,12.0)
 _QTY_RE=re.compile(r"\(\s*(\d+)\s*[x×]\s*(\d+)\s*\)",re.I)
 _POWER_QTY_RE=re.compile(r"^\s*([0-9]+(?:[.,][0-9]+)?)\s*[x×]\s*\(\s*(\d+)\s*[x×]\s*(\d+)\s*\)\s*$",re.I)
 _POWER_ONLY_RE=re.compile(r"^\s*([0-9]+(?:[.,][0-9]+)?)\s*$")
+_SUPPLIER_MODEL_RE=re.compile(
+ r"Supplier\s*/\s*Model\s*/\s*Quantity\s+in\s+WxH\s+"
+ r"(?P<model>[A-Z0-9.-]+(?:/[A-Z0-9.-]+)*)\s*/\s*"
+ r"(?P<quantity>\d+\s*[x×]\s*\d+)",
+ re.I,
+)
+
+@dataclass(frozen=True)
+class MotorModelResult:
+ page_number:int
+ component_role:str
+ model:str
+ quantity:str|None
+ source_text:str
+
+ def to_dict(self):
+  return {"page_number":self.page_number,"component_role":self.component_role,"model":self.model,"quantity":self.quantity,"source_text":self.source_text}
 
 def _viewer_rect(page,box):
  x,y,w,h=box; ph=float(page.rect.height)
@@ -49,4 +68,44 @@ def discover_coordinate_motor_powers(path: str|Path|None=None,document=None):
   if owns_document:doc.close()
  return result
 
-__all__=["discover_coordinate_motor_powers"]
+def discover_selection_motor_models(path: str|Path|None=None,document=None):
+ result=[];owns_document=document is None;doc=document if document is not None else fitz.open(str(path))
+ try:
+  for page_number,page in enumerate(doc,1):
+   if not _is_plug_fan_page(page):continue
+   direction=re.sub(r"\s+"," ",_rect_text(page,_DIRECTION_RECT)).strip().casefold()
+   text=re.sub(r"\s+"," ",page.get_text("text") or "")
+   model_result=parse_selection_motor_model(text,direction,page_number)
+   if model_result is not None:result.append(model_result)
+ finally:
+  if owns_document:doc.close()
+ return tuple(result)
+
+def parse_selection_motor_model(text,direction,page_number=1):
+ component_role={"supply air":"supply_fan","exhaust air":"exhaust_fan"}.get(
+  re.sub(r"\s+"," ",str(direction or "")).strip().casefold()
+ )
+ if component_role is None:return None
+ cleaned=re.sub(r"\s+"," ",str(text or ""))
+ match=_SUPPLIER_MODEL_RE.search(cleaned)
+ if not match:return None
+ model=match.group("model").strip().rstrip(".,;")
+ quantity=re.sub(r"\s*[x×]\s*","x",match.group("quantity"))
+ return MotorModelResult(page_number,component_role,model,quantity,match.group(0))
+
+def normalize_motor_model(model):
+ return re.sub(r"[^A-Z0-9]","",str(model or "").upper())
+
+def compare_motor_model_lists(selection_models,electrical_models):
+ selection=[normalize_motor_model(model) for model in selection_models if normalize_motor_model(model)]
+ electrical=[normalize_motor_model(model) for model in electrical_models if normalize_motor_model(model)]
+ if not selection:return "Seçim çıktısında motor modeli bulunamadı"
+ if not electrical:return "Elektrik projesinde motor modeli bulunamadı"
+ return "MODEL EŞLEŞTİ" if Counter(selection)==Counter(electrical) else "MODEL UYUŞMAZ"
+
+def expand_model_quantity(model_result):
+ match=re.fullmatch(r"(\d+)x(\d+)",str(model_result.quantity or "1x1"),re.I)
+ count=int(match.group(1))*int(match.group(2)) if match else 1
+ return [model_result.model]*count
+
+__all__=["MotorModelResult","discover_coordinate_motor_powers","discover_selection_motor_models","parse_selection_motor_model","normalize_motor_model","compare_motor_model_lists","expand_model_quantity"]

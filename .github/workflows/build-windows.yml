@@ -33,6 +33,8 @@ jobs:
           python -m pytest -q tests/test_status.py
           python -m py_compile status.py motor_compare.py desktop_app.py desktop_grouped_app.py
           python -c "import desktop_app; import desktop_grouped_app; import voclean_project_selector; from status import install_status_display; assert hasattr(desktop_grouped_app.GroupedApp, '_build_voclean_tab'); print('Source validation OK')"
+          python -m py_compile coordinate_motor_discovery.py stage2_pdf_discovery.py pdf_master_scan.py desktop_grouped_app.py pdf_hover_indicator.py
+          python -m pytest tests/test_motor_model_matching.py -q
       - name: Embed build metadata
         shell: pwsh
         env:

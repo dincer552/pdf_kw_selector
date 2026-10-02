@@ -16,6 +16,7 @@ import voclean_project_selector
 from confirmation_workflow import analyze_with_confirmations
 from pdf_master_scan import scan_pdf
 from status import apply_status_tag, install_status_display, status_display_text
+from coordinate_motor_discovery import compare_motor_model_lists, expand_model_quantity
 
 def _path_strings(items): return [str(getattr(item,"path",item)) for item in (items or [])]
 def _confirmed_analyze(pdf1_inputs,pdf2_inputs,progress_callback=None):
@@ -26,9 +27,11 @@ class GroupedApp(BaseApp):
     def __init__(self):
         super().__init__(); self._analysis_started_at=None; self._grouped_pdf1_scan_cache={}; self._ebm_pdf_keys=set(); self._vocclean_pdf_keys=set(); self._sysreco_pdf_keys=set(); self._unmatched_pdf_keys=set(); self._pdf_accounting_error_shown=False; self._build_ebm_tab(); self._build_voclean_tab(); self._build_sysreco_tab(); self.tabs.tab(0,text="DANFOS"); self.tabs.insert(1,self.ebm_tab); self.tabs.insert(2,self.voclean_tab); self.tabs.insert(3,self.sysreco_tab); self.unmatched_tab_index=lambda:4; self.tree.tag_configure("mismatch",background="#ffb3b3",foreground="#000000"); install_pdf_drop_targets(self,self.pdf1_box,self.pdf2_box); install_status_display(self)
     def _build_ebm_tab(self):
-        tab=ttk.Frame(self.tabs, style="White.TFrame"); self.tabs.add(tab,text="EBM-PAPST (0)"); cols=("Proje","AHU","Seçim çıktısı","Elektrik p.","Durum"); self.ebm_tree=ttk.Treeview(tab,columns=cols,show="headings"); widths={"Proje":300,"AHU":120,"Seçim çıktısı":300,"Elektrik p.":420,"Durum":260}
+        tab=ttk.Frame(self.tabs, style="White.TFrame"); self.tabs.add(tab,text="EBM-PAPST (0)"); cols=("Proje","AHU","Fan","Seçim çıktısı","Elektrik p.","Seçim motor modeli","Elektrik motor modeli","Durum"); self.ebm_tree=ttk.Treeview(tab,columns=cols,show="headings"); widths={"Proje":240,"AHU":120,"Fan":120,"Seçim çıktısı":260,"Elektrik p.":300,"Seçim motor modeli":250,"Elektrik motor modeli":250,"Durum":190}
         for col in cols:self.ebm_tree.heading(col,text=col);self.ebm_tree.column(col,width=widths[col],anchor="w")
-        scroll=ttk.Scrollbar(tab,orient="vertical",command=lambda *args: (self.ebm_tree.yview(*args), self._cell_hover_box.hide()));self.ebm_tree.configure(yscrollcommand=scroll.set);self.ebm_tree.pack(side="left",fill="both",expand=True,padx=(5,0),pady=5);scroll.pack(side="right",fill="y",padx=(0,5),pady=5);self.ebm_tab=tab
+        self.ebm_tree.tag_configure("model_match",background="#e6ffed",foreground="#116329")
+        self.ebm_tree.tag_configure("model_mismatch",background="#ffebe9",foreground="#b62324")
+        tab.grid_rowconfigure(0,weight=1);tab.grid_columnconfigure(0,weight=1);scroll=ttk.Scrollbar(tab,orient="vertical",command=lambda *args: (self.ebm_tree.yview(*args), self._cell_hover_box.hide()));xscroll=ttk.Scrollbar(tab,orient="horizontal",command=self.ebm_tree.xview);self.ebm_tree.configure(yscrollcommand=scroll.set,xscrollcommand=xscroll.set);self.ebm_tree.grid(row=0,column=0,sticky="nsew",padx=(5,0),pady=(5,0));scroll.grid(row=0,column=1,sticky="ns",padx=(0,5),pady=(5,0));xscroll.grid(row=1,column=0,sticky="ew",padx=5,pady=(0,5));self.ebm_tab=tab
         self._ebm_cell_data: dict[str, dict] = {}
         self.ebm_tree.bind("<Button-1>", self._on_ebm_cell_click)
         self.ebm_tree.bind("<Double-1>", self._on_ebm_cell_click)
@@ -143,12 +146,43 @@ class GroupedApp(BaseApp):
             for ahu in self.analysis.ahu_matches:
                 if getattr(ahu.match,"status","") not in {"EXACT","NORMALIZED_MATCH","USER_APPROVED"}: continue
                 if str(document.path).casefold() in {str(p).casefold() for p in ahu.pdf1_files}: matching.extend(ahu.pdf2_files)
-            pdf2_paths = list(dict.fromkeys(matching)); pdf2=", ".join(Path(p).name for p in pdf2_paths) or "-"; status="PDF2 AHU eşleşti; motor kW karşılaştırması yapılmadı" if matching else "PDF2 AHU eşleşmesi yok"
-            scan=self._grouped_scan_pdf1(document); ebm_page = min(scan.pdf1_ebm_pages) if getattr(scan, "pdf1_ebm_pages", None) else 1
-            for ahu_id in tuple(document.equipment) or ("-",): rows.append((document.project.project_name or "-",ahu_id or "-",Path(document.path).name,pdf2,status,str(document.path),ebm_page,str(pdf2_paths[0]) if pdf2_paths else None,1))
+            pdf2_paths = list(dict.fromkeys(matching))
+            scan=self._grouped_scan_pdf1(document)
+            for ahu_id in tuple(document.equipment) or ("-",):
+                pdf2_scans = [scan_pdf(path,"PDF2") for path in pdf2_paths]
+                for role, label in (("supply_fan","Supply air"),("exhaust_fan","Exhaust air")):
+                    selection_results = [model for model in scan.pdf1_motor_models if model.component_role == role]
+                    selection_models = [value for model in selection_results for value in expand_model_quantity(model)]
+                    electrical_results = [model for pdf2_scan in pdf2_scans for model in pdf2_scan.pdf2_motor_models if model.component_role == role]
+                    electrical_models = [model.model for model in electrical_results]
+                    comparison = compare_motor_model_lists(selection_models,electrical_models)
+                    status = "MATCH" if comparison == "MODEL EŞLEŞTİ" else f"MISMATCH: {comparison}"
+                    selection_display = ", ".join(
+                        f"{model.model} ({model.quantity})" if model.quantity else model.model
+                        for model in selection_results
+                    ) or "-"
+                    electrical_display = ", ".join(electrical_models) or "-"
+                    selection_page = min((model.page_number for model in selection_results),default=1)
+                    electrical_page = min((model.page_number for model in electrical_results),default=1)
+                    rows.append((
+                        document.project.project_name or "-",ahu_id or "-",label,
+                        Path(document.path).name,", ".join(Path(path).name for path in pdf2_paths) or "-",
+                        selection_display,electrical_display,status,
+                        str(document.path),selection_page,pdf2_paths[0] if pdf2_paths else None,electrical_page,
+                        "model_match" if status == "MATCH" else "model_mismatch",
+                    ))
         rows.sort(key=lambda r:(str(r[1]).casefold(),str(r[2]).casefold(),str(r[0]).casefold()))
         for r in rows:
-            item_id = self.ebm_tree.insert("","end",values=(r[0],r[1],r[2],r[3],status_display_text(r[4]))); apply_status_tag(self.ebm_tree, item_id, r[4]); self._ebm_cell_data[item_id] = {"pdf1_path": r[5], "pdf1_page": r[6], "pdf2_path": r[7], "pdf2_page": r[8], "pdf1_name": r[2], "pdf2_name": r[3]}
+            item_id = self.ebm_tree.insert("","end",values=r[:8],tags=(r[12],))
+            apply_status_tag(self.ebm_tree, item_id, r[7])
+            self._ebm_cell_data[item_id] = {
+                "pdf1_path": r[8],
+                "pdf1_page": r[9],
+                "pdf2_path": r[10],
+                "pdf2_page": r[11],
+                "pdf1_name": r[3],
+                "pdf2_name": r[4],
+            }
         self.tabs.tab(self.ebm_tab,text=f"EBM-PAPST ({len(self._ebm_pdf_keys)})")
     def _selected_pdf_keys(self):
         result=set()
@@ -202,32 +236,58 @@ class GroupedApp(BaseApp):
         if hasattr(self, "_sysreco_cell_data"): self._sysreco_cell_data.clear()
         self._grouped_pdf1_scan_cache.clear(); self._ebm_pdf_keys.clear(); self._vocclean_pdf_keys.clear(); self._sysreco_pdf_keys.clear(); self._unmatched_pdf_keys.clear(); self._pdf_accounting_error_shown=False; self.tabs.tab(0,text="DANFOS (0)"); self.tabs.tab(self.ebm_tab,text="EBM-PAPST (0)"); self.tabs.tab(self.voclean_tab,text="VOCLEAN (0)"); self.tabs.tab(self.sysreco_tab,text="SYSRECO (0)")
     def _on_ebm_cell_click(self, event):
-        region=self.ebm_tree.identify_region(event.x,event.y)
-        if region!="cell": return
-        col=self.ebm_tree.identify_column(event.x); row_id=self.ebm_tree.identify_row(event.y)
-        if not row_id or col not in ("#3","#4"): return
-        data=getattr(self,"_ebm_cell_data",{}).get(row_id,{})
-        if col=="#3": pdf_path=data.get("pdf1_path"); page=data.get("pdf1_page",1); desc=f"Seçim çıktısı (PDF1): {data.get('pdf1_name','')}"
-        else: pdf_path=data.get("pdf2_path"); page=data.get("pdf2_page",1); desc=f"Elektrik projesi (PDF2): {data.get('pdf2_name','')}"
-        if pdf_path:self.open_pdf_document(pdf_path,page,desc)
-    def _on_ebm_cell_motion(self,event):
-        region=self.ebm_tree.identify_region(event.x,event.y); col=self.ebm_tree.identify_column(event.x); row_id=self.ebm_tree.identify_row(event.y)
-        if region=="cell" and col in ("#3","#4") and row_id:
-            data=getattr(self,"_ebm_cell_data",{}).get(row_id,{})
-            if data.get("pdf1_path" if col=="#3" else "pdf2_path"):
-                self.ebm_tree.configure(cursor="hand2"); self._cell_hover_box.show(self.ebm_tree,row_id,col); return
-        self.ebm_tree.configure(cursor=""); self._cell_hover_box.hide()
-    def _on_sysreco_cell_click(self,event):
-        region=self.sysreco_tree.identify_region(event.x,event.y)
-        if region!="cell": return
-        col=self.sysreco_tree.identify_column(event.x); row_id=self.sysreco_tree.identify_row(event.y)
-        if not row_id or col!="#3": return
-        data=getattr(self,"_sysreco_cell_data",{}).get(row_id,{})
-        if data.get("pdf_path"): self.open_pdf_document(data.get("pdf_path"),data.get("page",1),f"SysReco PDF: {data.get('pdf_name','')}")
-    def _on_sysreco_cell_motion(self,event):
-        region=self.sysreco_tree.identify_region(event.x,event.y); col=self.sysreco_tree.identify_column(event.x); row_id=self.sysreco_tree.identify_row(event.y)
-        if region=="cell" and col=="#3" and row_id:
-            data=getattr(self,"_sysreco_cell_data",{}).get(row_id,{})
+        region = self.ebm_tree.identify_region(event.x, event.y)
+        if region != "cell":
+            return
+        col = self.ebm_tree.identify_column(event.x)
+        row_id = self.ebm_tree.identify_row(event.y)
+        if not row_id or col not in ("#4", "#5"):
+            return
+        data = getattr(self, "_ebm_cell_data", {}).get(row_id, {})
+        if col == "#4":
+            pdf_path = data.get("pdf1_path")
+            page = data.get("pdf1_page", 1)
+            desc = f"Seçim çıktısı (PDF1): {data.get('pdf1_name', '')}"
+        else:
+            pdf_path = data.get("pdf2_path")
+            page = data.get("pdf2_page", 1)
+            desc = f"Elektrik projesi (PDF2): {data.get('pdf2_name', '')}"
+        if pdf_path:
+            self.open_pdf_document(pdf_path, page, desc)
+
+    def _on_ebm_cell_motion(self, event):
+        region = self.ebm_tree.identify_region(event.x, event.y)
+        col = self.ebm_tree.identify_column(event.x)
+        row_id = self.ebm_tree.identify_row(event.y)
+        if region == "cell" and col in ("#4", "#5") and row_id:
+            data = getattr(self, "_ebm_cell_data", {}).get(row_id, {})
+            key = "pdf1_path" if col == "#4" else "pdf2_path"
+            if data.get(key):
+                self.ebm_tree.configure(cursor="hand2")
+                self._cell_hover_box.show(self.ebm_tree, row_id, col)
+                return
+        self.ebm_tree.configure(cursor="")
+        self._cell_hover_box.hide()
+
+    def _on_sysreco_cell_click(self, event):
+        region = self.sysreco_tree.identify_region(event.x, event.y)
+        if region != "cell":
+            return
+        col = self.sysreco_tree.identify_column(event.x)
+        row_id = self.sysreco_tree.identify_row(event.y)
+        if not row_id or col != "#3":
+            return
+        data = getattr(self, "_sysreco_cell_data", {}).get(row_id, {})
+        pdf_path = data.get("pdf_path")
+        if pdf_path:
+            self.open_pdf_document(pdf_path, data.get("page", 1), f"SysReco PDF: {data.get('pdf_name', '')}")
+
+    def _on_sysreco_cell_motion(self, event):
+        region = self.sysreco_tree.identify_region(event.x, event.y)
+        col = self.sysreco_tree.identify_column(event.x)
+        row_id = self.sysreco_tree.identify_row(event.y)
+        if region == "cell" and col == "#3" and row_id:
+            data = getattr(self, "_sysreco_cell_data", {}).get(row_id, {})
             if data.get("pdf_path"):
                 self.sysreco_tree.configure(cursor="hand2"); self._cell_hover_box.show(self.sysreco_tree,row_id,col); return
         self.sysreco_tree.configure(cursor=""); self._cell_hover_box.hide()
