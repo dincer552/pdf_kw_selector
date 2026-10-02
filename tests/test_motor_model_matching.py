@@ -88,6 +88,27 @@ def test_selection_motor_models_read_direction_and_model_from_configured_boxes(m
     ]
 
 
+def test_supply_only_selection_contains_no_exhaust_fan_result(monkeypatch):
+    class FakePage:
+        def get_text(self, kind):
+            assert kind == "text"
+            return "Plug fan Supply air"
+
+    values = {
+        _DIRECTION_RECT: "Supply air",
+        _SELECTION_MODEL_RECT: "8300100068- VBH0500CTTRS/L / 2x2",
+        _SELECTION_CURRENT_RECT: "9,60",
+    }
+    monkeypatch.setattr(
+        "coordinate_motor_discovery._rect_text",
+        lambda _page, box: values.get(box, ""),
+    )
+
+    results = discover_selection_motor_models(document=[FakePage()])
+
+    assert [result.component_role for result in results] == ["supply_fan"]
+
+
 def test_model_lists_compare_case_and_separator_insensitively_but_keep_counts():
     assert compare_motor_model_lists(
         ["VBH0500CTTRS/L"] * 2,

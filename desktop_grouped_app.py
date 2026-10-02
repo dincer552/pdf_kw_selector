@@ -153,6 +153,8 @@ class GroupedApp(BaseApp):
                 pdf2_scans = [scan_pdf(path,"PDF2") for path in pdf2_paths]
                 for role, label in (("supply_fan","Supply air"),("exhaust_fan","Exhaust air")):
                     selection_results = [model for model in scan.pdf1_motor_models if model.component_role == role]
+                    if role == "exhaust_fan" and not selection_results:
+                        continue
                     selection_models = [value for model in selection_results for value in expand_model_quantity(model)]
                     electrical_results = [model for pdf2_scan in pdf2_scans for model in pdf2_scan.pdf2_motor_models if model.component_role == role]
                     electrical_models = [model.model for model in electrical_results]
