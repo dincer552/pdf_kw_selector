@@ -250,6 +250,11 @@ class GroupedApp(BaseApp):
         return ok,categories
     def _refresh_grouped_tab_counts(self):
         _,categories=self._validate_pdf_accounting(); counts={name:len(values) for name,values in categories.items()}; self._unmatched_pdf_keys=categories["EŞLEŞMEYEN"]
+        classified_unmatched_count=counts["EŞLEŞMEYEN"]
+        rendered_unmatched_count=len(self.unmatched_tree.get_children())
+        counts["EŞLEŞMEYEN"]=rendered_unmatched_count
+        if classified_unmatched_count!=rendered_unmatched_count:
+            info("Eşleşmeyen PDF sekme sayısı tablo satırıyla eşitlendi",classified_count=classified_unmatched_count,rendered_count=rendered_unmatched_count)
         self.tabs.tab(0,text=f"DANFOS ({counts['DANFOS']})"); self.tabs.tab(self.ebm_tab,text=f"EBM-PAPST ({counts['EBM-PAPST']})"); self.tabs.tab(self.vocclean_tab,text=f"VOCLEAN ({counts['VOCLEAN']})"); self.tabs.tab(self.sysreco_tab,text=f"SYSRECO ({counts['SYSRECO']})"); self.tabs.tab(self.unmatched_tab_index(),text=f"EŞLEŞMEYEN PDF'LER ({counts['EŞLEŞMEYEN']})"); info("PDF sekme sınıflandırması tamamlandı",selected_pdf_count=sum(counts.values()),**{f"{k.lower().replace('-','_').replace(' ','_')}_pdf_count":v for k,v in counts.items()})
     def _render_unmatched(self):
         for item in self.unmatched_tree.get_children(): self.unmatched_tree.delete(item)
