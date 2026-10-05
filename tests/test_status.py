@@ -34,6 +34,14 @@ def test_desktop_status_presentation_uses_one_green_and_one_red_rule():
     assert status_tag_name("MATCH") == "status_match"
     assert status_display_text("MATCH") == "✓ MATCH"
 
+    ba_match = "BA kodu eşleşti (BA550)"
+    formatted_ba_match = f"✓ {'BA kodu eşleşti (BA550)'.upper()}"
+    assert status_tag_name(ba_match) == "status_match"
+    assert status_display_text(ba_match) == formatted_ba_match
+    assert status_tag_name(f"✕ {ba_match}") == "status_match"
+    assert status_display_text(f"✕ {ba_match}") == formatted_ba_match
+    assert status_tag_name("BA kodu eşleşmedi (BA550)") == "status_error"
+
     for status in ("MISMATCH", "EBM_PAPST", "ONLY_IN_PDF1", "PDF2 AHU eşleşmesi yok"):
         assert status_tag_name(status) == "status_error"
         assert status_display_text(status).startswith("✕ ")

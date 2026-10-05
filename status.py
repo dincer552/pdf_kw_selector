@@ -12,6 +12,7 @@ STATUS_ONLY_IN_PDF1 = "ONLY_IN_PDF1"
 STATUS_ONLY_IN_PDF2 = "ONLY_IN_PDF2"
 STATUS_MATCH_TAG = "status_match"
 STATUS_ERROR_TAG = "status_error"
+_BA_CODE_MATCH_PREFIX = "BA kodu eşleşti".upper()
 
 ALL_STATUSES = frozenset({STATUS_MATCH, STATUS_MISMATCH, STATUS_EBM_PAPST, STATUS_ONLY_IN_PDF1, STATUS_ONLY_IN_PDF2})
 
@@ -54,22 +55,26 @@ def decide_motor_status(pdf1_record: Any, pdf2_record: Any, tolerance_kw: float 
 def _is_ba_code_match_status(value: Any) -> bool:
     """BA code matches are visually successful, but are not motor MATCH totals."""
     status = normalize_status(value)
-    return status.startswith("BA KODU EŞLEŞTİ")
+    if status.startswith(("✓ ", "✕ ")):
+        status = status[2:].strip()
+    return status.startswith(_BA_CODE_MATCH_PREFIX)
 
 def status_display_text(value: Any) -> str:
     """Return the compact status text shown in a status cell."""
     status = normalize_status(value)
     if not status: return ""
-    if status == "✓ MATCH" or status.startswith("✓ BA KODU EŞLEŞTİ") or status.startswith("✕ "): return status
+    if status == "✓ MATCH": return status
+    if _is_ba_code_match_status(status):
+        return f"✓ {status[2:].strip()}" if status.startswith(("✓ ", "✕ ")) else f"✓ {status}"
+    if status.startswith("✕ "): return status
     if is_match_status(status): return "✓ MATCH"
-    if _is_ba_code_match_status(status): return f"✓ {status}"
     return f"✕ {status}"
 
 def status_tag_name(value: Any) -> str | None:
     """Return the Treeview tag for the central visual status rule."""
     status = normalize_status(value)
     if not status: return None
-    if status == "✓ MATCH" or status.startswith("✓ BA KODU EŞLEŞTİ"): return STATUS_MATCH_TAG
+    if status == "✓ MATCH" or _is_ba_code_match_status(status): return STATUS_MATCH_TAG
     if status.startswith("✕ "): status = status[2:].strip()
     if is_match_status(status) or _is_ba_code_match_status(status): return STATUS_MATCH_TAG
     return STATUS_ERROR_TAG
