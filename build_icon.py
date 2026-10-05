@@ -1,7 +1,8 @@
 from __future__ import annotations
 
 from pathlib import Path
-from PIL import Image, ImageDraw, ImageFont, ImageFilter
+
+from PIL import Image, ImageDraw, ImageFilter, ImageFont
 
 SIZE = 1024
 OUT = Path("AHU_Match.ico")
@@ -20,86 +21,50 @@ def _font(size: int):
     return ImageFont.load_default()
 
 
-def _gradient(size, top, bottom):
-    img = Image.new("RGBA", (size, size), top)
-    px = img.load()
-    for y in range(size):
-        t = y / max(1, size - 1)
-        r = int(top[0] * (1 - t) + bottom[0] * t)
-        g = int(top[1] * (1 - t) + bottom[1] * t)
-        b = int(top[2] * (1 - t) + bottom[2] * t)
-        a = int(top[3] * (1 - t) + bottom[3] * t)
-        for x in range(size):
-            px[x, y] = (r, g, b, a)
-    return img
-
-
 def main():
-    s = SIZE
-    im = Image.new("RGBA", (s, s), (255, 255, 255, 255))
+    font = _font(900)
+    probe = ImageDraw.Draw(Image.new("L", (SIZE, SIZE)))
+    bounds = probe.textbbox((0, 0), "P", font=font, stroke_width=10)
+    width, height = bounds[2] - bounds[0], bounds[3] - bounds[1]
+    scale = min(1.0, (SIZE - 112) / width, (SIZE - 112) / height)
+    if scale < 1:
+        font = _font(int(900 * scale))
+        bounds = probe.textbbox((0, 0), "P", font=font, stroke_width=10)
+        width, height = bounds[2] - bounds[0], bounds[3] - bounds[1]
 
-    # Green document frame.
-    shadow = Image.new("RGBA", (s, s), (0, 0, 0, 0))
-    sd = ImageDraw.Draw(shadow)
-    sd.rounded_rectangle((88, 78, 888, 942), radius=92, fill=(0, 70, 35, 85))
-    shadow = shadow.filter(ImageFilter.GaussianBlur(26))
-    im.alpha_composite(shadow)
+    position = ((SIZE - width) / 2 - bounds[0], (SIZE - height) / 2 - bounds[1])
+    glyph = Image.new("L", (SIZE, SIZE), 0)
+    ImageDraw.Draw(glyph).text(position, "P", font=font, fill=255, stroke_width=10, stroke_fill=255)
 
-    frame = _gradient(s, (56, 245, 24, 255), (0, 120, 65, 255))
-    mask = Image.new("L", (s, s), 0)
-    md = ImageDraw.Draw(mask)
-    md.rounded_rectangle((82, 68, 900, 936), radius=92, fill=255)
-    im.alpha_composite(Image.composite(frame, Image.new("RGBA", (s, s)), mask))
+    shadow_mask = Image.new("L", (SIZE, SIZE), 0)
+    shadow_mask.paste(glyph, (0, 18))
+    shadow_mask = shadow_mask.filter(ImageFilter.GaussianBlur(18))
+    shadow = Image.new("RGBA", (SIZE, SIZE), (0, 64, 34, 0))
+    shadow.putalpha(shadow_mask.point(lambda value: value * 96 // 255))
 
-    # White paper area with folded corner.
-    paper = Image.new("RGBA", (s, s), (0, 0, 0, 0))
-    pd = ImageDraw.Draw(paper)
-    pd.rounded_rectangle((138, 124, 850, 884), radius=62, fill=(250, 252, 253, 255))
-    pd.polygon([(650, 124), (850, 324), (650, 324)], fill=(30, 188, 76, 255))
-    im.alpha_composite(paper)
+    gradient = Image.new("RGBA", (SIZE, SIZE), (0, 0, 0, 0))
+    draw = ImageDraw.Draw(gradient)
+    for y in range(SIZE):
+        t = y / (SIZE - 1)
+        color = (
+            round(124 * (1 - t)),
+            round(255 * (1 - t) + 122 * t),
+            round(50 * (1 - t) + 61 * t),
+            255,
+        )
+        draw.line((0, y, SIZE, y), fill=color)
+    gradient.putalpha(glyph)
 
-    # Large green P.
-    pfont = _font(590)
-    pd = ImageDraw.Draw(im)
-    pbox = pd.textbbox((0, 0), "P", font=pfont)
-    px = 205 - pbox[0]
-    py = 172 - pbox[1]
-    pd.text((px + 12, py + 16), "P", font=pfont, fill=(0, 70, 35, 85))
-    pd.text((px, py), "P", font=pfont, fill=(8, 188, 45, 255), stroke_width=5, stroke_fill=(0, 120, 55, 255))
-
-    # Subtle document lines.
-    line_y = [690, 765, 840]
-    widths = [390, 500, 330]
-    for y, w in zip(line_y, widths):
-        pd.rounded_rectangle((194, y, 194 + w, y + 26), radius=13, fill=(180, 197, 207, 255))
-
-    # Green approval badge.
-    badge = Image.new("RGBA", (s, s), (0, 0, 0, 0))
-    bd = ImageDraw.Draw(badge)
-    bd.ellipse((535, 565, 925, 955), fill=(0, 85, 45, 90))
-    badge = badge.filter(ImageFilter.GaussianBlur(12))
-    im.alpha_composite(badge)
-
-    badge = _gradient(s, (90, 245, 40, 255), (0, 135, 68, 255))
-    bmask = Image.new("L", (s, s), 0)
-    bmd = ImageDraw.Draw(bmask)
-    bmd.ellipse((520, 550, 910, 940), fill=255)
-    im.alpha_composite(Image.composite(badge, Image.new("RGBA", (s, s)), bmask))
-
-    # White check mark.
-    d = ImageDraw.Draw(im)
-    d.line([(615, 744), (690, 815), (820, 670)], fill="white", width=48, joint="curve")
-    d.ellipse((591, 720, 639, 768), fill="white")
-    d.ellipse((796, 646, 844, 694), fill="white")
-
-    im.save(PNG, "PNG", optimize=True)
-    icon = im.convert("RGB")
+    icon = Image.new("RGBA", (SIZE, SIZE), (0, 0, 0, 0))
+    icon.alpha_composite(shadow)
+    icon.alpha_composite(gradient)
+    icon.save(PNG, "PNG", optimize=True)
     icon.save(
         OUT,
         format="ICO",
         sizes=[(16, 16), (24, 24), (32, 32), (48, 48), (64, 64), (128, 128), (256, 256)],
     )
-    print(f"Created {OUT} and {PNG}")
+    print(f"Created transparent green P icon: {OUT} and {PNG}")
 
 
 if __name__ == "__main__":

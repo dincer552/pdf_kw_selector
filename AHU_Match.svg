@@ -1,13 +1,16 @@
 <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 512 512">
-<defs>
- <linearGradient id="g" x1="0" y1="0" x2="1" y2="1"><stop offset="0" stop-color="#7CFF32"/><stop offset=".42" stop-color="#19D64B"/><stop offset="1" stop-color="#007A3D"/></linearGradient>
- <linearGradient id="h" x1="0" y1="0" x2="1" y2="1"><stop stop-color="#D9FFD0" stop-opacity=".9"/><stop offset=".45" stop-color="#9CFF72" stop-opacity=".2"/><stop offset="1" stop-color="#fff" stop-opacity="0"/></linearGradient>
- <filter id="s" x="-30%" y="-30%" width="160%" height="160%"><feDropShadow dx="0" dy="8" stdDeviation="10" flood-opacity=".28"/></filter>
-</defs>
-<g filter="url(#s)">
- <path d="M82 82h235c76 0 137 57 137 128 0 74-61 126-137 126H212v100c0 18-12 28-30 28h-46c-18 0-28-10-28-28V110c0-18 10-28 28-28z" fill="url(#g)" stroke="#007A3D" stroke-width="8" stroke-linejoin="round"/>
- <path d="M115 108h198c58 0 108 42 108 102 0 56-50 99-108 99H199v-91h114c19 0 34-10 34-27 0-18-15-29-34-29H199v232h-48V126c0-10 4-18 12-18z" fill="url(#h)" opacity=".72"/>
- <path d="M199 162h114c31 0 58 18 58 56s-27 56-58 56H199z" fill="#006F38" opacity=".42"/>
- <path d="M151 126h48v312h-48z" fill="#13B947" opacity=".78"/>
-</g>
+  <defs>
+    <linearGradient id="green" x1="0" y1="0" x2="0" y2="1">
+      <stop stop-color="#7cff32"/>
+      <stop offset=".42" stop-color="#19d64b"/>
+      <stop offset="1" stop-color="#007a3d"/>
+    </linearGradient>
+    <filter id="shadow" x="-20%" y="-15%" width="140%" height="140%">
+      <feDropShadow dx="0" dy="8" stdDeviation="10" flood-color="#004022" flood-opacity=".28"/>
+    </filter>
+  </defs>
+  <text x="256" y="456" text-anchor="middle" textLength="438" lengthAdjust="spacingAndGlyphs"
+        font-family="Arial, Segoe UI, sans-serif" font-size="560" font-weight="700"
+        fill="url(#green)" stroke="#007a3d" stroke-width="7" stroke-linejoin="round"
+        paint-order="stroke" filter="url(#shadow)">P</text>
 </svg>

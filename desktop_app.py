@@ -60,6 +60,7 @@ class App(tk.Tk):
             base = Path(getattr(sys, "_MEIPASS", Path(__file__).resolve().parent))
             icon_path = base / "AHU_Match.ico"
             if icon_path.exists():
+                self.iconbitmap(str(icon_path))
                 self.iconbitmap(default=str(icon_path))
         except Exception as exc:
             try:
