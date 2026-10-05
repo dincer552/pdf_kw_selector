@@ -141,6 +141,58 @@ def test_selection_falls_back_to_type_row_and_rated_current_text(monkeypatch):
     assert results[0].current == "6,80"
 
 
+def test_selection_parses_type_model_when_supplier_fields_are_interleaved(monkeypatch):
+    class FakePage:
+        def __init__(self, text, model_text, current_text, direction):
+            self.text = text
+            self.model_text = model_text
+            self.current_text = current_text
+            self.direction = direction
+
+        def get_text(self, kind):
+            assert kind == "text"
+            return self.text
+
+    supply_page = FakePage(
+        "Plug fan\nSupply air Section length [mm] 941,0\n"
+        "Fan data 15.000 EC Plug Model Brand M3G150IF / 2x1\n"
+        "Type EC Plug Model Brand\nSupplier / Model / Quantity in WxH\n"
+        "Rated Current [A]\n10,30",
+        "g K3G450-PB29-N1 FAN (EBM) / 2x1",
+        ", 10,30",
+        "Supply air",
+    )
+    exhaust_page = FakePage(
+        "Plug fan\nExhaust air Section length [mm] 900,0\n"
+        "Fan data 12.000 EC Plug Model Brand M3G112GA / 2x1\n"
+        "Type EC Plug Model Brand\nSupplier / Model / Quantity in WxH\n"
+        "Rated Current [A]\n4,40",
+        "g K3G355-PV70-05 FAN (EBM) / 2x1",
+        ", 4,40",
+        "Exhaust air",
+    )
+    monkeypatch.setattr(
+        "coordinate_motor_discovery._rect_text",
+        lambda page, box: {
+            _DIRECTION_RECT: page.direction,
+            _SELECTION_MODEL_RECT: page.model_text,
+            _SELECTION_CURRENT_RECT: page.current_text,
+        }[box],
+    )
+
+    results = discover_selection_motor_models(
+        document=[supply_page, exhaust_page]
+    )
+
+    assert [
+        (result.component_role, result.model, result.quantity, result.current)
+        for result in results
+    ] == [
+        ("supply_fan", "K3G450-PB29-N1", "2x1", "10,30"),
+        ("exhaust_fan", "K3G355-PV70-05", "2x1", "4,40"),
+    ]
+
+
 def test_model_lists_compare_case_and_separator_insensitively_but_keep_counts():
     assert compare_motor_model_lists(
         ["VBH0500CTTRS/L"] * 2,

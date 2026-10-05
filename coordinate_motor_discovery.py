@@ -23,11 +23,13 @@ _CURRENT_VALUE_RE=re.compile(r"\s*([0-9]+(?:[.,][0-9]+)?)\s*A?\s*",re.I)
 _SELECTION_QUANTITY_RE=re.compile(r"(?<!\d)(\d+)\s*[x×]\s*(\d+)(?!\d)",re.I)
 _FAN_TYPE_CODE_RE=re.compile(r"\b[A-Z0-9]+(?:-[A-Z0-9]+)+\b",re.I)
 _FAN_TYPE_ROW_RE=re.compile(r"\bType\s+(?P<value>.*?)\s+Model\s+Brand\b",re.I|re.S)
+_FAN_TYPE_MODEL_RE=re.compile(r"\bType\s+(?P<model>[A-Z0-9]+(?:-[A-Z0-9]+)+)\s+FAN\b",re.I)
 _SUPPLIER_QUANTITY_RE=re.compile(
  r"Supplier\s*/\s*Model\s*/\s*Quantity\s+in\s+WxH\s*/?\s*"
  r"(?P<quantity>\d+\s*[x×]\s*\d+)",
  re.I,
 )
+_SUPPLIER_LABEL_RE=re.compile(r"Supplier\s*/\s*Model\s*/\s*Quantity\s+in\s+WxH\b",re.I)
 _RATED_CURRENT_RE=re.compile(r"\bRated\s+Current\s*\[A\]\s*[:=]?\s*([0-9]+(?:[.,][0-9]+)?)",re.I)
 
 @dataclass(frozen=True)
@@ -52,6 +54,15 @@ def _rect_text(page,box):
 
 def _is_plug_fan_page(page):
  return bool(re.search(r"\bplug\s+fan\b",page.get_text("text") or "",re.I))
+
+def _page_fan_direction(page_text):
+ text=re.sub(r"\s+"," ",str(page_text or ""))
+ plug_match=re.search(r"\bplug\s+fan\b",text,re.I)
+ if plug_match:
+  nearby=text[plug_match.end():plug_match.end()+240]
+  direction_match=re.search(r"\b(supply|exhaust)\s+air\b",nearby,re.I)
+  if direction_match:return f"{direction_match.group(1)} air".casefold()
+ return None
 
 def _parse_rated_power(raw):
  compact=re.sub(r"\s+"," ",raw.strip())
@@ -90,8 +101,7 @@ def discover_selection_motor_models(path: str|Path|None=None,document=None):
    current_text=_rect_text(page,_SELECTION_CURRENT_RECT)
    page_text=page.get_text("text") or ""
    if direction not in {"supply air","exhaust air"}:
-    direction_match=re.search(r"\bPlug\s+fan\s+(Supply\s+air|Exhaust\s+air)\b",page_text,re.I)
-    direction=direction_match.group(1).casefold() if direction_match else direction
+    direction=_page_fan_direction(page_text) or direction
    if not _CURRENT_VALUE_RE.fullmatch(current_text):
     current_match=_RATED_CURRENT_RE.search(page_text)
     current_text=current_match.group(1) if current_match else current_text
@@ -111,22 +121,37 @@ def parse_selection_motor_model(text,direction,page_number=1,current_text="",pag
  if match:
   model=match.group("model").strip().rstrip(".,;")
   quantity=re.sub(r"\s*[x×]\s*","x",match.group("quantity"))
+  source_text=match.group(0)
  else:
   quantity_match=_SELECTION_QUANTITY_RE.search(cleaned)
+  model_match=_FAN_TYPE_CODE_RE.search(cleaned)
+  normalized_page_text=re.sub(r"\s+"," ",str(page_text or ""))
   if quantity_match is None:
-   supplier_quantity=_SUPPLIER_QUANTITY_RE.search(re.sub(r"\s+"," ",str(page_text or "")))
+   supplier_quantity=_SUPPLIER_QUANTITY_RE.search(normalized_page_text)
    if supplier_quantity:
     quantity_match=_SELECTION_QUANTITY_RE.search(supplier_quantity.group("quantity"))
-  if quantity_match is None:return None
-  quantity=f"{quantity_match.group(1)}x{quantity_match.group(2)}"
-  type_row=_FAN_TYPE_ROW_RE.search(re.sub(r"\s+"," ",str(page_text or "")))
-  if type_row is None:return None
-  model_match=_FAN_TYPE_CODE_RE.search(type_row.group("value"))
-  if model_match is None:return None
-  model=model_match.group(0).strip()
- current_match=_CURRENT_VALUE_RE.fullmatch(str(current_text or ""))
+   else:
+    supplier_label=_SUPPLIER_LABEL_RE.search(normalized_page_text)
+    if supplier_label:
+     quantity_match=_SELECTION_QUANTITY_RE.search(normalized_page_text[supplier_label.end():supplier_label.end()+160])
+  quantity=f"{quantity_match.group(1)}x{quantity_match.group(2)}" if quantity_match else None
+  if model_match is None:
+   type_row=_FAN_TYPE_ROW_RE.search(normalized_page_text)
+   model_match=_FAN_TYPE_CODE_RE.search(type_row.group("value")) if type_row else None
+   if model_match is None:
+    type_model=_FAN_TYPE_MODEL_RE.search(normalized_page_text)
+    if type_model:
+     model=type_model.group("model").strip()
+    else:
+     return None
+   else:
+    model=model_match.group(0).strip()
+  else:
+   model=model_match.group(0).strip()
+  source_text=f"{model} / {quantity}" if quantity else model
+ cleaned_current=re.sub(r"^[\s,:;|]+|[\s,:;|]+$","",str(current_text or ""))
+ current_match=_CURRENT_VALUE_RE.fullmatch(cleaned_current)
  current=current_match.group(1) if current_match else None
- source_text=match.group(0) if match else f"{model} / {quantity}"
  return MotorModelResult(page_number,component_role,model,quantity,source_text,current)
 
 def normalize_motor_model(model):
