@@ -2,6 +2,7 @@
 from __future__ import annotations
 from dataclasses import dataclass
 from typing import Any
+from motor_brand import is_special_motor_brand, normalize_motor_brand
 import tkinter as tk
 from tkinter import ttk
 
@@ -23,10 +24,9 @@ def is_match_status(value: Any) -> bool:
     """Only the literal MATCH status counts toward the motor MATCH total."""
     return normalize_status(value) == STATUS_MATCH
 
-def _is_ebm_papst(record: Any) -> bool:
+def _is_special_brand(record: Any) -> bool:
     if record is None: return False
-    brand = str(getattr(record, "model_brand", "") or "").casefold().replace(" ", "")
-    return "ebm-papst" in brand or "ebmpapst" in brand
+    return is_special_motor_brand(getattr(record, "model_brand", None))
 
 def _is_legacy_1_1_equivalent(pdf1_kw: float | None, pdf2_kw: float | None) -> bool:
     return pdf1_kw is not None and pdf2_kw is not None and abs(pdf1_kw - 1.1) <= 0.001 and abs(pdf2_kw - 1.5) <= 0.001
@@ -44,8 +44,9 @@ def decide_motor_status(pdf1_record: Any, pdf2_record: Any, tolerance_kw: float 
     pdf2_kw = getattr(pdf2_record, "power_kw", None) if pdf2_record is not None else None
     if pdf1_record is None: return StatusDecision(STATUS_ONLY_IN_PDF2, None, "PDF1 tarafında karşılığı bulunamadı.")
     if pdf2_record is None: return StatusDecision(STATUS_ONLY_IN_PDF1, None, "PDF2 tarafında karşılığı bulunamadı.")
-    if _is_ebm_papst(pdf1_record):
-        return StatusDecision(STATUS_EBM_PAPST, None, "PDF1 Model Brand = EBM-Papst; normal kW karşılaştırması yapılmadı. PDF2 motoru eşleştirildi.")
+    if _is_special_brand(pdf1_record):
+        brand = normalize_motor_brand(getattr(pdf1_record, "model_brand", None))
+        return StatusDecision(STATUS_EBM_PAPST, None, f"PDF1 Model Brand = {brand}; normal kW karşılaştırması yapılmadı. PDF2 motoru eşleştirildi.")
     difference = abs((pdf1_kw or 0.0) - (pdf2_kw or 0.0))
     if _is_legacy_1_1_equivalent(pdf1_kw, pdf2_kw):
         return StatusDecision(STATUS_MATCH, difference, "Özel eşdeğerlik: PDF1 1.1 kW, PDF2 1.5 kW kabul edildi. Bu istisna yalnızca 1.1→1.5 için geçerlidir.")

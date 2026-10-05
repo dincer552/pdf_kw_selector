@@ -503,13 +503,18 @@ class App(tk.Tk):
             text_box.pack(side="left", fill="both", expand=True)
 
             fname = Path(item.path).name
-            tk.Label(text_box, text=fname, bg="#ffffff", fg="#0f172a", font=("Segoe UI", 9, "bold"), anchor="w").pack(fill="x", anchor="w")
+            name_label = tk.Label(text_box, text=fname, bg="#ffffff", fg="#2563eb", font=("Segoe UI", 9, "bold", "underline"), anchor="w")
+            name_label.pack(fill="x", anchor="w")
 
             size_str = self._format_bytes(getattr(item, "size_bytes", 0))
             sub_info = f"{size_str} • {str(item.path)}"
             if len(sub_info) > 60:
                 sub_info = sub_info[:57] + "..."
-            tk.Label(text_box, text=sub_info, bg="#ffffff", fg="#64748b", font=("Segoe UI", 8), anchor="w").pack(fill="x", anchor="w")
+            path_label = tk.Label(text_box, text=sub_info, bg="#ffffff", fg="#64748b", font=("Segoe UI", 8), anchor="w")
+            path_label.pack(fill="x", anchor="w")
+
+            for widget in (card, icon, text_box, name_label, path_label):
+                self._bind_pdf_open(widget, item.path, side)
 
             # Silme butonu (Trash can button 🗑)
             del_btn = tk.Button(
@@ -530,6 +535,15 @@ class App(tk.Tk):
         reg = getattr(self, "_register_drop_target", None)
         if reg:
             reg(scroll_frame, side)
+
+    def _bind_pdf_open(self, widget, file_path: str | Path, side: str):
+        widget.configure(cursor="hand2")
+        widget.bind(
+            "<Button-1>",
+            lambda _event, path=file_path, source=side: self.open_pdf_document(
+                path, 1, f"{source} PDF"
+            ),
+        )
 
     def add_files(self, side):
         self._merge_inputs(side, list(filedialog.askopenfilenames(title=f"{side} PDF seç", filetypes=[("PDF", "*.pdf")])))

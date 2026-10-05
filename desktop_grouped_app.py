@@ -29,7 +29,7 @@ class GroupedApp(BaseApp):
     def __init__(self):
         super().__init__(); self._analysis_started_at=None; self._grouped_pdf1_scan_cache={}; self._ebm_pdf_keys=set(); self._vocclean_pdf_keys=set(); self._sysreco_pdf_keys=set(); self._unmatched_pdf_keys=set(); self._pdf_accounting_error_shown=False; self._build_ebm_tab(); self._build_voclean_tab(); self._build_sysreco_tab(); self.tabs.tab(0,text="DANFOS"); self.tabs.insert(1,self.ebm_tab); self.tabs.insert(2,self.voclean_tab); self.tabs.insert(3,self.sysreco_tab); self.unmatched_tab_index=lambda:4; self.tree.tag_configure("mismatch",background="#ffb3b3",foreground="#000000"); install_pdf_drop_targets(self,self.pdf1_box,self.pdf2_box); install_status_display(self)
     def _build_ebm_tab(self):
-        tab=ttk.Frame(self.tabs, style="White.TFrame"); self.tabs.add(tab,text="EBM-PAPST (0)"); cols=("Proje","AHU","Fan","Seçim çıktısı","Elektrik p.","Seçim motor modeli / akımı","Elektrik motor modeli","Elektrik sigortası","Sigorta kontrolü","Durum"); widths={"Proje":240,"AHU":120,"Fan":120,"Seçim çıktısı":260,"Elektrik p.":300,"Seçim motor modeli / akımı":280,"Elektrik motor modeli":250,"Elektrik sigortası":190,"Sigorta kontrolü":300,"Durum":240}; ranges=" | ".join(f"{item.rating_a} A: {item.minimum_current_a:g}–<{item.maximum_current_a:g} A" for item in FUSE_CURRENT_RANGES[:-1]); ranges += f" | {FUSE_CURRENT_RANGES[-1].rating_a} A: {FUSE_CURRENT_RANGES[-1].minimum_current_a:g}–{FUSE_CURRENT_RANGES[-1].maximum_current_a:g} A"; range_label=ttk.Label(tab,text=f"Sigorta-akım limitleri: {ranges}",style="Muted.TLabel",anchor="w"); range_label.grid(row=0,column=0,columnspan=2,sticky="ew",padx=8,pady=(6,2)); self.ebm_tree=ttk.Treeview(tab,columns=cols,show="headings"); tab.grid_rowconfigure(1,weight=1); tab.grid_columnconfigure(0,weight=1)
+        tab=ttk.Frame(self.tabs, style="White.TFrame"); self.tabs.add(tab,text="Ziehl-Ab. / EBM (0)"); cols=("Proje","AHU","Fan","Seçim çıktısı","Elektrik p.","Seçim motor modeli / akımı","Elektrik motor modeli","Elektrik sigortası","Sigorta kontrolü","Durum"); widths={"Proje":240,"AHU":120,"Fan":120,"Seçim çıktısı":260,"Elektrik p.":300,"Seçim motor modeli / akımı":280,"Elektrik motor modeli":250,"Elektrik sigortası":190,"Sigorta kontrolü":300,"Durum":240}; ranges=" | ".join(f"{item.rating_a} A: {item.minimum_current_a:g}–<{item.maximum_current_a:g} A" for item in FUSE_CURRENT_RANGES[:-1]); ranges += f" | {FUSE_CURRENT_RANGES[-1].rating_a} A: {FUSE_CURRENT_RANGES[-1].minimum_current_a:g}–{FUSE_CURRENT_RANGES[-1].maximum_current_a:g} A"; range_label=ttk.Label(tab,text=f"Sigorta-akım limitleri: {ranges}",style="Muted.TLabel",anchor="w"); range_label.grid(row=0,column=0,columnspan=2,sticky="ew",padx=8,pady=(6,2)); self.ebm_tree=ttk.Treeview(tab,columns=cols,show="headings"); tab.grid_rowconfigure(1,weight=1); tab.grid_columnconfigure(0,weight=1)
         for col in cols:self.ebm_tree.heading(col,text=col);self.ebm_tree.column(col,width=widths[col],anchor="w")
         self.ebm_tree.tag_configure("model_match",background="#e6ffed",foreground="#116329")
         self.ebm_tree.tag_configure("model_mismatch",background="#ffebe9",foreground="#b62324")
@@ -220,7 +220,7 @@ class GroupedApp(BaseApp):
                 "pdf1_name": r[3],
                 "pdf2_name": r[4],
             }
-        self.tabs.tab(self.ebm_tab,text=f"EBM-PAPST ({len(self._ebm_pdf_keys)})")
+        self.tabs.tab(self.ebm_tab,text=f"Ziehl-Ab. / EBM ({len(self._ebm_pdf_keys)})")
     def _selected_pdf_keys(self):
         result=set()
         for side,inputs in (("PDF1",self.pdf1_inputs),("PDF2",self.pdf2_inputs)):
@@ -233,7 +233,7 @@ class GroupedApp(BaseApp):
             result.update(("PDF1",str(path).casefold()) for path in ahu.pdf1_files); result.update(("PDF2",str(path).casefold()) for path in ahu.pdf2_files)
         return result
     def _pdf_classification(self):
-        all_keys=self._selected_pdf_keys(); ebm,voc,sysr=self._special_pdf_sets(); matched=self._matched_pdf_keys(); special=ebm|voc|sysr; danfos=matched-special; unmatched=all_keys-special-matched; categories={"DANFOS":danfos,"EBM-PAPST":ebm,"VOCLEAN":voc,"SYSRECO":sysr,"EŞLEŞMEYEN":unmatched}; return all_keys,categories
+        all_keys=self._selected_pdf_keys(); ebm,voc,sysr=self._special_pdf_sets(); matched=self._matched_pdf_keys(); special=ebm|voc|sysr; danfos=matched-special; unmatched=all_keys-special-matched; categories={"DANFOS":danfos,"Ziehl-Ab. / EBM":ebm,"VOCLEAN":voc,"SYSRECO":sysr,"EŞLEŞMEYEN":unmatched}; return all_keys,categories
     def _validate_pdf_accounting(self):
         all_keys,categories=self._pdf_classification(); sets=list(categories.values()); overlaps=[]; names=list(categories)
         for i in range(len(sets)):
@@ -255,7 +255,7 @@ class GroupedApp(BaseApp):
         counts["EŞLEŞMEYEN"]=rendered_unmatched_count
         if classified_unmatched_count!=rendered_unmatched_count:
             info("Eşleşmeyen PDF sekme sayısı tablo satırıyla eşitlendi",classified_count=classified_unmatched_count,rendered_count=rendered_unmatched_count)
-        self.tabs.tab(0,text=f"DANFOS ({counts['DANFOS']})"); self.tabs.tab(self.ebm_tab,text=f"EBM-PAPST ({counts['EBM-PAPST']})"); self.tabs.tab(self.vocclean_tab,text=f"VOCLEAN ({counts['VOCLEAN']})"); self.tabs.tab(self.sysreco_tab,text=f"SYSRECO ({counts['SYSRECO']})"); self.tabs.tab(self.unmatched_tab_index(),text=f"EŞLEŞMEYEN PDF'LER ({counts['EŞLEŞMEYEN']})"); info("PDF sekme sınıflandırması tamamlandı",selected_pdf_count=sum(counts.values()),**{f"{k.lower().replace('-','_').replace(' ','_')}_pdf_count":v for k,v in counts.items()})
+        self.tabs.tab(0,text=f"DANFOS ({counts['DANFOS']})"); self.tabs.tab(self.ebm_tab,text=f"Ziehl-Ab. / EBM ({counts['Ziehl-Ab. / EBM']})"); self.tabs.tab(self.vocclean_tab,text=f"VOCLEAN ({counts['VOCLEAN']})"); self.tabs.tab(self.sysreco_tab,text=f"SYSRECO ({counts['SYSRECO']})"); self.tabs.tab(self.unmatched_tab_index(),text=f"EŞLEŞMEYEN PDF'LER ({counts['EŞLEŞMEYEN']})"); info("PDF sekme sınıflandırması tamamlandı",selected_pdf_count=sum(counts.values()),**{f"{k.lower().replace('-','_').replace(' ','_')}_pdf_count":v for k,v in counts.items()})
     def _render_unmatched(self):
         for item in self.unmatched_tree.get_children(): self.unmatched_tree.delete(item)
         self._unmatched_cell_data = {}
@@ -276,7 +276,7 @@ class GroupedApp(BaseApp):
         if hasattr(self, "_ebm_cell_data"): self._ebm_cell_data.clear()
         if hasattr(self, "_voclean_cell_data"): self._voclean_cell_data.clear()
         if hasattr(self, "_sysreco_cell_data"): self._sysreco_cell_data.clear()
-        self._grouped_pdf1_scan_cache.clear(); self._ebm_pdf_keys.clear(); self._vocclean_pdf_keys.clear(); self._sysreco_pdf_keys.clear(); self._unmatched_pdf_keys.clear(); self._pdf_accounting_error_shown=False; self.tabs.tab(0,text="DANFOS (0)"); self.tabs.tab(self.ebm_tab,text="EBM-PAPST (0)"); self.tabs.tab(self.voclean_tab,text="VOCLEAN (0)"); self.tabs.tab(self.sysreco_tab,text="SYSRECO (0)")
+        self._grouped_pdf1_scan_cache.clear(); self._ebm_pdf_keys.clear(); self._vocclean_pdf_keys.clear(); self._sysreco_pdf_keys.clear(); self._unmatched_pdf_keys.clear(); self._pdf_accounting_error_shown=False; self.tabs.tab(0,text="DANFOS (0)"); self.tabs.tab(self.ebm_tab,text="Ziehl-Ab. / EBM (0)"); self.tabs.tab(self.voclean_tab,text="VOCLEAN (0)"); self.tabs.tab(self.sysreco_tab,text="SYSRECO (0)")
     def _on_ebm_cell_click(self, event):
         region = self.ebm_tree.identify_region(event.x, event.y)
         if region != "cell":

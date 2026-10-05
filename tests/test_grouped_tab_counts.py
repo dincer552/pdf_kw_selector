@@ -26,7 +26,7 @@ class FakeApp(SimpleNamespace):
 def test_unmatched_tab_count_matches_the_rows_shown():
     categories = {
         "DANFOS": set(),
-        "EBM-PAPST": set(),
+        "Ziehl-Ab. / EBM": set(),
         "VOCLEAN": set(),
         "SYSRECO": set(),
         "EŞLEŞMEYEN": set(),

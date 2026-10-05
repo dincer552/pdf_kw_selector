@@ -42,7 +42,7 @@ def _discover_documents(paths:list[str|Path],side:str)->list[BatchDocument]:
     for path in valid_paths:
         try:
             scan=scan_pdf(path,side); document=BatchDocument(path,side,scan.project,scan.equipment.unique_ids()); documents.append(document)
-            info("PDF master keşfi tamamlandı",side=side,path=path,pages=scan.page_count,project=scan.project.project_name,equipment=list(document.equipment),motor_count=len(scan.pdf1_motors if side=="PDF1" else scan.pdf2_motors),ebm_pages=list(scan.pdf1_ebm_pages))
+            info("PDF master keşfi tamamlandı",side=side,path=path,pages=scan.page_count,project=scan.project.project_name,equipment=list(document.equipment),motor_count=len(scan.pdf1_motors if side=="PDF1" else scan.pdf2_motors),special_brand_pages=list(scan.pdf1_ebm_pages))
         except Exception as exc: exception("PDF keşfi başarısız; dosya analizin dışında bırakıldı",exc,side=side,path=path)
     return documents
 
@@ -203,7 +203,7 @@ def _infer_unresolved_right_documents(left_groups,right_documents,already_matche
         if best:assignments.setdefault(best[2],[]).append(document)
     return assignments
 
-def _is_ebm_pdf1(paths):
+def _is_special_brand_pdf1(paths):
     for path in paths:
         scan=scan_pdf(path,"PDF1")
         if scan.pdf1_ebm_pages:
@@ -235,8 +235,8 @@ def analyze_batch(pdf1_paths,pdf2_paths,progress_callback=None):
         for am in match_ahu_lists(left_equipment,right_equipment):
             lf=_files_for_ahu(lg,am.left_normalized);rf=_files_for_ahu(rg,am.right_normalized); info("AHU MATCH DEBUG: aday",project=pm.left_name,left=am.left_normalized,right=am.right_normalized,score=am.score,status=am.status,reason=getattr(am,"reason",None),pdf1_files=list(lf),pdf2_files=list(rf)); ahu_batches.append(BatchAHU(pm.left_name,am,lf,rf))
             if am.status not in {"EXACT","NORMALIZED_MATCH","USER_APPROVED","APPROVED_FLEXIBLE"}:continue
-            if _is_ebm_pdf1(lf):
-                info("EBM-Papst PDF1 motor karşılaştırması atlandı; AHU eşleşmesi korunuyor",project=pm.left_name,ahu=am.left_normalized,pdf1_files=list(lf),pdf2_files=list(rf))
+            if _is_special_brand_pdf1(lf):
+                info("Özel motor markalı PDF1 kW karşılaştırması atlandı; AHU eşleşmesi korunuyor",project=pm.left_name,ahu=am.left_normalized,pdf1_files=list(lf),pdf2_files=list(rf))
                 continue
             try:
                 pdf1_records = _extract_side_motors(lf,"PDF1",am.left_normalized)

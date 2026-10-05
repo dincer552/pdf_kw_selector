@@ -4,10 +4,16 @@ from stage1_page_discovery import (
     detect_component_type,
     discover_motor_power_page,
     extract_rated_motor_power_from_page,
+    extract_model_brand,
     find_rated_motor_power_in_pdf,
 )
 
 PDF_SAMPLE = Path("tests/data/AHU-1_secim.pdf")
+
+
+def test_motor_brand_extraction_supports_ziehl_abegg():
+    assert extract_model_brand("Motor data Model Brand Ziehl-Abegg") == "Ziehl-Abegg"
+    assert extract_model_brand("Motor data Model Brand Ziehl Abegg") == "Ziehl-Abegg"
 
 
 def test_exact_rated_power_line_is_extracted():

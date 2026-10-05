@@ -6,6 +6,7 @@ from pathlib import Path
 import fitz
 from pdf_kw_selector import normalize_power
 from stage1_page_discovery import MotorPowerResult
+from motor_brand import normalize_motor_brand
 _DIRECTION_RECT=(175.0,694.0,91.0,16.0)
 _RATED_POWER_RECT=(429.0,634.0,131.0,13.0)
 _MODEL_BRAND_RECT=(429.0,656.0,131.0,12.0)
@@ -83,7 +84,7 @@ def discover_coordinate_motor_powers(path: str|Path|None=None,document=None):
    if direction not in {"supply air","exhaust air"}:continue
    rated_raw=_rect_text(page,_RATED_POWER_RECT);parsed=_parse_rated_power(rated_raw)
    if not parsed:continue
-   value_kw,raw_value,quantity=parsed;model_brand=_rect_text(page,_MODEL_BRAND_RECT)
+   value_kw,raw_value,quantity=parsed;model_brand=normalize_motor_brand(_rect_text(page,_MODEL_BRAND_RECT))
    if direction=="supply air":component_type,component_role="Vantilatör","supply_fan"
    else:component_type,component_role="Aspiratör","exhaust_fan"
    result.setdefault(page_number,[]).append(MotorPowerResult(page_number=page_number,value_kw=value_kw,raw_value=raw_value,quantity=quantity,field="fan_motor_power_coordinates",confidence="high",source_text=f"{direction.title()} | {rated_raw}",component_type=component_type,component_role=component_role,equipment_id=None,model_brand=model_brand or None))

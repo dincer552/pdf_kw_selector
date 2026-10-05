@@ -67,3 +67,7 @@ def test_special_statuses_are_decided_centrally():
     assert decide_motor_status(None, motor(7.5)).status == STATUS_ONLY_IN_PDF2
     assert decide_motor_status(motor(7.5), None).status == STATUS_ONLY_IN_PDF1
     assert decide_motor_status(motor(7.5, "EBM-Papst"), motor(7.5)).status == STATUS_EBM_PAPST
+    ziehl = decide_motor_status(motor(7.5, "Ziehl-Abegg"), motor(1.0))
+    assert ziehl.status == STATUS_EBM_PAPST
+    assert ziehl.difference_kw is None
+    assert "Ziehl-Abegg" in ziehl.explanation

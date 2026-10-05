@@ -6,6 +6,7 @@ from pathlib import Path
 import fitz
 from ahu_matching import AHUDiscovery, EquipmentOccurrence, normalize_equipment_id
 from app_logger import exception, info, warning
+from motor_brand import is_special_motor_brand
 from project_discovery import ProjectDiscovery, ProjectCandidate, normalize_project_name
 from pdf1_field_discovery import discover_pdf1_project, discover_pdf1_unit_reference
 from stage1_page_discovery import MotorPowerResult, build_stage1_motor_records, _dedupe_motor_results
@@ -116,7 +117,7 @@ def _scan_single_pdf(path, side):
             equipment = discover_pdf1_unit_reference(list(pages), document=doc)
             ids = equipment.unique_ids(); equipment_id = ids[0] if ids else None
             motors = _scan_pdf1_motors(pages, equipment_id, path=resolved, document=doc)
-            ebm_pages = tuple(sorted({r.page_number for r in motors if (r.model_brand or "").strip().casefold() == "ebm-papst"}))
+            ebm_pages = tuple(sorted({r.page_number for r in motors if is_special_motor_brand(r.model_brand)}))
             motor_models = discover_selection_motor_models(document=doc)
             return MasterPDFScan(str(resolved), side, pages, project, equipment, pdf1_motors=motors,
                 pdf1_ebm_pages=ebm_pages, pdf1_motor_models=motor_models)
