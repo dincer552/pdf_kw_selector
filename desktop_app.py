@@ -636,7 +636,7 @@ class App(tk.Tk):
                 comparison.pdf2_path or "",
                 str(comparison.pdf2_page or "") if comparison.pdf2_page else "",
             )
-            item_id = self.tree.insert("", "end", tags=(tag,), values=row_vals)
+            item_id = self.tree.insert("", "end", tags=(status_tag,), values=row_vals)
             apply_status_tag(self.tree, item_id, comparison.status)
             self._tree_cell_data[item_id] = {
                 "pdf1_path": comparison.pdf1_path,
