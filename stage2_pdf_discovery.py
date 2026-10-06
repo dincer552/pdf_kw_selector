@@ -36,6 +36,7 @@ _MODEL_RE = re.compile(
     r"[A-Z0-9][A-Z0-9./-]*[A-Z0-9]\b",
     re.I,
 )
+_SUPPLIER_CODE_PREFIX_RE = re.compile(r"^\d{5,}\s*[-–—]\s*(?=[A-Z])", re.I)
 
 
 @dataclass(frozen=True)
@@ -142,14 +143,19 @@ def discover_coordinate_pdf2_motor_models(document) -> tuple[MotorModelResult, .
             coordinate_text = _coordinate_text_in_box(page, box)
             if not coordinate_text:
                 continue
-            match = _MODEL_RE.search(coordinate_text)
-            if not match:
+            model = None
+            for match in _MODEL_RE.finditer(coordinate_text):
+                candidate = _SUPPLIER_CODE_PREFIX_RE.sub("", match.group(0), count=1)
+                if candidate:
+                    model = candidate
+                    break
+            if model is None:
                 continue
             results.append(
                 MotorModelResult(
                     page_number=page_number,
                     component_role=component_role,
-                    model=match.group(0).strip(),
+                    model=model.strip(),
                     quantity=None,
                     source_text=coordinate_text,
                 )

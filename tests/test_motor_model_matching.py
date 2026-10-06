@@ -346,6 +346,31 @@ def test_pdf2_model_scan_checks_both_boxes_on_each_matching_connection_page(monk
     assert all(box in _MOTOR_MODEL_BOXES for _, box in calls)
 
 
+def test_pdf2_model_scan_ignores_leading_numeric_supplier_code(monkeypatch):
+    class FakePage:
+        def get_text(self, kind):
+            assert kind == "text"
+            return "Supply Motor Connections-1"
+
+    monkeypatch.setattr(
+        "stage2_pdf_discovery._coordinate_text_in_box",
+        lambda _page, box: (
+            "8300100104-VBH0310CTRLS/L"
+            if box == _MOTOR_MODEL_BOXES[0]
+            else ""
+        ),
+    )
+
+    results = discover_coordinate_pdf2_motor_models([FakePage()])
+
+    assert len(results) == 1
+    assert results[0].model == "VBH0310CTRLS/L"
+    assert compare_motor_model_lists(
+        ["VBH0310CTRLS/L"],
+        [results[0].model],
+    ) == "MODEL EŞLEŞTİ"
+
+
 def test_pdf2_fuse_scan_reads_only_the_fuse_box_on_every_supply_and_return_sheet(monkeypatch):
     class FakePage:
         def __init__(self, title):
