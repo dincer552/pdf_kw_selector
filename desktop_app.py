@@ -163,8 +163,8 @@ class App(tk.Tk):
         boxes = ttk.Frame(self._main_pane, padding=(0, 0, 0, 2))
         self.pdf1_label, self.pdf1_box = self._file_box(boxes, "Seçim Çıktısı (PDF1)", "PDF1")
         self.pdf2_label, self.pdf2_box = self._file_box(boxes, "Elektrik Projesi (PDF2)", "PDF2")
-        self.pdf1_box.pack(side="left", fill="x", expand=True, padx=(0, 5))
-        self.pdf2_box.pack(side="left", fill="x", expand=True, padx=(5, 0))
+        self.pdf1_box.pack(side="left", fill="both", expand=True, padx=(0, 5))
+        self.pdf2_box.pack(side="left", fill="both", expand=True, padx=(5, 0))
         self._main_pane.add(boxes, weight=1)
 
         # Reserve a dedicated bottom dock so actions stay visible when the
