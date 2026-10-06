@@ -44,6 +44,33 @@ def test_selection_motor_model_parses_supply_and_exhaust_models_and_quantity():
     assert exhaust.model == "VBH0450CTRNS/S"
 
 
+def test_selection_model_uses_top_box_line_not_supplier_reference_below():
+    ziehl = parse_selection_motor_model(
+        "GR31I-ZID.DC.CR -\n186637/A01 / 1x1",
+        "Supply air",
+        model_lines=("GR31I-ZID.DC.CR -", "186637/A01 / 1x1"),
+    )
+    ebm = parse_selection_motor_model(
+        "K3G450-PA31-61 FAN (EBM)\n/ 2x1",
+        "Exhaust air",
+        model_lines=("K3G450-PA31-61 FAN (EBM)", "/ 2x1"),
+    )
+
+    assert (ziehl.model, ziehl.quantity) == ("GR31I-ZID.DC.CR", "1x1")
+    assert (ebm.model, ebm.quantity) == ("K3G450-PA31-61", "2x1")
+
+
+def test_selection_model_skips_leading_supplier_code_on_model_line():
+    result = parse_selection_motor_model(
+        "8300100068- VBH0500CTTRS/L\n186637/A01 / 2x2",
+        "Supply air",
+        model_lines=("8300100068- VBH0500CTTRS/L", "186637/A01 / 2x2"),
+    )
+
+    assert result.model == "VBH0500CTTRS/L"
+    assert result.quantity == "2x2"
+
+
 def test_selection_motor_models_read_direction_and_model_from_configured_boxes(monkeypatch):
     class FakePage:
         def __init__(self, text):

@@ -25,6 +25,8 @@ _SELECTION_QUANTITY_RE=re.compile(r"(?<!\d)(\d+)\s*[x×]\s*(\d+)(?!\d)",re.I)
 _FAN_TYPE_CODE_RE=re.compile(r"\b[A-Z0-9]+(?:-[A-Z0-9]+)+\b",re.I)
 _FAN_TYPE_ROW_RE=re.compile(r"\bType\s+(?P<value>.*?)\s+Model\s+Brand\b",re.I|re.S)
 _FAN_TYPE_MODEL_RE=re.compile(r"\bType\s+(?P<model>[A-Z0-9]+(?:-[A-Z0-9]+)+)\s+FAN\b",re.I)
+_MODEL_TOKEN_RE=re.compile(r"(?<![\w])(?P<model>[A-Z0-9][A-Z0-9./-]*[A-Z0-9])(?![\w])",re.I)
+_MODEL_LABEL_TOKENS={"FAN","EBM","PAPST","ZIEHL","ABEGG"}
 _SUPPLIER_QUANTITY_RE=re.compile(
  r"Supplier\s*/\s*Model\s*/\s*Quantity\s+in\s+WxH\s*/?\s*"
  r"(?P<quantity>\d+\s*[x×]\s*\d+)",
@@ -52,6 +54,19 @@ def _viewer_rect(page,box):
 def _rect_text(page,box):
  words=page.get_text("words",clip=_viewer_rect(page,box));words.sort(key=lambda w:(w[1],w[0]))
  return " ".join(w[4].strip() for w in words if w[4].strip()).strip()
+
+def _rect_text_lines(page,box):
+ if not isinstance(page,fitz.Page):
+  return ()
+ words=page.get_text("words",clip=_viewer_rect(page,box))
+ lines={}
+ for word in words:
+  lines.setdefault((word[5],word[6]),[]).append(word)
+ ordered=sorted(lines.values(),key=lambda line:(min(word[1] for word in line),min(word[0] for word in line)))
+ return tuple(
+  " ".join(word[4].strip() for word in sorted(line,key=lambda item:item[0]) if word[4].strip()).strip()
+  for line in ordered if any(word[4].strip() for word in line)
+ )
 
 def _is_plug_fan_page(page):
  return bool(re.search(r"\bplug\s+fan\b",page.get_text("text") or "",re.I))
@@ -99,6 +114,7 @@ def discover_selection_motor_models(path: str|Path|None=None,document=None):
    if not _is_plug_fan_page(page):continue
    direction=re.sub(r"\s+"," ",_rect_text(page,_DIRECTION_RECT)).strip().casefold()
    model_text=_rect_text(page,_SELECTION_MODEL_RECT)
+   model_lines=_rect_text_lines(page,_SELECTION_MODEL_RECT)
    current_text=_rect_text(page,_SELECTION_CURRENT_RECT)
    page_text=page.get_text("text") or ""
    if direction not in {"supply air","exhaust air"}:
@@ -106,50 +122,59 @@ def discover_selection_motor_models(path: str|Path|None=None,document=None):
    if not _CURRENT_VALUE_RE.fullmatch(current_text):
     current_match=_RATED_CURRENT_RE.search(page_text)
     current_text=current_match.group(1) if current_match else current_text
-   model_result=parse_selection_motor_model(model_text,direction,page_number,current_text,page_text)
+   model_result=parse_selection_motor_model(model_text,direction,page_number,current_text,page_text,model_lines)
    if model_result is not None:result.append(model_result)
  finally:
   if owns_document:doc.close()
  return tuple(result)
 
-def parse_selection_motor_model(text,direction,page_number=1,current_text="",page_text=""):
+def _model_from_line(text):
+ line=re.sub(r"\s+"," ",str(text or "")).strip()
+ if not line:return None
+ matches=list(_SELECTION_MODEL_RE.finditer(line))
+ if matches:
+  return matches[0].group("model").strip().rstrip(".,;")
+ candidates=[
+  match.group("model").strip().rstrip(".,;")
+  for match in _MODEL_TOKEN_RE.finditer(_SELECTION_QUANTITY_RE.sub("",line))
+  if match.group("model").strip(".,;").upper() not in _MODEL_LABEL_TOKENS
+ ]
+ if not candidates:return None
+ return next((candidate for candidate in candidates if re.search(r"[A-Z]",candidate,re.I) and re.search(r"\d",candidate)),candidates[0])
+
+def parse_selection_motor_model(text,direction,page_number=1,current_text="",page_text="",model_lines=()):
  component_role={"supply air":"supply_fan","exhaust air":"exhaust_fan"}.get(
   re.sub(r"\s+"," ",str(direction or "")).strip().casefold()
  )
  if component_role is None:return None
- cleaned=re.sub(r"\s+"," ",str(text or ""))
- match=_SELECTION_MODEL_RE.search(cleaned)
- if match:
-  model=match.group("model").strip().rstrip(".,;")
-  quantity=re.sub(r"\s*[x×]\s*","x",match.group("quantity"))
-  source_text=match.group(0)
- else:
-  quantity_match=_SELECTION_QUANTITY_RE.search(cleaned)
-  model_match=_FAN_TYPE_CODE_RE.search(cleaned)
-  normalized_page_text=re.sub(r"\s+"," ",str(page_text or ""))
-  if quantity_match is None:
-   supplier_quantity=_SUPPLIER_QUANTITY_RE.search(normalized_page_text)
-   if supplier_quantity:
-    quantity_match=_SELECTION_QUANTITY_RE.search(supplier_quantity.group("quantity"))
-   else:
-    supplier_label=_SUPPLIER_LABEL_RE.search(normalized_page_text)
-    if supplier_label:
-     quantity_match=_SELECTION_QUANTITY_RE.search(normalized_page_text[supplier_label.end():supplier_label.end()+160])
-  quantity=f"{quantity_match.group(1)}x{quantity_match.group(2)}" if quantity_match else None
-  if model_match is None:
-   type_row=_FAN_TYPE_ROW_RE.search(normalized_page_text)
-   model_match=_FAN_TYPE_CODE_RE.search(type_row.group("value")) if type_row else None
-   if model_match is None:
-    type_model=_FAN_TYPE_MODEL_RE.search(normalized_page_text)
-    if type_model:
-     model=type_model.group("model").strip()
-    else:
-     return None
-   else:
-    model=model_match.group(0).strip()
+ raw_text=str(text or "")
+ cleaned=re.sub(r"\s+"," ",raw_text)
+ lines=tuple(str(line).strip() for line in model_lines if str(line).strip())
+ if not lines:
+  lines=tuple(line.strip() for line in raw_text.splitlines() if line.strip())
+ # The top row is the motor model; the lower row may be only a supplier part number.
+ model=_model_from_line(lines[0]) if lines else None
+ normalized_page_text=re.sub(r"\s+"," ",str(page_text or ""))
+ if model is None:
+  type_row=_FAN_TYPE_ROW_RE.search(normalized_page_text)
+  type_model=_FAN_TYPE_CODE_RE.search(type_row.group("value")) if type_row else None
+  if type_model is None:type_model=_FAN_TYPE_MODEL_RE.search(normalized_page_text)
+  if type_model:
+   model=type_model.group("model") if "model" in type_model.groupdict() else type_model.group(0)
+ if model is None:return None
+ quantity_matches=list(_SELECTION_QUANTITY_RE.finditer(cleaned))
+ quantity_match=quantity_matches[-1] if quantity_matches else None
+ if quantity_match is None:
+  supplier_quantity=_SUPPLIER_QUANTITY_RE.search(normalized_page_text)
+  if supplier_quantity:
+   quantity_match=_SELECTION_QUANTITY_RE.search(supplier_quantity.group("quantity"))
   else:
-   model=model_match.group(0).strip()
-  source_text=f"{model} / {quantity}" if quantity else model
+   supplier_label=_SUPPLIER_LABEL_RE.search(normalized_page_text)
+   if supplier_label:
+    supplier_matches=list(_SELECTION_QUANTITY_RE.finditer(normalized_page_text[supplier_label.end():supplier_label.end()+160]))
+    if supplier_matches:quantity_match=supplier_matches[-1]
+ quantity=f"{quantity_match.group(1)}x{quantity_match.group(2)}" if quantity_match else None
+ source_text=f"{model} / {quantity}" if quantity else model
  cleaned_current=re.sub(r"^[\s,:;|]+|[\s,:;|]+$","",str(current_text or ""))
  current_match=_CURRENT_VALUE_RE.fullmatch(cleaned_current)
  current=current_match.group(1) if current_match else None

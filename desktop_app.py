@@ -111,6 +111,7 @@ class App(tk.Tk):
             background=[("active", "#f1f5f9"), ("disabled", "#f8fafc")],
             bordercolor=[("active", "#94a3b8")]
         )
+        style.configure("FileList.Secondary.TButton", padding=(6, 1), font=("Segoe UI", 8))
 
         # Tabs / Notebook
         style.configure("TNotebook", background=bg_canvas, borderwidth=0)
@@ -133,16 +134,15 @@ class App(tk.Tk):
 
     def _build_ui(self):
         # Modern Header
-        header = ttk.Frame(self, style="White.TFrame", padding=(12, 8))
-        header.pack(fill="x", pady=(0, 8))
+        header = ttk.Frame(self, style="White.TFrame", padding=(10, 4))
+        header.pack(fill="x", pady=(0, 4))
         
-        kw_box = tk.Label(header, text="kW", bg="#1a56db", fg="#ffffff", font=("Segoe UI", 11, "bold"), width=3, height=1)
-        kw_box.pack(side="left", padx=(0, 10))
+        kw_box = tk.Label(header, text="kW", bg="#1a56db", fg="#ffffff", font=("Segoe UI", 10, "bold"), width=3, height=1)
+        kw_box.pack(side="left", padx=(0, 8))
         
         title_box = ttk.Frame(header, style="White.TFrame")
         title_box.pack(side="left")
         ttk.Label(title_box, text="AHU MATCH", style="Title.TLabel").pack(anchor="w")
-        ttk.Label(title_box, text="Project → AHU → Motor Anma Gücü Karşılaştırma ve Doğrulama", style="Muted.TLabel").pack(anchor="w")
 
         update_controls = ttk.Frame(header, style="White.TFrame")
         update_controls.pack(side="right", padx=(6, 0))
@@ -155,12 +155,17 @@ class App(tk.Tk):
         ttk.Label(header, text=f"{VERSION}", style="Badge.TLabel").pack(side="right", padx=(0, 6))
 
         # PDF Drop / Selection Boxes
-        boxes = ttk.Frame(self, padding=(10, 0))
-        boxes.pack(fill="x")
+        self._main_pane = ttk.Panedwindow(self, orient="vertical")
+        self._main_pane.pack(fill="both", expand=True, padx=10)
+        self._main_pane.bind("<Motion>", self._update_pane_cursor, add="+")
+        self._main_pane.bind("<Leave>", lambda _event: self._main_pane.configure(cursor=""))
+
+        boxes = ttk.Frame(self._main_pane, padding=(0, 0, 0, 2))
         self.pdf1_label, self.pdf1_box = self._file_box(boxes, "Seçim Çıktısı (PDF1)", "PDF1")
         self.pdf2_label, self.pdf2_box = self._file_box(boxes, "Elektrik Projesi (PDF2)", "PDF2")
         self.pdf1_box.pack(side="left", fill="x", expand=True, padx=(0, 5))
         self.pdf2_box.pack(side="left", fill="x", expand=True, padx=(5, 0))
+        self._main_pane.add(boxes, weight=1)
 
         # Reserve a dedicated bottom dock so actions stay visible when the
         # window is vertically resized.
@@ -169,8 +174,7 @@ class App(tk.Tk):
         self.action_dock = action_dock
 
         # Notebook tabs
-        tabs = ttk.Notebook(self)
-        tabs.pack(fill="both", expand=True, padx=10, pady=(8, 0))
+        tabs = ttk.Notebook(self._main_pane)
         tabs.bind("<<NotebookTabChanged>>", self._on_tab_changed, add="+")
         self.tabs = tabs
         result_tab = ttk.Frame(tabs, style="White.TFrame")
@@ -180,6 +184,8 @@ class App(tk.Tk):
         tabs.add(result_tab, text="DANFOSS / MOTOR")
         tabs.add(unmatched_tab, text="EŞLEŞMEYEN PDF'LER (0)")
         tabs.add(log_tab, text=">_ LOGLAR")
+        self._main_pane.add(tabs, weight=4)
+        self.after_idle(lambda: self._main_pane.sashpos(0, min(220, max(150, self.winfo_height() // 3))))
 
         cols = ("Proje", "AHU", "Motor", "Seçim kW", "Elektrik P. kW", "Durum")
         self.tree = ttk.Treeview(result_tab, columns=cols, show="headings")
@@ -257,6 +263,10 @@ class App(tk.Tk):
         ttk.Button(log_buttons, text="LOGLARI TEMİZLE", style="Secondary.TButton", command=self.clear_logs).pack(side="left", padx=3)
         self.refresh_logs()
 
+    def _update_pane_cursor(self, event):
+        element = self._main_pane.identify(event.x, event.y)
+        self._main_pane.configure(cursor="sb_v_double_arrow" if "sash" in str(element).casefold() else "")
+
     def _manual_update_check(self):
         if self._update_check_running or getattr(self, "_download_running", False): return
         self._update_check_running = True
@@ -281,35 +291,24 @@ class App(tk.Tk):
         self._update_check_spinner_index += 1
         self.after(180, self._spin_update_check_button)
 
-    @staticmethod
-    def _format_bytes(size_bytes: int) -> str:
-        if size_bytes < 1024:
-            return f"{size_bytes} B"
-        elif size_bytes < 1024 * 1024:
-            return f"{size_bytes / 1024:.1f} KB"
-        else:
-            return f"{size_bytes / (1024 * 1024):.1f} MB"
-
     def _file_box(self, parent, title, side):
-        frame = ttk.Frame(parent, style="White.TFrame", padding=10)
+        frame = ttk.Frame(parent, style="White.TFrame", padding=4)
         # Inner border effect
-        inner_box = tk.Frame(frame, bg="#ffffff", highlightbackground="#e2e8f0", highlightthickness=1, padx=8, pady=8)
+        inner_box = tk.Frame(frame, bg="#ffffff", highlightbackground="#e2e8f0", highlightthickness=1, padx=5, pady=4)
         inner_box.pack(fill="both", expand=True)
 
         # Header inside the card
         head_row = tk.Frame(inner_box, bg="#ffffff")
-        head_row.pack(fill="x", pady=(0, 6))
+        head_row.pack(fill="x", pady=(0, 3))
 
         badge_color = "#eff6ff" if side == "PDF1" else "#f5f3ff"
         badge_fg = "#2563eb" if side == "PDF1" else "#4f46e5"
-        side_badge = tk.Label(head_row, text=f" {side} ", bg=badge_color, fg=badge_fg, font=("Segoe UI", 9, "bold"), relief="flat")
+        side_badge = tk.Label(head_row, text=f" {side} ", bg=badge_color, fg=badge_fg, font=("Segoe UI", 8, "bold"), relief="flat")
         side_badge.pack(side="left", padx=(0, 6))
 
         info_col = tk.Frame(head_row, bg="#ffffff")
         info_col.pack(side="left")
-        tk.Label(info_col, text=title, font=("Segoe UI", 10, "bold"), bg="#ffffff", fg="#0f172a").pack(anchor="w")
-        sub_desc = "Ekipman ve motor seçim dokümanları" if side == "PDF1" else "Bağlantı şemaları ve pano çizimleri"
-        tk.Label(info_col, text=sub_desc, font=("Segoe UI", 8), bg="#ffffff", fg="#94a3b8").pack(anchor="w")
+        tk.Label(info_col, text=title, font=("Segoe UI", 9, "bold"), bg="#ffffff", fg="#0f172a").pack(anchor="w")
 
         btn_col = tk.Frame(head_row, bg="#ffffff")
         btn_col.pack(side="right")
@@ -317,8 +316,8 @@ class App(tk.Tk):
         count_badge = tk.Label(btn_col, text="0 PDF", bg="#ffffff", fg="#475569", font=("Segoe UI", 8, "bold"), relief="solid", bd=1, padx=6, pady=2)
         count_badge.pack(side="left", padx=(0, 6))
 
-        ttk.Button(btn_col, text="+ PDF EKLE", style="Secondary.TButton", command=lambda: self.add_files(side)).pack(side="left", padx=2)
-        ttk.Button(btn_col, text="+ KLASÖR EKLE", style="Secondary.TButton", command=lambda: self.add_folder(side)).pack(side="left", padx=2)
+        ttk.Button(btn_col, text="+ PDF EKLE", style="FileList.Secondary.TButton", command=lambda: self.add_files(side)).pack(side="left", padx=2)
+        ttk.Button(btn_col, text="+ KLASÖR EKLE", style="FileList.Secondary.TButton", command=lambda: self.add_folder(side)).pack(side="left", padx=2)
 
         # Animated drop banner (hidden until files are dragged over this box)
         banner_bg = "#eff6ff" if side == "PDF1" else "#f5f3ff"
@@ -326,15 +325,15 @@ class App(tk.Tk):
         banner_fg = "#1d4ed8" if side == "PDF1" else "#6d28d9"
         banner_text = "⬇  SEÇİM ÇIKTISI (PDF1) BURAYA BIRAKIN  ⬇" if side == "PDF1" else "⬇  ELEKTRİK PROJESİ (PDF2) BURAYA BIRAKIN  ⬇"
 
-        drop_banner = tk.Frame(inner_box, bg=banner_bg, highlightbackground=banner_border, highlightthickness=2, padx=8, pady=6)
-        banner_label = tk.Label(drop_banner, text=banner_text, bg=banner_bg, fg=banner_fg, font=("Segoe UI", 9, "bold"))
+        drop_banner = tk.Frame(inner_box, bg=banner_bg, highlightbackground=banner_border, highlightthickness=2, padx=6, pady=3)
+        banner_label = tk.Label(drop_banner, text=banner_text, bg=banner_bg, fg=banner_fg, font=("Segoe UI", 8, "bold"))
         banner_label.pack(fill="both", expand=True)
 
         # Inner scrollable list area
         list_container = tk.Frame(inner_box, bg="#f8fafc", highlightbackground="#e2e8f0", highlightthickness=1)
-        list_container.pack(fill="both", expand=True, pady=(4, 0))
+        list_container.pack(fill="both", expand=True, pady=(2, 0))
 
-        canvas = tk.Canvas(list_container, bg="#f8fafc", highlightthickness=0, height=95)
+        canvas = tk.Canvas(list_container, bg="#f8fafc", highlightthickness=0, height=80)
         scrollbar = ttk.Scrollbar(list_container, orient="vertical", command=canvas.yview)
         scrollable_frame = tk.Frame(canvas, bg="#f8fafc")
 
@@ -480,11 +479,11 @@ class App(tk.Tk):
         if not target:
             empty_lbl = tk.Label(
                 scroll_frame,
-                text="PDF dosyalarını buraya sürükleyin veya '+ PDF EKLE' butonunu kullanın",
+                text="PDF ekleyin veya buraya sürükleyin",
                 bg="#f8fafc",
                 fg="#94a3b8",
                 font=("Segoe UI", 8),
-                pady=20
+                pady=6
             )
             empty_lbl.pack(fill="both", expand=True)
             reg = getattr(self, "_register_drop_target", None)
@@ -493,27 +492,20 @@ class App(tk.Tk):
             return
 
         for idx, item in enumerate(target):
-            card = tk.Frame(scroll_frame, bg="#ffffff", highlightbackground="#e2e8f0", highlightthickness=1, padx=6, pady=4)
-            card.pack(fill="x", expand=True, padx=4, pady=2)
+            card = tk.Frame(scroll_frame, bg="#ffffff", highlightbackground="#e2e8f0", highlightthickness=1, padx=4, pady=1)
+            card.pack(fill="x", padx=2, pady=1)
 
-            icon = tk.Label(card, text="📄", bg="#ffffff", fg="#2563eb", font=("Segoe UI", 10))
-            icon.pack(side="left", padx=(0, 6))
+            icon = tk.Label(card, text="📄", bg="#ffffff", fg="#2563eb", font=("Segoe UI", 9))
+            icon.pack(side="left", padx=(0, 4))
 
             text_box = tk.Frame(card, bg="#ffffff")
             text_box.pack(side="left", fill="both", expand=True)
 
             fname = Path(item.path).name
-            name_label = tk.Label(text_box, text=fname, bg="#ffffff", fg="#2563eb", font=("Segoe UI", 9, "bold", "underline"), anchor="w")
+            name_label = tk.Label(text_box, text=fname, bg="#ffffff", fg="#2563eb", font=("Segoe UI", 8, "bold", "underline"), anchor="w")
             name_label.pack(fill="x", anchor="w")
 
-            size_str = self._format_bytes(getattr(item, "size_bytes", 0))
-            sub_info = f"{size_str} • {str(item.path)}"
-            if len(sub_info) > 60:
-                sub_info = sub_info[:57] + "..."
-            path_label = tk.Label(text_box, text=sub_info, bg="#ffffff", fg="#64748b", font=("Segoe UI", 8), anchor="w")
-            path_label.pack(fill="x", anchor="w")
-
-            for widget in (card, icon, text_box, name_label, path_label):
+            for widget in (card, icon, text_box, name_label):
                 self._bind_pdf_open(widget, item.path, side)
 
             # Silme butonu (Trash can button 🗑)
@@ -524,7 +516,7 @@ class App(tk.Tk):
                 fg="#94a3b8",
                 activeforeground="#ef4444",
                 activebackground="#fee2e2",
-                font=("Segoe UI", 10),
+                font=("Segoe UI", 9),
                 relief="flat",
                 bd=0,
                 cursor="hand2",
