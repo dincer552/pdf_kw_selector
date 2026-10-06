@@ -71,6 +71,18 @@ def test_selection_model_skips_leading_supplier_code_on_model_line():
     assert result.quantity == "2x2"
 
 
+def test_selection_model_finds_model_on_next_line_inside_coordinate_box():
+    result = parse_selection_motor_model(
+        "8300100068-\nVBH0500CTTRS/L / 1x1",
+        "Supply air",
+        model_lines=("8300100068-", "VBH0500CTTRS/L / 1x1"),
+    )
+
+    assert result is not None
+    assert result.model == "VBH0500CTTRS/L"
+    assert result.quantity == "1x1"
+
+
 def test_selection_model_comes_from_the_top_model_token_inside_coordinate_text():
     result = parse_selection_motor_model(
         "GR31I-ZID.DC.CR - 186637/A01 / 2x1",
@@ -92,6 +104,17 @@ def test_selection_model_context_does_not_fallback_to_page_text():
             "GR31I-ZID.DC.CR - Rated Power [kW]"
         ),
         model_lines=(),
+    )
+
+    assert result is None
+
+
+def test_selection_model_rejects_supplier_number_without_model_in_coordinate_box():
+    result = parse_selection_motor_model(
+        "8300100068-",
+        "Supply air",
+        page_text="Plug fan Supply air VBH0500CTTRS/L",
+        model_lines=("8300100068-",),
     )
 
     assert result is None

@@ -129,7 +129,13 @@ def _model_from_line(text):
   if match.group("model").strip(".,;").upper() not in _MODEL_LABEL_TOKENS
  ]
  if not candidates:return None
- return next((candidate for candidate in candidates if re.search(r"[A-Z]",candidate,re.I) and re.search(r"\d",candidate)),candidates[0])
+ return next(
+  (
+   candidate for candidate in candidates
+   if re.search(r"[A-Z]",candidate,re.I) and re.search(r"\d",candidate)
+  ),
+  None,
+ )
 
 def parse_selection_motor_model(text,direction,page_number=1,current_text="",page_text="",model_lines=()):
  component_role={"supply air":"supply_fan","exhaust air":"exhaust_fan"}.get(
@@ -141,8 +147,11 @@ def parse_selection_motor_model(text,direction,page_number=1,current_text="",pag
  lines=tuple(str(line).strip() for line in model_lines if str(line).strip())
  if not lines:
   lines=tuple(line.strip() for line in raw_text.splitlines() if line.strip())
- # The top row is the motor model; the lower row may be only a supplier part number.
- model=_model_from_line(lines[0]) if lines else None
+ # Model and supplier reference can wrap onto separate rows inside the coordinate box.
+ model=None
+ for line in lines:
+  model=_model_from_line(line)
+  if model:break
  normalized_page_text=re.sub(r"\s+"," ",str(page_text or ""))
  if model is None:return None
  quantity_matches=list(_SELECTION_QUANTITY_RE.finditer(cleaned))
