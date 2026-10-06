@@ -10,21 +10,13 @@ from motor_brand import normalize_motor_brand
 _DIRECTION_RECT=(175.0,694.0,91.0,16.0)
 _RATED_POWER_RECT=(429.0,634.0,131.0,13.0)
 _MODEL_BRAND_RECT=(429.0,656.0,131.0,12.0)
-_SELECTION_MODEL_RECT=(162.0,634.0,127.0,25.0)
+_SELECTION_MODEL_RECT=(163.0,634.0,126.0,25.0)
 _SELECTION_CURRENT_RECT=(429.0,578.0,129.0,13.0)
 _QTY_RE=re.compile(r"\(\s*(\d+)\s*[x×]\s*(\d+)\s*\)",re.I)
 _POWER_QTY_RE=re.compile(r"^\s*([0-9]+(?:[.,][0-9]+)?)\s*[x×]\s*\(\s*(\d+)\s*[x×]\s*(\d+)\s*\)\s*$",re.I)
 _POWER_ONLY_RE=re.compile(r"^\s*([0-9]+(?:[.,][0-9]+)?)\s*$")
-_SELECTION_MODEL_RE=re.compile(
- r"\b(?P<model>[A-Z0-9][A-Z0-9.-]*(?:/[A-Z0-9.-]+)*)\s*/\s*"
- r"(?P<quantity>\d+\s*[x×]\s*\d+)",
- re.I,
-)
 _CURRENT_VALUE_RE=re.compile(r"\s*([0-9]+(?:[.,][0-9]+)?)\s*A?\s*",re.I)
 _SELECTION_QUANTITY_RE=re.compile(r"(?<!\d)(\d+)\s*[x×]\s*(\d+)(?!\d)",re.I)
-_FAN_TYPE_CODE_RE=re.compile(r"\b[A-Z0-9]+(?:-[A-Z0-9]+)+\b",re.I)
-_FAN_TYPE_ROW_RE=re.compile(r"\bType\s+(?P<value>.*?)\s+Model\s+Brand\b",re.I|re.S)
-_FAN_TYPE_MODEL_RE=re.compile(r"\bType\s+(?P<model>[A-Z0-9]+(?:-[A-Z0-9]+)+)\s+FAN\b",re.I)
 _MODEL_TOKEN_RE=re.compile(r"(?<![\w])(?P<model>[A-Z0-9][A-Z0-9./-]*[A-Z0-9])(?![\w])",re.I)
 _MODEL_LABEL_TOKENS={"FAN","EBM","PAPST","ZIEHL","ABEGG"}
 _SUPPLIER_QUANTITY_RE=re.compile(
@@ -131,9 +123,6 @@ def discover_selection_motor_models(path: str|Path|None=None,document=None):
 def _model_from_line(text):
  line=re.sub(r"\s+"," ",str(text or "")).strip()
  if not line:return None
- matches=list(_SELECTION_MODEL_RE.finditer(line))
- if matches:
-  return matches[0].group("model").strip().rstrip(".,;")
  candidates=[
   match.group("model").strip().rstrip(".,;")
   for match in _MODEL_TOKEN_RE.finditer(_SELECTION_QUANTITY_RE.sub("",line))
@@ -141,23 +130,6 @@ def _model_from_line(text):
  ]
  if not candidates:return None
  return next((candidate for candidate in candidates if re.search(r"[A-Z]",candidate,re.I) and re.search(r"\d",candidate)),candidates[0])
-
-def _model_before_rated_power(text):
- normalized=re.sub(r"\s+"," ",str(text or ""))
- rated=re.search(r"\brated\s+power\b\s*\[?\s*kw\b",normalized,re.I)
- if not rated:return None
- preceding=normalized[:rated.start()]
- preceding=_SELECTION_QUANTITY_RE.sub(" ",preceding)
- candidates=[
-  match.group("model").strip(".,;")
-  for match in _MODEL_TOKEN_RE.finditer(preceding)
-  if match.group("model").strip(".,;").upper() not in _MODEL_LABEL_TOKENS
- ]
- return next(
-  (candidate for candidate in reversed(candidates)
-   if re.search(r"[A-Z]",candidate,re.I) and re.search(r"\d",candidate)),
-  None,
- )
 
 def parse_selection_motor_model(text,direction,page_number=1,current_text="",page_text="",model_lines=()):
  component_role={"supply air":"supply_fan","exhaust air":"exhaust_fan"}.get(
@@ -172,15 +144,6 @@ def parse_selection_motor_model(text,direction,page_number=1,current_text="",pag
  # The top row is the motor model; the lower row may be only a supplier part number.
  model=_model_from_line(lines[0]) if lines else None
  normalized_page_text=re.sub(r"\s+"," ",str(page_text or ""))
- contextual_model=_model_before_rated_power(normalized_page_text)
- if contextual_model:
-  model=contextual_model
- if model is None:
-  type_row=_FAN_TYPE_ROW_RE.search(normalized_page_text)
-  type_model=_FAN_TYPE_CODE_RE.search(type_row.group("value")) if type_row else None
-  if type_model is None:type_model=_FAN_TYPE_MODEL_RE.search(normalized_page_text)
-  if type_model:
-   model=type_model.group("model") if "model" in type_model.groupdict() else type_model.group(0)
  if model is None:return None
  quantity_matches=list(_SELECTION_QUANTITY_RE.finditer(cleaned))
  quantity_match=quantity_matches[-1] if quantity_matches else None

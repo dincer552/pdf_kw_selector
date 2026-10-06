@@ -71,21 +71,11 @@ def test_selection_model_skips_leading_supplier_code_on_model_line():
     assert result.quantity == "2x2"
 
 
-def test_selection_model_uses_model_before_rated_power_when_box_reads_only_supplier_code():
-    page_text = (
-        "Plug fan Supply air Fan data Motor data "
-        "Type 8.420 Model Brand Ziehl-Abegg "
-        "Supplier / Model / Quantity in WxH EC Plug Model / Quantity in WxH "
-        "ECblue-IE5-50-75-0-2.4 / 2x1 "
-        "GR31I-ZID.DC.CR - Rated Power [kW] nominal RPM [1/min] "
-        "186637/A01 / 2x1 2,400 x (2x1)"
-    )
-
+def test_selection_model_comes_from_the_top_model_token_inside_coordinate_text():
     result = parse_selection_motor_model(
-        "186637/A01 / 2x1",
+        "GR31I-ZID.DC.CR - 186637/A01 / 2x1",
         "Supply air",
-        page_text=page_text,
-        model_lines=("186637/A01 / 2x1",),
+        model_lines=("GR31I-ZID.DC.CR -", "186637/A01 / 2x1"),
     )
 
     assert result is not None
@@ -93,20 +83,18 @@ def test_selection_model_uses_model_before_rated_power_when_box_reads_only_suppl
     assert result.quantity == "2x1"
 
 
-def test_selection_model_context_fallback_supports_ebm_type_codes():
+def test_selection_model_context_does_not_fallback_to_page_text():
     result = parse_selection_motor_model(
-        "186637/A01 / 2x1",
-        "Exhaust air",
+        "/ 2x1",
+        "Supply air",
         page_text=(
-            "Plug fan Exhaust air Model Brand EBM-Papst "
-            "K3G450-PA31-61 FAN (EBM) / 2x1 Rated Power [kW]"
+            "Plug fan Supply air Model Brand Ziehl-Abegg "
+            "GR31I-ZID.DC.CR - Rated Power [kW]"
         ),
-        model_lines=("186637/A01 / 2x1",),
+        model_lines=(),
     )
 
-    assert result is not None
-    assert result.model == "K3G450-PA31-61"
-    assert result.quantity == "2x1"
+    assert result is None
 
 
 def test_selection_motor_models_read_direction_and_model_from_configured_boxes(monkeypatch):
@@ -176,7 +164,7 @@ def test_supply_only_selection_contains_no_exhaust_fan_result(monkeypatch):
     assert [result.component_role for result in results] == ["supply_fan"]
 
 
-def test_selection_falls_back_to_type_row_and_rated_current_text(monkeypatch):
+def test_selection_does_not_fallback_to_model_in_page_text(monkeypatch):
     class FakePage:
         def get_text(self, kind):
             assert kind == "text"
@@ -200,10 +188,7 @@ def test_selection_falls_back_to_type_row_and_rated_current_text(monkeypatch):
 
     results = discover_selection_motor_models(document=[FakePage()])
 
-    assert len(results) == 1
-    assert results[0].model == "K3G450-PA31-61"
-    assert results[0].quantity == "2x1"
-    assert results[0].current == "6,80"
+    assert results == ()
 
 
 def test_selection_parses_type_model_when_supplier_fields_are_interleaved(monkeypatch):
