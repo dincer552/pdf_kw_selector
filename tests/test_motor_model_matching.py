@@ -71,6 +71,44 @@ def test_selection_model_skips_leading_supplier_code_on_model_line():
     assert result.quantity == "2x2"
 
 
+def test_selection_model_uses_model_before_rated_power_when_box_reads_only_supplier_code():
+    page_text = (
+        "Plug fan Supply air Fan data Motor data "
+        "Type 8.420 Model Brand Ziehl-Abegg "
+        "Supplier / Model / Quantity in WxH EC Plug Model / Quantity in WxH "
+        "ECblue-IE5-50-75-0-2.4 / 2x1 "
+        "GR31I-ZID.DC.CR - Rated Power [kW] nominal RPM [1/min] "
+        "186637/A01 / 2x1 2,400 x (2x1)"
+    )
+
+    result = parse_selection_motor_model(
+        "186637/A01 / 2x1",
+        "Supply air",
+        page_text=page_text,
+        model_lines=("186637/A01 / 2x1",),
+    )
+
+    assert result is not None
+    assert result.model == "GR31I-ZID.DC.CR"
+    assert result.quantity == "2x1"
+
+
+def test_selection_model_context_fallback_supports_ebm_type_codes():
+    result = parse_selection_motor_model(
+        "186637/A01 / 2x1",
+        "Exhaust air",
+        page_text=(
+            "Plug fan Exhaust air Model Brand EBM-Papst "
+            "K3G450-PA31-61 FAN (EBM) / 2x1 Rated Power [kW]"
+        ),
+        model_lines=("186637/A01 / 2x1",),
+    )
+
+    assert result is not None
+    assert result.model == "K3G450-PA31-61"
+    assert result.quantity == "2x1"
+
+
 def test_selection_motor_models_read_direction_and_model_from_configured_boxes(monkeypatch):
     class FakePage:
         def __init__(self, text):

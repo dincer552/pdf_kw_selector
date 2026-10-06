@@ -142,6 +142,23 @@ def _model_from_line(text):
  if not candidates:return None
  return next((candidate for candidate in candidates if re.search(r"[A-Z]",candidate,re.I) and re.search(r"\d",candidate)),candidates[0])
 
+def _model_before_rated_power(text):
+ normalized=re.sub(r"\s+"," ",str(text or ""))
+ rated=re.search(r"\brated\s+power\b\s*\[?\s*kw\b",normalized,re.I)
+ if not rated:return None
+ preceding=normalized[:rated.start()]
+ preceding=_SELECTION_QUANTITY_RE.sub(" ",preceding)
+ candidates=[
+  match.group("model").strip(".,;")
+  for match in _MODEL_TOKEN_RE.finditer(preceding)
+  if match.group("model").strip(".,;").upper() not in _MODEL_LABEL_TOKENS
+ ]
+ return next(
+  (candidate for candidate in reversed(candidates)
+   if re.search(r"[A-Z]",candidate,re.I) and re.search(r"\d",candidate)),
+  None,
+ )
+
 def parse_selection_motor_model(text,direction,page_number=1,current_text="",page_text="",model_lines=()):
  component_role={"supply air":"supply_fan","exhaust air":"exhaust_fan"}.get(
   re.sub(r"\s+"," ",str(direction or "")).strip().casefold()
@@ -155,6 +172,9 @@ def parse_selection_motor_model(text,direction,page_number=1,current_text="",pag
  # The top row is the motor model; the lower row may be only a supplier part number.
  model=_model_from_line(lines[0]) if lines else None
  normalized_page_text=re.sub(r"\s+"," ",str(page_text or ""))
+ contextual_model=_model_before_rated_power(normalized_page_text)
+ if contextual_model:
+  model=contextual_model
  if model is None:
   type_row=_FAN_TYPE_ROW_RE.search(normalized_page_text)
   type_model=_FAN_TYPE_CODE_RE.search(type_row.group("value")) if type_row else None
