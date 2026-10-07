@@ -249,14 +249,14 @@ class App(tk.Tk):
         # Bottom action dock uses a fixed grid so the progress area never
         # moves when status text, analysis stage, or update text changes.
         action_dock.columnconfigure(2, weight=1)
-        update_area = ttk.Frame(action_dock, style="White.TFrame", width=470, height=30)
+        update_area = ttk.Frame(action_dock, style="White.TFrame", width=650, height=30)
         update_area.grid(row=0, column=3, sticky="e", padx=(12, 0))
         update_area.grid_propagate(False)
         self.update_area = update_area
 
         progress = ttk.Frame(update_area, padding=(6, 0))
         self.update_panel = progress
-        ttk.Label(progress, textvariable=self.update_detail, anchor="e", width=36).pack(side="left", padx=(0, 8))
+        ttk.Label(progress, textvariable=self.update_detail, anchor="e", width=54).pack(side="left", padx=(0, 8))
         self.update_bar = ttk.Progressbar(progress, style="Update.Horizontal.TProgressbar", variable=self.update_progress, maximum=100, length=180)
         self.update_bar.pack(side="left", padx=(0, 4))
         progress.pack(fill="y", expand=False)
