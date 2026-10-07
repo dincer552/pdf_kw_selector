@@ -120,7 +120,7 @@ class App(tk.Tk):
 
         # Tabs / Notebook
         style.configure("TNotebook", background=bg_canvas, borderwidth=0)
-        style.configure("TNotebook.Tab", background="#e2e8f0", foreground=text_muted, font=("Segoe UI", 9, "bold"), padding=(14, 7), borderwidth=0)
+        style.configure("TNotebook.Tab", background="#e2e8f0", foreground=text_muted, font=("Segoe UI", 9, "bold"), padding=(10, 4), borderwidth=0)
         style.map("TNotebook.Tab",
             background=[("selected", card_bg), ("active", "#e2e8f0")],
             foreground=[("selected", text_dark), ("active", text_dark)]
@@ -164,7 +164,8 @@ class App(tk.Tk):
         self._main_pane.bind("<Motion>", self._update_pane_cursor, add="+")
         self._main_pane.bind("<Leave>", lambda _event: self._main_pane.configure(cursor=""))
 
-        boxes = ttk.Frame(self._main_pane, padding=(0, 0, 0, 2))
+        boxes = ttk.Frame(self._main_pane, padding=(0, 0, 0, 2), height=160)
+        boxes.pack_propagate(False)
         self.pdf1_label, self.pdf1_box = self._file_box(boxes, "Seçim Çıktısı (PDF1)", "PDF1")
         self.pdf2_label, self.pdf2_box = self._file_box(boxes, "Elektrik Projesi (PDF2)", "PDF2")
         self.pdf1_box.pack(side="left", fill="both", expand=True, padx=(0, 5))
@@ -178,7 +179,7 @@ class App(tk.Tk):
         self.action_dock = action_dock
 
         # Notebook tabs
-        tabs = ttk.Notebook(self._main_pane)
+        tabs = ttk.Notebook(self._main_pane, height=220)
         tabs.bind("<<NotebookTabChanged>>", self._on_tab_changed, add="+")
         self.tabs = tabs
         result_tab = ttk.Frame(tabs, style="White.TFrame")
@@ -188,7 +189,7 @@ class App(tk.Tk):
         tabs.add(result_tab, text="DANFOSS / MOTOR")
         tabs.add(unmatched_tab, text="EŞLEŞMEYEN PDF'LER (0)")
         tabs.add(log_tab, text=">_ LOGLAR")
-        self._main_pane.add(tabs, weight=4)
+        self._main_pane.add(tabs, weight=5)
         self.after_idle(lambda: self._main_pane.sashpos(0, min(220, max(150, self.winfo_height() // 3))))
 
         cols = ("Proje", "AHU", "Motor", "Seçim kW", "Elektrik P. kW", "Durum")
