@@ -180,7 +180,7 @@ class App(tk.Tk):
         self.pdf2_label, self.pdf2_box = self._file_box(boxes, "Elektrik Projesi (PDF2)", "PDF2")
         self.pdf1_box.pack(side="left", fill="both", expand=True, padx=(0, 5))
         self.pdf2_box.pack(side="left", fill="both", expand=True, padx=(5, 0))
-        self._main_pane.add(boxes, weight=1, minsize=150)
+        self._main_pane.add(boxes, weight=1)
 
         # Reserve a dedicated bottom dock so actions stay visible when the
         # window is vertically resized.
@@ -199,7 +199,7 @@ class App(tk.Tk):
         tabs.add(result_tab, text="DANFOSS / MOTOR")
         tabs.add(unmatched_tab, text="EŞLEŞMEYEN PDF'LER (0)")
         tabs.add(log_tab, text=">_ LOGLAR")
-        self._main_pane.add(tabs, weight=1, minsize=180)
+        self._main_pane.add(tabs, weight=1)
         self.after(100, self._set_initial_pane_split)
 
         cols = ("Proje", "AHU", "Motor", "Seçim kW", "Elektrik P. kW", "Durum")
