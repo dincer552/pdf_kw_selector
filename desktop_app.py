@@ -180,7 +180,7 @@ class App(tk.Tk):
         self.pdf2_label, self.pdf2_box = self._file_box(boxes, "Elektrik Projesi (PDF2)", "PDF2")
         self.pdf1_box.pack(side="left", fill="both", expand=True, padx=(0, 5))
         self.pdf2_box.pack(side="left", fill="both", expand=True, padx=(5, 0))
-        self._main_pane.add(boxes, weight=1)
+        self._main_pane.add(boxes, weight=1, minsize=150)
 
         # Reserve a dedicated bottom dock so actions stay visible when the
         # window is vertically resized.
@@ -199,8 +199,8 @@ class App(tk.Tk):
         tabs.add(result_tab, text="DANFOSS / MOTOR")
         tabs.add(unmatched_tab, text="EŞLEŞMEYEN PDF'LER (0)")
         tabs.add(log_tab, text=">_ LOGLAR")
-        self._main_pane.add(tabs, weight=5)
-        self.after_idle(lambda: self._main_pane.sashpos(0, min(220, max(150, self.winfo_height() // 3))))
+        self._main_pane.add(tabs, weight=1, minsize=180)
+        self.after(100, self._set_initial_pane_split)
 
         cols = ("Proje", "AHU", "Motor", "Seçim kW", "Elektrik P. kW", "Durum")
         self.tree = ttk.Treeview(result_tab, columns=cols, show="headings")
@@ -277,6 +277,14 @@ class App(tk.Tk):
         ttk.Button(log_buttons, text="LOG KLASÖRÜNÜ AÇ", style="Secondary.TButton", command=self.open_log_directory).pack(side="left", padx=3)
         ttk.Button(log_buttons, text="LOGLARI TEMİZLE", style="Secondary.TButton", command=self.clear_logs).pack(side="left", padx=3)
         self.refresh_logs()
+
+    def _set_initial_pane_split(self):
+        self.update_idletasks()
+        pane_height = self._main_pane.winfo_height()
+        if pane_height <= 1:
+            self.after(100, self._set_initial_pane_split)
+            return
+        self._main_pane.sashpos(0, pane_height // 2)
 
     def _update_pane_cursor(self, event):
         element = self._main_pane.identify(event.x, event.y)
