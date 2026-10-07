@@ -8,10 +8,14 @@ from coordinate_motor_discovery import (
     parse_selection_motor_model,
 )
 from motor_fuse_matching import (
+    DEFAULT_FUSE_CURRENT_RANGES,
     FUSE_CURRENT_RANGES,
     check_fuse_current,
     expected_fuse_rating,
+    load_fuse_current_ranges,
     parse_fuse_rating,
+    save_fuse_current_ranges,
+    set_fuse_current_ranges,
 )
 from stage2_pdf_discovery import (
     _MOTOR_FUSE_BOX,
@@ -303,6 +307,39 @@ def test_fuse_check_accepts_only_the_current_band_rating():
     assert check_fuse_current(None, "10 A").status == "UNKNOWN"
     assert parse_fuse_rating("3x10A") == 10
     assert check_fuse_current("5.9", "6A").status == "MISMATCH"
+
+
+def test_fuse_current_ranges_can_be_customized_and_persisted(tmp_path, monkeypatch):
+    import motor_fuse_matching
+
+    settings_path = tmp_path / "settings.json"
+    configured = [
+        {"rating_a": 6, "maximum_current_a": 5},
+        {"rating_a": 10, "maximum_current_a": 9},
+    ]
+    saved = save_fuse_current_ranges(configured, settings_path)
+    monkeypatch.setattr(motor_fuse_matching, "FUSE_CURRENT_RANGES", DEFAULT_FUSE_CURRENT_RANGES)
+    loaded = load_fuse_current_ranges(settings_path)
+    set_fuse_current_ranges(loaded)
+
+    assert saved == loaded
+    assert expected_fuse_rating(4.9) == 6
+    assert expected_fuse_rating(5) == 10
+    assert check_fuse_current("4.9", "6 A").status == "MATCH"
+
+
+def test_fuse_current_range_validation_rejects_non_increasing_limits():
+    from motor_fuse_matching import validate_fuse_current_ranges
+
+    try:
+        validate_fuse_current_ranges([
+            {"rating_a": 10, "maximum_current_a": 7},
+            {"rating_a": 16, "maximum_current_a": 6},
+        ])
+    except ValueError as exc:
+        assert "küçükten büyüğe" in str(exc)
+    else:
+        raise AssertionError("Non-increasing current limits must be rejected")
 
 
 def test_pdf2_model_scan_checks_both_boxes_on_each_matching_connection_page(monkeypatch):

@@ -4,6 +4,7 @@ from pathlib import Path
 import re
 import sys
 import time
+import tkinter as tk
 from tkinter import ttk, messagebox
 import desktop_app as desktop_module
 from app_logger import exception, info, startup
@@ -17,7 +18,8 @@ from confirmation_workflow import analyze_with_confirmations
 from pdf_master_scan import scan_pdf
 from status import apply_status_tag, install_status_display, status_display_text
 from coordinate_motor_discovery import compare_motor_model_lists, expand_model_quantity
-from motor_fuse_matching import FUSE_CURRENT_RANGES, check_fuse_current
+import motor_fuse_matching as fuse_matching
+from motor_fuse_matching import check_fuse_current
 from stage2_pdf_discovery import motor_fuse_box_for_fan_count
 
 def _path_strings(items): return [str(getattr(item,"path",item)) for item in (items or [])]
@@ -27,9 +29,9 @@ desktop_module.analyze_batch=_confirmed_analyze
 
 class GroupedApp(BaseApp):
     def __init__(self):
-        super().__init__(); self._analysis_started_at=None; self._grouped_pdf1_scan_cache={}; self._ebm_pdf_keys=set(); self._vocclean_pdf_keys=set(); self._sysreco_pdf_keys=set(); self._unmatched_pdf_keys=set(); self._pdf_accounting_error_shown=False; self._build_ebm_tab(); self._build_voclean_tab(); self._build_sysreco_tab(); self.tabs.tab(0,text="DANFOS"); self.tabs.insert(1,self.ebm_tab); self.tabs.insert(2,self.voclean_tab); self.tabs.insert(3,self.sysreco_tab); self.unmatched_tab_index=lambda:4; self.tree.tag_configure("mismatch",background="#ffb3b3",foreground="#000000"); install_pdf_drop_targets(self,self.pdf1_box,self.pdf2_box); install_status_display(self)
+        super().__init__(); fuse_matching.set_fuse_current_ranges(fuse_matching.load_fuse_current_ranges()); self._analysis_started_at=None; self._grouped_pdf1_scan_cache={}; self._ebm_pdf_keys=set(); self._vocclean_pdf_keys=set(); self._sysreco_pdf_keys=set(); self._unmatched_pdf_keys=set(); self._pdf_accounting_error_shown=False; self._build_ebm_tab(); self._build_voclean_tab(); self._build_sysreco_tab(); self.tabs.tab(0,text="DANFOS"); self.tabs.insert(1,self.ebm_tab); self.tabs.insert(2,self.voclean_tab); self.tabs.insert(3,self.sysreco_tab); self.unmatched_tab_index=lambda:4; self.tree.tag_configure("mismatch",background="#ffb3b3",foreground="#000000"); install_pdf_drop_targets(self,self.pdf1_box,self.pdf2_box); install_status_display(self)
     def _build_ebm_tab(self):
-        tab=ttk.Frame(self.tabs, style="White.TFrame"); self.tabs.add(tab,text="Ziehl-Ab. / EBM (0)"); cols=("Proje","AHU","Fan","Seçim çıktısı","Elektrik p.","Seçim motor modeli / akımı","Elektrik motor modeli","Elektrik sigortası","Sigorta kontrolü","Durum"); widths={"Proje":240,"AHU":120,"Fan":120,"Seçim çıktısı":260,"Elektrik p.":300,"Seçim motor modeli / akımı":280,"Elektrik motor modeli":250,"Elektrik sigortası":190,"Sigorta kontrolü":300,"Durum":240}; ranges=" | ".join(f"{item.rating_a} A: {item.minimum_current_a:g}–<{item.maximum_current_a:g} A" for item in FUSE_CURRENT_RANGES[:-1]); ranges += f" | {FUSE_CURRENT_RANGES[-1].rating_a} A: {FUSE_CURRENT_RANGES[-1].minimum_current_a:g}–{FUSE_CURRENT_RANGES[-1].maximum_current_a:g} A"; range_label=ttk.Label(tab,text=f"Sigorta-akım limitleri: {ranges}",style="Muted.TLabel",anchor="w"); range_label.grid(row=0,column=0,columnspan=2,sticky="ew",padx=8,pady=(6,2)); self.ebm_tree=ttk.Treeview(tab,columns=cols,show="headings"); tab.grid_rowconfigure(1,weight=1); tab.grid_columnconfigure(0,weight=1)
+        tab=ttk.Frame(self.tabs, style="White.TFrame"); self.tabs.add(tab,text="Ziehl-Ab. / EBM (0)"); cols=("Proje","AHU","Fan","Seçim çıktısı","Elektrik p.","Seçim motor modeli / akımı","Elektrik motor modeli","Elektrik sigortası","Sigorta kontrolü","Durum"); widths={"Proje":240,"AHU":120,"Fan":120,"Seçim çıktısı":260,"Elektrik p.":300,"Seçim motor modeli / akımı":280,"Elektrik motor modeli":250,"Elektrik sigortası":190,"Sigorta kontrolü":300,"Durum":240}; self._fuse_limits_button=ttk.Button(tab,text="Akım limit",command=self._open_fuse_current_settings,style="Small.Secondary.TButton"); self._fuse_limits_button.grid(row=0,column=0,sticky="e",padx=8,pady=(5,2)); self.ebm_tree=ttk.Treeview(tab,columns=cols,show="headings"); tab.grid_rowconfigure(1,weight=1); tab.grid_columnconfigure(0,weight=1)
         for col in cols:self.ebm_tree.heading(col,text=col);self.ebm_tree.column(col,width=widths[col],anchor="w")
         self.ebm_tree.tag_configure("model_match",background="#e6ffed",foreground="#116329")
         self.ebm_tree.tag_configure("model_mismatch",background="#ffebe9",foreground="#b62324")
@@ -40,6 +42,58 @@ class GroupedApp(BaseApp):
         self.ebm_tree.bind("<Motion>", self._on_ebm_cell_motion)
         self.ebm_tree.bind("<Leave>", lambda e: (self.ebm_tree.configure(cursor=""), self._cell_hover_box.hide()))
         self.ebm_tree.bind("<MouseWheel>", lambda e: self._cell_hover_box.hide(), add="+")
+    def _open_fuse_current_settings(self):
+        dialog=tk.Toplevel(self)
+        dialog.title("Akım limit ayarları")
+        dialog.transient(self)
+        dialog.resizable(False,False)
+        dialog.grab_set()
+        content=ttk.Frame(dialog,padding=14)
+        content.grid(sticky="nsew")
+        ttk.Label(content,text="Sigorta kademeleri ve akım üst limitlerini düzenleyin.",style="Muted.TLabel").grid(row=0,column=0,columnspan=2,sticky="w",pady=(0,8))
+        ttk.Label(content,text="Sigorta (A)").grid(row=1,column=0,padx=(0,8),sticky="w")
+        ttk.Label(content,text="Akım üst limiti (A)").grid(row=1,column=1,padx=(0,8),sticky="w")
+        rating_vars=[]
+        maximum_vars=[]
+        for index,item in enumerate(fuse_matching.FUSE_CURRENT_RANGES,2):
+            rating_var=tk.StringVar(value=str(item.rating_a))
+            maximum_var=tk.StringVar(value=f"{item.maximum_current_a:g}")
+            ttk.Entry(content,textvariable=rating_var,width=14).grid(row=index,column=0,padx=(0,8),pady=2)
+            ttk.Entry(content,textvariable=maximum_var,width=18).grid(row=index,column=1,padx=(0,8),pady=2)
+            rating_vars.append(rating_var)
+            maximum_vars.append(maximum_var)
+
+        def restore_defaults():
+            for rating_var,maximum_var,item in zip(rating_vars,maximum_vars,fuse_matching.DEFAULT_FUSE_CURRENT_RANGES):
+                rating_var.set(str(item.rating_a))
+                maximum_var.set(f"{item.maximum_current_a:g}")
+
+        def save():
+            try:
+                updated=fuse_matching.save_fuse_current_ranges(
+                    [
+                        {"rating_a":rating_var.get().strip(),"maximum_current_a":maximum_var.get().strip()}
+                        for rating_var,maximum_var in zip(rating_vars,maximum_vars)
+                    ]
+                )
+                fuse_matching.set_fuse_current_ranges(updated)
+            except (ValueError,KeyError,TypeError,OSError) as exc:
+                messagebox.showerror("Akım limit ayarları",str(exc),parent=dialog)
+                return
+            if getattr(self,"analysis",None) is not None:
+                self._render_ebm()
+            dialog.destroy()
+
+        buttons=ttk.Frame(content)
+        buttons.grid(row=len(rating_vars)+2,column=0,columnspan=2,sticky="ew",pady=(10,0))
+        ttk.Button(buttons,text="Varsayılanlar",command=restore_defaults,style="Small.Secondary.TButton").pack(side="left")
+        ttk.Button(buttons,text="İptal",command=dialog.destroy,style="Small.Secondary.TButton").pack(side="right")
+        ttk.Button(buttons,text="Kaydet",command=save,style="Primary.TButton").pack(side="right",padx=(0,6))
+        dialog.update_idletasks()
+        x=self.winfo_rootx()+(self.winfo_width()-dialog.winfo_width())//2
+        y=self.winfo_rooty()+(self.winfo_height()-dialog.winfo_height())//2
+        dialog.geometry(f"+{x}+{y}")
+        dialog.wait_window()
     def _build_voclean_tab(self):
         tab=ttk.Frame(self.tabs, style="White.TFrame"); self.tabs.add(tab,text="VOCLEAN (0)"); cols=("Proje","Seçim PDF","VOClean kW","Seçim PDF Sayfa","Elektrik P. PDF","AHU","Durum"); self.voclean_tree=ttk.Treeview(tab,columns=cols,show="headings"); widths={"Proje":260,"Seçim PDF":300,"VOClean kW":100,"Seçim PDF Sayfa":110,"Elektrik P. PDF":300,"AHU":180,"Durum":280}
         for col in cols:self.voclean_tree.heading(col,text=col);self.voclean_tree.column(col,width=widths[col],anchor="w")
