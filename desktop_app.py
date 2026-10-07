@@ -379,6 +379,27 @@ class App(tk.Tk):
         canvas.pack(side="left", fill="both", expand=True)
         scrollbar.pack(side="right", fill="y")
 
+        # Keep mouse-wheel scrolling active anywhere inside the PDF list,
+        # including child labels/buttons that normally receive the wheel event.
+        def _bind_list_wheel(widget, c=canvas):
+            def _wheel(event):
+                if getattr(event, "delta", 0):
+                    units = -int(event.delta / 120) if event.delta else 0
+                    if units == 0:
+                        units = -1 if event.delta > 0 else 1
+                    c.yview_scroll(units, "units")
+                elif getattr(event, "num", None) == 4:
+                    c.yview_scroll(-3, "units")
+                elif getattr(event, "num", None) == 5:
+                    c.yview_scroll(3, "units")
+                return "break"
+            widget.bind("<MouseWheel>", _wheel, add="+")
+            widget.bind("<Button-4>", _wheel, add="+")
+            widget.bind("<Button-5>", _wheel, add="+")
+
+        for _wheel_widget in (list_container, canvas, scrollable_frame):
+            _bind_list_wheel(_wheel_widget)
+
         # Store references
         if side == "PDF1":
             self._pdf1_scroll_frame = scrollable_frame
@@ -514,6 +535,7 @@ class App(tk.Tk):
                 pady=6
             )
             empty_lbl.pack(fill="both", expand=True)
+            _bind_list_wheel(empty_lbl)
             reg = getattr(self, "_register_drop_target", None)
             if reg:
                 reg(empty_lbl, side)
@@ -535,6 +557,7 @@ class App(tk.Tk):
 
             for widget in (card, icon, text_box, name_label):
                 self._bind_pdf_open(widget, item.path, side)
+                _bind_list_wheel(widget)
 
             # Silme butonu (Trash can button 🗑)
             del_btn = tk.Button(
