@@ -117,6 +117,16 @@ class App(tk.Tk):
             bordercolor=[("active", "#94a3b8")]
         )
         style.configure("FileList.Secondary.TButton", padding=(6, 1), font=("Segoe UI", 8))
+        style.configure("Action.Primary.TButton", background=primary_color, foreground="#ffffff", font=("Segoe UI", 8, "bold"), borderwidth=0, padding=(10, 3))
+        style.map("Action.Primary.TButton",
+            background=[("active", "#1e40af"), ("disabled", "#cbd5e1")],
+            foreground=[("disabled", "#94a3b8")]
+        )
+        style.configure("Action.Secondary.TButton", background="#ffffff", foreground="#334155", font=("Segoe UI", 8), borderwidth=1, bordercolor="#cbd5e1", padding=(7, 2))
+        style.map("Action.Secondary.TButton",
+            background=[("active", "#f1f5f9"), ("disabled", "#f8fafc")],
+            bordercolor=[("active", "#94a3b8")]
+        )
 
         # Tabs / Notebook
         style.configure("TNotebook", background=bg_canvas, borderwidth=0)
@@ -174,8 +184,8 @@ class App(tk.Tk):
 
         # Reserve a dedicated bottom dock so actions stay visible when the
         # window is vertically resized.
-        action_dock = ttk.Frame(self, style="White.TFrame", padding=(10, 6))
-        action_dock.pack(side="bottom", fill="x", padx=10, pady=(6, 0))
+        action_dock = ttk.Frame(self, style="White.TFrame", padding=(8, 2))
+        action_dock.pack(side="bottom", fill="x", padx=10, pady=(4, 0))
         self.action_dock = action_dock
 
         # Notebook tabs
@@ -236,26 +246,26 @@ class App(tk.Tk):
         self.update_detail = tk.StringVar(value="Güncelleme hazır")
         style = ttk.Style(self)
         style.configure("Update.Horizontal.TProgressbar", troughcolor="#e2e8f0", background="#1a56db")
-        update_area = ttk.Frame(action_dock, style="White.TFrame", width=720, height=58)
-        update_area.pack(side="right", fill="y", padx=(12, 0))
+        update_area = ttk.Frame(action_dock, style="White.TFrame", height=30)
+        update_area.pack(side="right", fill="both", expand=True, padx=(12, 0))
         update_area.pack_propagate(False)
         self.update_area = update_area
-        progress = ttk.Frame(update_area, padding=(8, 0))
+        progress = ttk.Frame(update_area, padding=(6, 0))
         self.update_panel = progress
-        ttk.Label(progress, textvariable=self.update_detail, anchor="e").pack(side="left", fill="x", expand=True)
+        ttk.Label(progress, textvariable=self.update_detail, anchor="e", width=36).pack(side="left", padx=(0, 8))
         self.update_bar = ttk.Progressbar(progress, style="Update.Horizontal.TProgressbar", variable=self.update_progress, maximum=100, length=360)
-        self.update_bar.pack(side="right", padx=8)
-        progress.pack(fill="x", expand=False)
+        self.update_bar.pack(side="left", fill="x", expand=True, padx=(0, 4))
+        progress.pack(fill="both", expand=True)
         style.configure("Small.Secondary.TButton", padding=(7, 2), font=("Segoe UI", 8))
 
         # Action Buttons bar
-        buttons = ttk.Frame(action_dock, padding=(0, 2))
-        buttons.pack(fill="x")
-        ttk.Button(buttons, text="▶ ANALİZ BAŞLA", style="Primary.TButton", command=self.compare).pack(side="left", padx=(0, 6))
-        ttk.Button(buttons, text="↺ TEMİZLE", style="Secondary.TButton", command=self.clear_inputs).pack(side="left", padx=3)
+        buttons = ttk.Frame(action_dock)
+        buttons.pack(side="left", fill="y")
+        ttk.Button(buttons, text="▶ ANALİZ BAŞLA", style="Action.Primary.TButton", command=self.compare).pack(side="left", padx=(0, 5))
+        ttk.Button(buttons, text="↺ TEMİZLE", style="Action.Secondary.TButton", command=self.clear_inputs).pack(side="left", padx=2)
 
-        self.status = ttk.Label(buttons, text="Hazır", anchor="e")
-        self.status.pack(side="right")
+        self.status = ttk.Label(action_dock, text="Hazır", anchor="w", width=22, style="White.TLabel")
+        self.status.pack(side="left", padx=(10, 0))
 
         self.log_text = tk.Text(log_tab, wrap="none", bg="#f8fafc", fg="#0f172a", font=("Consolas", 9), relief="flat")
         self.log_text.grid(row=1, column=0, sticky="nsew", padx=8, pady=4)
