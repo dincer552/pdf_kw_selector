@@ -269,8 +269,8 @@ class App(tk.Tk):
         ttk.Button(buttons, text="▶ ANALİZ BAŞLA", style="Action.Primary.TButton", command=self.compare).pack(side="left", padx=(0, 5))
         ttk.Button(buttons, text="↺ TEMİZLE", style="Action.Secondary.TButton", command=self.clear_inputs).pack(side="left", padx=2)
 
-        self.status = ttk.Label(action_dock, text="Hazır", anchor="w", width=22, style="White.TLabel")
-        self.status.grid(row=0, column=1, sticky="w", padx=(10, 0))
+        self.status = ttk.Label(action_dock, text="Hazır", anchor="w", style="White.TLabel")
+        self.status.grid(row=0, column=1, sticky="ew", padx=(10, 0)); action_dock.columnconfigure(1, weight=1)
 
         self.log_text = tk.Text(log_tab, wrap="none", bg="#f8fafc", fg="#0f172a", font=("Consolas", 9), relief="flat")
         self.log_text.grid(row=1, column=0, sticky="nsew", padx=8, pady=4)
