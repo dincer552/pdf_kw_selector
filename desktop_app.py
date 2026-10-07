@@ -96,7 +96,12 @@ class App(tk.Tk):
         style.configure("Muted.TLabel", background=card_bg, foreground=text_muted, font=("Segoe UI", 8))
         style.configure("Title.TLabel", background=card_bg, foreground=text_dark, font=("Segoe UI", 13, "bold"))
         style.configure("Badge.TLabel", background="#eff6ff", foreground=primary_color, font=("Segoe UI", 8, "bold"), padding=(6, 2))
-        style.configure("UpdateBuild.TLabel", background=card_bg, foreground=primary_color, font=("Segoe UI", 8, "bold"))
+        style.configure("UpdateBuild.TLabel", background="#eff6ff", foreground=primary_color, font=("Segoe UI", 8, "bold"), padding=(6, 2))
+        style.configure("Header.Secondary.TButton", background="#ffffff", foreground="#334155", font=("Segoe UI", 8), borderwidth=1, bordercolor="#cbd5e1", padding=(7, 2))
+        style.map("Header.Secondary.TButton",
+            background=[("active", "#f1f5f9"), ("disabled", "#f8fafc")],
+            bordercolor=[("active", "#94a3b8")]
+        )
 
         # Primary Button (ANALİZ BAŞLA)
         style.configure("Primary.TButton", background=primary_color, foreground="#ffffff", font=("Segoe UI", 9, "bold"), borderwidth=0, padding=(12, 6))
@@ -134,25 +139,21 @@ class App(tk.Tk):
 
     def _build_ui(self):
         # Modern Header
-        header = ttk.Frame(self, style="White.TFrame", padding=(10, 4))
+        header = ttk.Frame(self, style="White.TFrame", padding=(8, 2))
         header.pack(fill="x", pady=(0, 4))
-        
-        kw_box = tk.Label(header, text="kW", bg="#1a56db", fg="#ffffff", font=("Segoe UI", 10, "bold"), width=3, height=1)
-        kw_box.pack(side="left", padx=(0, 8))
-        
-        title_box = ttk.Frame(header, style="White.TFrame")
-        title_box.pack(side="left")
-        ttk.Label(title_box, text="AHU MATCH", style="Title.TLabel").pack(anchor="w")
 
-        update_controls = ttk.Frame(header, style="White.TFrame")
-        update_controls.pack(side="right", padx=(6, 0))
-        self._manual_update_button = ttk.Button(update_controls, text="↻", width=2, command=self._manual_update_check, style="Secondary.TButton")
-        self._manual_update_button.grid(row=0, column=0, padx=(0, 6), sticky="s")
-        self._update_button = ttk.Button(update_controls, text="Güncelle", width=9, command=self.download_available_update, style="Secondary.TButton", state="disabled")
-        self._update_button.grid(row=0, column=1, sticky="s")
-        self._update_build_label = ttk.Label(update_controls, text="", style="UpdateBuild.TLabel")
-        self._update_build_label.grid(row=1, column=1, pady=(2, 0), sticky="n")
-        ttk.Label(header, text=f"{VERSION}", style="Badge.TLabel").pack(side="right", padx=(0, 6))
+        header_content = ttk.Frame(header, style="White.TFrame")
+        header_content.pack(anchor="center")
+        kw_box = tk.Label(header_content, text="kW", bg="#1a56db", fg="#ffffff", font=("Segoe UI", 10, "bold"), width=3, height=1)
+        kw_box.grid(row=0, column=0, padx=(0, 7))
+        ttk.Label(header_content, text="AHU MATCH", style="Title.TLabel").grid(row=0, column=1, padx=(0, 10))
+        self._manual_update_button = ttk.Button(header_content, text="↻", width=2, command=self._manual_update_check, style="Header.Secondary.TButton")
+        self._manual_update_button.grid(row=0, column=2, padx=(0, 5))
+        self._update_button = ttk.Button(header_content, text="Güncelle", width=9, command=self.download_available_update, style="Header.Secondary.TButton", state="disabled")
+        self._update_button.grid(row=0, column=3, padx=(0, 5))
+        self._update_build_label = ttk.Label(header_content, text="", style="UpdateBuild.TLabel")
+        self._update_build_label.grid(row=0, column=4, padx=(0, 7))
+        ttk.Label(header_content, text=f"{VERSION}", style="Badge.TLabel").grid(row=0, column=5)
 
         # PDF Drop / Selection Boxes
         self._main_pane = ttk.Panedwindow(self, orient="vertical")
