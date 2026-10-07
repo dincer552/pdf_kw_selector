@@ -246,16 +246,16 @@ class App(tk.Tk):
         self.update_detail = tk.StringVar(value="Güncelleme hazır")
         style = ttk.Style(self)
         style.configure("Update.Horizontal.TProgressbar", troughcolor="#e2e8f0", background="#1a56db")
-        update_area = ttk.Frame(action_dock, style="White.TFrame", height=30)
-        update_area.pack(side="right", fill="both", expand=True, padx=(12, 0))
+        update_area = ttk.Frame(action_dock, style="White.TFrame", width=470, height=30)
+        update_area.pack(side="right", fill="y", padx=(12, 0))
         update_area.pack_propagate(False)
         self.update_area = update_area
         progress = ttk.Frame(update_area, padding=(6, 0))
         self.update_panel = progress
         ttk.Label(progress, textvariable=self.update_detail, anchor="e", width=36).pack(side="left", padx=(0, 8))
-        self.update_bar = ttk.Progressbar(progress, style="Update.Horizontal.TProgressbar", variable=self.update_progress, maximum=100, length=360)
-        self.update_bar.pack(side="left", fill="x", expand=True, padx=(0, 4))
-        progress.pack(fill="both", expand=True)
+        self.update_bar = ttk.Progressbar(progress, style="Update.Horizontal.TProgressbar", variable=self.update_progress, maximum=100, length=180)
+        self.update_bar.pack(side="left", padx=(0, 4))
+        progress.pack(fill="y", expand=False)
         style.configure("Small.Secondary.TButton", padding=(7, 2), font=("Segoe UI", 8))
 
         # Action Buttons bar
