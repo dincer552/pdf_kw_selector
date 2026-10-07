@@ -246,26 +246,31 @@ class App(tk.Tk):
         self.update_detail = tk.StringVar(value="Güncelleme hazır")
         style = ttk.Style(self)
         style.configure("Update.Horizontal.TProgressbar", troughcolor="#e2e8f0", background="#1a56db")
+        # Bottom action dock uses a fixed grid so the progress area never
+        # moves when status text, analysis stage, or update text changes.
+        action_dock.columnconfigure(2, weight=1)
         update_area = ttk.Frame(action_dock, style="White.TFrame", width=470, height=30)
-        update_area.pack(side="right", fill="y", padx=(12, 0))
-        update_area.pack_propagate(False)
+        update_area.grid(row=0, column=3, sticky="e", padx=(12, 0))
+        update_area.grid_propagate(False)
         self.update_area = update_area
+
         progress = ttk.Frame(update_area, padding=(6, 0))
         self.update_panel = progress
         ttk.Label(progress, textvariable=self.update_detail, anchor="e", width=36).pack(side="left", padx=(0, 8))
         self.update_bar = ttk.Progressbar(progress, style="Update.Horizontal.TProgressbar", variable=self.update_progress, maximum=100, length=180)
         self.update_bar.pack(side="left", padx=(0, 4))
         progress.pack(fill="y", expand=False)
+
         style.configure("Small.Secondary.TButton", padding=(7, 2), font=("Segoe UI", 8))
 
         # Action Buttons bar
         buttons = ttk.Frame(action_dock)
-        buttons.pack(side="left", fill="y")
+        buttons.grid(row=0, column=0, sticky="w")
         ttk.Button(buttons, text="▶ ANALİZ BAŞLA", style="Action.Primary.TButton", command=self.compare).pack(side="left", padx=(0, 5))
         ttk.Button(buttons, text="↺ TEMİZLE", style="Action.Secondary.TButton", command=self.clear_inputs).pack(side="left", padx=2)
 
         self.status = ttk.Label(action_dock, text="Hazır", anchor="w", width=22, style="White.TLabel")
-        self.status.pack(side="left", padx=(10, 0))
+        self.status.grid(row=0, column=1, sticky="w", padx=(10, 0))
 
         self.log_text = tk.Text(log_tab, wrap="none", bg="#f8fafc", fg="#0f172a", font=("Consolas", 9), relief="flat")
         self.log_text.grid(row=1, column=0, sticky="nsew", padx=8, pady=4)
@@ -595,7 +600,6 @@ class App(tk.Tk):
         self.status.configure(text="Hazır")
         self.update_progress.set(0)
         self.update_detail.set("Güncelleme hazır")
-        self.update_panel.pack_forget()
         self._clear_grouped_results()
         info("PDF seçimleri ve analiz sonuçları temizlendi")
 
@@ -605,7 +609,7 @@ class App(tk.Tk):
     def compare(self):
         if self._analysis_running:return
         if not self.pdf1_inputs or not self.pdf2_inputs: messagebox.showwarning("Eksik seçim","PDF1 ve PDF2 tarafına en az birer PDF/klasör ekleyin."); return
-        self._analysis_running=True; self.update_progress.set(0); self.update_detail.set("PDF taraması başlıyor..."); self.update_panel.pack(fill="x"); self.status.configure(text="PDF'ler taranıyor..."); self.update_idletasks(); pdf1=[str(x.path) for x in self.pdf1_inputs]; pdf2=[str(x.path) for x in self.pdf2_inputs]; threading.Thread(target=self._prepare_analysis,args=(pdf1,pdf2),daemon=True).start()
+        self._analysis_running=True; self.update_progress.set(0); self.update_detail.set("PDF taraması başlıyor..."); self.status.configure(text="PDF'ler taranıyor..."); self.update_idletasks(); pdf1=[str(x.path) for x in self.pdf1_inputs]; pdf2=[str(x.path) for x in self.pdf2_inputs]; threading.Thread(target=self._prepare_analysis,args=(pdf1,pdf2),daemon=True).start()
 
     def _queue_analysis_progress(self,stage,done,total,detail):
         with self._progress_lock:
