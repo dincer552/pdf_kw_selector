@@ -26,7 +26,8 @@ class BatchAHU:
 @dataclass(frozen=True)
 class BatchAnalysis:
     pdf1_documents: tuple[BatchDocument,...]; pdf2_documents: tuple[BatchDocument,...]; project_matches: tuple[ProjectMatch,...]; ahu_matches: tuple[BatchAHU,...]; motor_comparisons: tuple[MotorComparison,...]
-    def to_dict(self)->dict: return {"pdf1_documents":[x.to_dict() for x in self.pdf1_documents],"pdf2_documents":[x.to_dict() for x in self.pdf2_documents],"project_matches":[x.to_dict() for x in self.project_matches],"ahu_matches":[x.to_dict() for x in self.ahu_matches],"motor_comparisons":[x.to_dict() for x in self.motor_comparisons]}
+    duplicate_warnings: tuple[str,...] = ()
+    def to_dict(self)->dict: return {"pdf1_documents":[x.to_dict() for x in self.pdf1_documents],"pdf2_documents":[x.to_dict() for x in self.pdf2_documents],"project_matches":[x.to_dict() for x in self.project_matches],"ahu_matches":[x.to_dict() for x in self.ahu_matches],"motor_comparisons":[x.to_dict() for x in self.motor_comparisons],"duplicate_warnings":list(self.duplicate_warnings)}
 
 def _discover_documents(paths:list[str|Path],side:str)->list[BatchDocument]:
     documents=[]; seen_paths=set(); valid_paths=[]; info("PDF master keşfi başladı",side=side,input_count=len(paths))
@@ -240,7 +241,7 @@ def analyze_batch(pdf1_paths,pdf2_paths,progress_callback=None,preferred_pdf2_pa
             m,lg,rg=project_pair_docs[lk];rg.extend(docs);project_pair_docs[lk]=(m,lg,rg);continue
         lg=left_groups[lk];p=lg[0].project;right_name=docs[0].project.project_name if docs[0].project.project_name else None;overlap_total=sum(len(_ahu_set([d])&_ahu_set(lg)) for d in docs)
         project_pair_docs[lk]=(ProjectMatch(p.project_name,right_name,p.project_name_normalized,normalize_project_name(right_name or "") or None,round(overlap_total/max(1,sum(len(_ahu_set([d])) for d in docs)),4),"INFERRED_FROM_AHU","PDF2 project name is unavailable; project was inferred from AHU references",p.project_source,None),list(lg),list(docs))
-    project_matches=[];ahu_batches=[];motor_comparisons=[]
+    project_matches=[];ahu_batches=[];motor_comparisons=[];duplicate_warnings=[];seen_duplicate_warnings=set()
     progress("matching",3,5,"AHU ekipmanları eşleştiriliyor")
     for pm,lg,rg in project_pair_docs.values():
         project_matches.append(pm);left_equipment=[];right_equipment=[]
@@ -250,7 +251,27 @@ def analyze_batch(pdf1_paths,pdf2_paths,progress_callback=None,preferred_pdf2_pa
         for am in match_ahu_lists(left_equipment,right_equipment):
             normalized_ahu = am.left_normalized or am.right_normalized
             preferred_path = (preferred_pdf2_paths or {}).get(normalized_ahu)
-            lf,rf=_one_to_one_files_for_ahu(lg,rg,normalized_ahu,preferred_path,am.right_normalized); info("AHU MATCH DEBUG: aday",project=pm.left_name,left=am.left_normalized,right=am.right_normalized,score=am.score,status=am.status,reason=getattr(am,"reason",None),pdf1_files=list(lf),pdf2_files=list(rf)); ahu_batches.append(BatchAHU(pm.left_name,am,lf,rf))
+            left_candidates = _files_for_ahu(lg, normalized_ahu)
+            right_candidates = _files_for_ahu(rg, am.right_normalized or normalized_ahu)
+            lf,rf=_one_to_one_files_for_ahu(lg,rg,normalized_ahu,preferred_path,am.right_normalized)
+            duplicate_key = (pm.left_name or "", normalized_ahu, tuple(left_candidates), tuple(right_candidates))
+            if (len(left_candidates) > 1 or len(right_candidates) > 1) and duplicate_key not in seen_duplicate_warnings:
+                seen_duplicate_warnings.add(duplicate_key)
+                unmatched = tuple(path for path in left_candidates if path not in lf) + tuple(path for path in right_candidates if path not in rf)
+                selected = tuple(lf) + tuple(rf)
+                warning(
+                    "Aynı proje ve AHU için tekrarlanan PDF bulundu; bir PDF eşleşmeyenlere ayrıldı",
+                    project=pm.left_name,
+                    ahu=normalized_ahu,
+                    selected_files=list(selected),
+                    unmatched_files=list(unmatched),
+                )
+                duplicate_warnings.append(
+                    f"Proje: {pm.left_name or '-'} | AHU: {normalized_ahu}\n"
+                    f"Eşleşen dosya: {', '.join(Path(path).name for path in selected) or '-'}\n"
+                    f"EŞLEŞMEYEN'e alınan tekrar: {', '.join(Path(path).name for path in unmatched) or '-'}"
+                )
+            info("AHU MATCH DEBUG: aday",project=pm.left_name,left=am.left_normalized,right=am.right_normalized,score=am.score,status=am.status,reason=getattr(am,"reason",None),pdf1_files=list(lf),pdf2_files=list(rf)); ahu_batches.append(BatchAHU(pm.left_name,am,lf,rf))
             if am.status not in {"EXACT","NORMALIZED_MATCH","USER_APPROVED","APPROVED_FLEXIBLE"}:continue
             if _is_special_brand_pdf1(lf):
                 info("Özel motor markalı PDF1 kW karşılaştırması atlandı; AHU eşleşmesi korunuyor",project=pm.left_name,ahu=am.left_normalized,pdf1_files=list(lf),pdf2_files=list(rf))
@@ -273,4 +294,4 @@ def analyze_batch(pdf1_paths,pdf2_paths,progress_callback=None,preferred_pdf2_pa
     progress("matching",4,5,"Motor sonuçları oluşturuluyor")
     info("AHU MATCH DEBUG: final",project_matches=len(project_matches),ahu_matches=len(ahu_batches),motor_comparisons=len(motor_comparisons))
     progress("matching",5,5,"Analiz tamamlandı")
-    return BatchAnalysis(tuple(left_docs),tuple(right_docs),tuple(project_matches),tuple(ahu_batches),tuple(motor_comparisons))
+    return BatchAnalysis(tuple(left_docs),tuple(right_docs),tuple(project_matches),tuple(ahu_batches),tuple(motor_comparisons),tuple(duplicate_warnings))

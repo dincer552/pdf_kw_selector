@@ -416,6 +416,15 @@ class GroupedApp(BaseApp):
                     p1_p=int(row[7]) if str(row[7]).strip().isdigit() else None; p2_p=int(row[9]) if str(row[9]).strip().isdigit() else None
                     self._tree_cell_data[item_id]={"pdf1_path":row[6] or None,"pdf1_page":p1_p,"pdf2_path":row[8] or None,"pdf2_page":p2_p}
             self._refresh_grouped_tab_counts(); elapsed=time.perf_counter()-self._analysis_started_at if self._analysis_started_at is not None else None
+            duplicate_warnings = tuple(getattr(self.analysis, "duplicate_warnings", ()) or ())
+            if duplicate_warnings:
+                messagebox.showwarning(
+                    "Tekrarlanan proje / AHU",
+                    "Aynı proje kodu ve AHU için birden fazla PDF bulundu.\n\n"
+                    "Bir dosya eşleştirildi; tekrar olan dosya EŞLEŞMEYEN PDF'LER sekmesine alındı.\n\n"
+                    + "\n\n".join(duplicate_warnings),
+                    parent=self,
+                )
             if elapsed is not None:self.status.configure(text=f"Analiz süresi: {elapsed:.2f} sn | PDF {len(self._selected_pdf_keys())} | AHU {len(self.analysis.ahu_matches)} | Motor {len(self.analysis.motor_comparisons)} | MATCH/MISMATCH sonuçları hazır"); info("Toplu analiz tamamlandı",elapsed_seconds=round(elapsed,3),selected_pdf_count=len(self._selected_pdf_keys()),ahu_count=len(self.analysis.ahu_matches),motor_count=len(self.analysis.motor_comparisons))
             self.refresh_logs()
         except Exception as exc: exception("Project/AHU sonuç gruplama hatası",exc); self.refresh_logs()
