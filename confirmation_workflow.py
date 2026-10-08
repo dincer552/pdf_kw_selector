@@ -4,6 +4,7 @@ from __future__ import annotations
 from difflib import SequenceMatcher
 import re
 from pathlib import Path
+import threading
 
 from tkinter import messagebox, simpledialog
 
@@ -126,6 +127,19 @@ def _ask_voclean_project_group(voclean_document, left_groups) -> str:
 
 def _ask_duplicate_pdf(left_document, right_documents) -> str:
     """Ask which duplicate/revision PDF2 should pair with one PDF1."""
+    # analyze_with_confirmations runs in the analysis worker. Tk dialogs must
+    # be created on the main thread; otherwise Tk can delete the temporary
+    # query window while it is still trying to make it visible.
+    if threading.current_thread() is not threading.main_thread():
+        selected = right_documents[0]
+        info(
+            "Tekrarlanan elektrik PDF'si için arka plan thread'inde seçim penceresi açılmadı; ilk dosya seçildi",
+            pdf1=left_document.path,
+            selected_pdf2=selected.path,
+            unselected_pdf2=[document.path for document in right_documents[1:]],
+        )
+        return str(selected.path)
+
     pdf1_name = Path(left_document.path).name
     options = "\n".join(
         f"{index}. {Path(document.path).name}"
