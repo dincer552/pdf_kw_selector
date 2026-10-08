@@ -323,6 +323,10 @@ class GroupedApp(BaseApp):
         for side,pdf,project,ahus,reason,path in rows:
             item_id = self.unmatched_tree.insert("","end",values=(side,pdf,project,ahus,reason),tags=(path,)); self._unmatched_cell_data[item_id] = {"path": path, "pdf_path": path, "name": pdf, "page": 1}
         self._unmatched_pdf_keys=unmatched
+        # Update from the rendered rows immediately.  A later grouped-result
+        # renderer must not be able to leave a visible row with a stale (0)
+        # tab count.
+        self.tabs.tab(self.unmatched_tab_index(),text=f"EŞLEŞMEYEN PDF'LER ({len(rows)})")
     def _clear_grouped_results(self):
         for item in self.ebm_tree.get_children(): self.ebm_tree.delete(item)
         for item in self.voclean_tree.get_children(): self.voclean_tree.delete(item)
