@@ -56,3 +56,14 @@ def test_flexible_ahu_key_ignores_separators_and_leading_zeroes():
 
 def test_flexible_ahu_key_keeps_distinct_suffixes_distinct():
     assert workflow._flexible_ahu_key("AHU-A-1") != workflow._flexible_ahu_key("AHU-A-1A")
+
+
+def test_duplicate_pdf_choice_returns_selected_path(monkeypatch):
+    left = SimpleNamespace(path="selection.pdf", equipment=("AHU-01",))
+    right = [
+        SimpleNamespace(path="01-C.pdf", equipment=("AHU-01",)),
+        SimpleNamespace(path="01-C_REV.pdf", equipment=("AHU-01",)),
+    ]
+    monkeypatch.setattr(workflow.simpledialog, "askinteger", lambda *args, **kwargs: 2)
+
+    assert workflow._ask_duplicate_pdf(left, right) == "01-C_REV.pdf"

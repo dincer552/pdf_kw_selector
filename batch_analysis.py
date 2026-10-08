@@ -125,6 +125,21 @@ def _files_for_ahu(documents,normalized_ahu):
     if not normalized_ahu:return ()
     target=normalize_equipment_id(normalized_ahu); return tuple(document.path for document in documents if target in {normalize_equipment_id(x) for x in document.equipment})
 
+def _one_to_one_files_for_ahu(left_documents, right_documents, normalized_ahu, preferred_right_path=None, right_normalized_ahu=None):
+    """Return one PDF from each side for an AHU match.
+
+    A project export can contain a revised/duplicate PDF with the same AHU
+    references.  Returning every document that contains the AHU makes all of
+    those documents look matched, even though one AHU can only be paired with
+    one PDF on the other side.  Keep input order as the deterministic tie
+    breaker and leave the remaining documents for the unmatched list.
+    """
+    left_files = _files_for_ahu(left_documents, normalized_ahu)
+    right_files = _files_for_ahu(right_documents, right_normalized_ahu or normalized_ahu)
+    if preferred_right_path in right_files:
+        right_files = (preferred_right_path,) + tuple(path for path in right_files if path != preferred_right_path)
+    return left_files[:1], right_files[:1]
+
 def _dedupe_motor_records(records):
     unique={}
     for record in records:unique.setdefault(build_comparison_key(record),record)
@@ -210,7 +225,7 @@ def _is_ebm_pdf1(paths):
             return True
     return False
 
-def analyze_batch(pdf1_paths,pdf2_paths,progress_callback=None):
+def analyze_batch(pdf1_paths,pdf2_paths,progress_callback=None,preferred_pdf2_paths=None):
     def progress(stage, current, total, detail):
         if progress_callback:
             progress_callback(stage, current, total, detail)
@@ -233,7 +248,9 @@ def analyze_batch(pdf1_paths,pdf2_paths,progress_callback=None):
         for d in rg:right_equipment.extend(scan_pdf(d.path,d.side).equipment.equipment_ids)
         info("AHU MATCH DEBUG: proje grubu",project=pm.left_name,pdf1_files=[d.path for d in lg],pdf2_files=[d.path for d in rg],pdf1_ahus=sorted({item.normalized for item in left_equipment}),pdf2_ahus=sorted({item.normalized for item in right_equipment}))
         for am in match_ahu_lists(left_equipment,right_equipment):
-            lf=_files_for_ahu(lg,am.left_normalized);rf=_files_for_ahu(rg,am.right_normalized); info("AHU MATCH DEBUG: aday",project=pm.left_name,left=am.left_normalized,right=am.right_normalized,score=am.score,status=am.status,reason=getattr(am,"reason",None),pdf1_files=list(lf),pdf2_files=list(rf)); ahu_batches.append(BatchAHU(pm.left_name,am,lf,rf))
+            normalized_ahu = am.left_normalized or am.right_normalized
+            preferred_path = (preferred_pdf2_paths or {}).get(normalized_ahu)
+            lf,rf=_one_to_one_files_for_ahu(lg,rg,normalized_ahu,preferred_path,am.right_normalized); info("AHU MATCH DEBUG: aday",project=pm.left_name,left=am.left_normalized,right=am.right_normalized,score=am.score,status=am.status,reason=getattr(am,"reason",None),pdf1_files=list(lf),pdf2_files=list(rf)); ahu_batches.append(BatchAHU(pm.left_name,am,lf,rf))
             if am.status not in {"EXACT","NORMALIZED_MATCH","USER_APPROVED","APPROVED_FLEXIBLE"}:continue
             if _is_ebm_pdf1(lf):
                 info("EBM-Papst PDF1 motor karşılaştırması atlandı; AHU eşleşmesi korunuyor",project=pm.left_name,ahu=am.left_normalized,pdf1_files=list(lf),pdf2_files=list(rf))

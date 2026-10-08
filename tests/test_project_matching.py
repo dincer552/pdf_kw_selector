@@ -1,5 +1,40 @@
 from project_discovery import discover_project_from_text
 from project_matching import match_discoveries, match_project_names, match_discovery_lists
+from batch_analysis import _one_to_one_files_for_ahu
+
+
+class _Document:
+    def __init__(self, path, equipment):
+        self.path = path
+        self.equipment = equipment
+
+
+def test_duplicate_pdf_candidates_are_reduced_to_one_pair():
+    left = [_Document("selection.pdf", ("AHU-01",))]
+    right = [
+        _Document("01-C.pdf", ("AHU-01",)),
+        _Document("01-C_REV.pdf", ("AHU-01",)),
+    ]
+
+    left_files, right_files = _one_to_one_files_for_ahu(left, right, "AHU-01")
+
+    assert left_files == ("selection.pdf",)
+    assert right_files == ("01-C.pdf",)
+
+
+def test_user_selected_duplicate_pdf_is_used():
+    left = [_Document("selection.pdf", ("AHU-01",))]
+    right = [
+        _Document("01-C.pdf", ("AHU-01",)),
+        _Document("01-C_REV.pdf", ("AHU-01",)),
+    ]
+
+    left_files, right_files = _one_to_one_files_for_ahu(
+        left, right, "AHU-01", "01-C_REV.pdf"
+    )
+
+    assert left_files == ("selection.pdf",)
+    assert right_files == ("01-C_REV.pdf",)
 
 
 def test_exact_project_match():

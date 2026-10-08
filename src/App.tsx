@@ -196,9 +196,37 @@ export function App() {
       setProgressMessage('AHU ve motor anma güçleri eşleştiriliyor...');
 
       setTimeout(() => {
-        const result = runBatchAnalysis(p1, p2, tol, (entry) => {
-          setLogs((prev) => [entry, ...prev]);
-        });
+        const result = runBatchAnalysis(
+          p1,
+          p2,
+          tol,
+          (entry) => setLogs((prev) => [entry, ...prev]),
+          (leftDocument, rightCandidates, ahu) => {
+            const options = rightCandidates
+              .map((document, index) => `${index + 1}. ${document.name}`)
+              .join('\n');
+            const answer = window.prompt(
+              `Seçim çıktısı: ${leftDocument.name}\n\n` +
+              `AHU ${ahu} için elektrik projesini seçin.\n` +
+              `${options}\n\n` +
+              'Seçilmeyen PDF eşleşmeyenlere aktarılacaktır.\n' +
+              `1-${rightCandidates.length} arasında seçim yapın:`,
+              '1',
+            );
+            const selectedIndex = Number(answer) - 1;
+            if (!Number.isInteger(selectedIndex) || selectedIndex < 0 || selectedIndex >= rightCandidates.length) {
+              addLog('WARNING', `Elektrik projesi seçilmedi: ${leftDocument.name} / ${ahu}`);
+              return null;
+            }
+            const selected = rightCandidates[selectedIndex];
+            addLog('INFO', `Elektrik projesi kullanıcı tarafından seçildi: ${selected.name}`, {
+              selectionPdf: leftDocument.name,
+              ahu,
+              unmatchedCandidates: rightCandidates.filter((_, index) => index !== selectedIndex).map(document => document.name),
+            });
+            return selected.path;
+          },
+        );
 
         setAnalysisResult(result);
         setIsAnalyzing(false);

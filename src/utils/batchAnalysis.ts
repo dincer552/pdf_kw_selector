@@ -15,11 +15,44 @@ import { matchAhuLists, normalizeEquipmentId } from './ahuMatching';
 import { matchDiscoveries } from './projectMatching';
 import { compareMotorRecords, expandMotorGroup, isEbmPapst } from './motorCompare';
 
+function oneToOneFilesForAhu(
+  leftDocs: BatchDocument[],
+  rightDocs: BatchDocument[],
+  leftAhu: string | null,
+  rightAhu: string | null,
+  preferredRightPath?: string | null,
+): { leftFiles: string[]; rightFiles: string[] } {
+  const leftFiles = leftDocs
+    .filter(d => leftAhu && d.equipment.uniqueIds.includes(leftAhu))
+    .map(d => d.path);
+  const rightFiles = rightDocs
+    .filter(d => rightAhu && d.equipment.uniqueIds.includes(rightAhu))
+    .map(d => d.path);
+
+  if (preferredRightPath === null) {
+    return { leftFiles: leftFiles.slice(0, 1), rightFiles: [] };
+  }
+  if (preferredRightPath && rightFiles.includes(preferredRightPath)) {
+    rightFiles.splice(0, rightFiles.length, preferredRightPath, ...rightFiles.filter(path => path !== preferredRightPath));
+  }
+
+  // Duplicate/revised PDFs may contain exactly the same AHU references. An
+  // AHU match represents one document pair, so leave additional candidates
+  // available for the unmatched-PDF report instead of displaying them as
+  // another successful match.
+  return { leftFiles: leftFiles.slice(0, 1), rightFiles: rightFiles.slice(0, 1) };
+}
+
 export function runBatchAnalysis(
   pdf1Docs: BatchDocument[],
   pdf2Docs: BatchDocument[],
   toleranceKw: number = 0.01,
-  onLog?: (entry: LogEntry) => void
+  onLog?: (entry: LogEntry) => void,
+  selectDuplicatePdf?: (
+    leftDocument: BatchDocument,
+    rightCandidates: BatchDocument[],
+    ahu: string,
+  ) => string | null,
 ): BatchAnalysisResult {
   const log = (level: LogEntry['level'], message: string, details?: Record<string, any>) => {
     if (onLog) {
@@ -154,12 +187,25 @@ export function runBatchAnalysis(
     const aMatches = matchAhuLists(lOccurrences, rOccurrences);
 
     aMatches.forEach(am => {
-      const leftFiles = lDocs
-        .filter(d => am.leftNormalized && d.equipment.uniqueIds.includes(am.leftNormalized))
-        .map(d => d.path);
-      const rightFiles = rDocs
-        .filter(d => am.rightNormalized && d.equipment.uniqueIds.includes(am.rightNormalized))
-        .map(d => d.path);
+      const leftCandidates = lDocs.filter(d => am.leftNormalized && d.equipment.uniqueIds.includes(am.leftNormalized));
+      const rightCandidates = rDocs.filter(d => am.rightNormalized && d.equipment.uniqueIds.includes(am.rightNormalized));
+      let preferredRightPath: string | null | undefined;
+      const canonicalAhu = am.leftNormalized || am.rightNormalized || 'AHU';
+      if (
+        (am.status === 'EXACT' || am.status === 'NORMALIZED_MATCH' || am.status === 'USER_APPROVED') &&
+        rightCandidates.length > 1 &&
+        selectDuplicatePdf &&
+        leftCandidates.length > 0
+      ) {
+        preferredRightPath = selectDuplicatePdf(leftCandidates[0], rightCandidates, canonicalAhu);
+      }
+      const { leftFiles, rightFiles } = oneToOneFilesForAhu(
+        lDocs,
+        rDocs,
+        am.leftNormalized,
+        am.rightNormalized,
+        preferredRightPath,
+      );
 
       ahuMatches.push({
         projectName: pMatch.leftName || pMatch.rightName || 'Proje',

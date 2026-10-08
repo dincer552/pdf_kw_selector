@@ -124,6 +124,56 @@ def _ask_voclean_project_group(voclean_document, left_groups) -> str:
     return key
 
 
+def _ask_duplicate_pdf(left_document, right_documents) -> str:
+    """Ask which duplicate/revision PDF2 should pair with one PDF1."""
+    pdf1_name = Path(left_document.path).name
+    options = "\n".join(
+        f"{index}. {Path(document.path).name}"
+        for index, document in enumerate(right_documents, 1)
+    )
+    prompt = (
+        f"Seçim çıktısı: {pdf1_name}\n\n"
+        "Aynı bilgilerle birden fazla elektrik projesi bulundu.\n"
+        "Eşleştirmek istediğiniz elektrik projesini seçin:\n\n"
+        f"{options}\n\n"
+        f"1-{len(right_documents)} arasında dosya numarasını girin.\n"
+        "Seçilmeyen dosyalar eşleşmeyen PDF'lere aktarılacaktır."
+    )
+    choice = simpledialog.askinteger(
+        "Elektrik projesi seçimi",
+        prompt,
+        minvalue=1,
+        maxvalue=len(right_documents),
+    )
+    if choice is None:
+        raise RuntimeError(f"Elektrik projesi seçilmedi: {pdf1_name}")
+    selected = right_documents[choice - 1]
+    info(
+        "Kullanıcı elektrik projesi seçti",
+        pdf1=left_document.path,
+        selected_pdf2=selected.path,
+        unselected_pdf2=[document.path for document in right_documents if document.path != selected.path],
+    )
+    return str(selected.path)
+
+
+def _build_duplicate_pdf_preferences(project_pair_docs):
+    """Collect user choices for duplicate PDF2 candidates by AHU."""
+    preferences = {}
+    for _, left_group, right_group in project_pair_docs:
+        for left_document in left_group:
+            left_ahus = {str(value) for value in left_document.equipment if str(value).strip()}
+            for normalized_ahu in sorted(left_ahus):
+                candidates = [
+                    document
+                    for document in right_group
+                    if normalized_ahu in {str(value) for value in document.equipment}
+                ]
+                if len(candidates) > 1 and normalized_ahu not in preferences:
+                    preferences[normalized_ahu] = _ask_duplicate_pdf(left_document, candidates)
+    return preferences
+
+
 def _prepare_voclean_project_assignments(left_groups, right_groups):
     """Force VOCLEAN PDF2 groups through user-selected PDF1 groups.
 
@@ -306,6 +356,7 @@ def analyze_with_confirmations(pdf1_paths, pdf2_paths, progress_callback=None):
 
     approved_ahus, flexible_ahus = _build_ahu_confirmations(project_pair_docs)
     all_approved_ahus = approved_ahus | flexible_ahus
+    preferred_pdf2_paths = _build_duplicate_pdf_preferences(project_pair_docs)
     if progress_callback:
         progress_callback("matching", 3, 5, "AHU eşleştirmeleri tamamlandı; motor analizi başlıyor")
 
@@ -395,7 +446,12 @@ def analyze_with_confirmations(pdf1_paths, pdf2_paths, progress_callback=None):
     batch._pair_project_groups = confirmed_project_pairs
     try:
         info("Onaylı eşleştirmelerle hesap başlıyor", approved_projects=list(approved_projects), approved_ahus=list(all_approved_ahus))
-        return batch.analyze_batch(list(pdf1_paths), list(pdf2_paths), progress_callback=progress_callback)
+        return batch.analyze_batch(
+            list(pdf1_paths),
+            list(pdf2_paths),
+            progress_callback=progress_callback,
+            preferred_pdf2_paths=preferred_pdf2_paths,
+        )
     except Exception as exc:
         exception("Onaylı eşleştirmeler sonrası toplu analiz hatası", exc)
         raise
