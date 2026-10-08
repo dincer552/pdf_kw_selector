@@ -6,11 +6,13 @@ from pathlib import Path
 import fitz
 from ahu_matching import AHUDiscovery, EquipmentOccurrence, normalize_equipment_id
 from app_logger import exception, info, warning
+from motor_brand import is_special_motor_brand
 from project_discovery import ProjectDiscovery, ProjectCandidate, normalize_project_name
 from pdf1_field_discovery import discover_pdf1_project, discover_pdf1_unit_reference
 from stage1_page_discovery import MotorPowerResult, build_stage1_motor_records, _dedupe_motor_results
-from stage2_pdf_discovery import PDF2MotorResult, discover_coordinate_pdf2_motor_powers, build_pdf2_motor_records
-from coordinate_motor_discovery import discover_coordinate_motor_powers
+from stage2_pdf_discovery import PDF2MotorResult, PDF2MotorFuseResult, discover_coordinate_pdf2_motor_powers, discover_coordinate_pdf2_motor_fuses, build_pdf2_motor_records
+from coordinate_motor_discovery import MotorModelResult, discover_coordinate_motor_powers, discover_selection_motor_models
+from stage2_pdf_discovery import discover_coordinate_pdf2_motor_models
 
 _PDF2_PROJECT_BOX = (376.0, 508.0, 344.0, 27.0)
 _PDF2_AHU_BOX = (380.0, 448.0, 326.0, 33.0)
@@ -59,6 +61,9 @@ class MasterPDFScan:
     pdf1_motors: tuple[MotorPowerResult, ...] = ()
     pdf2_motors: tuple[PDF2MotorResult, ...] = ()
     pdf1_ebm_pages: tuple[int, ...] = ()
+    pdf1_motor_models: tuple[MotorModelResult, ...] = ()
+    pdf2_motor_models: tuple[MotorModelResult, ...] = ()
+    pdf2_motor_fuses: tuple[PDF2MotorFuseResult, ...] = ()
 
     @property
     def page_count(self):
@@ -71,6 +76,9 @@ class MasterPDFScan:
             "pdf1_motors": [x.to_dict() for x in self.pdf1_motors],
             "pdf2_motors": [x.to_dict() for x in self.pdf2_motors],
             "pdf1_ebm_pages": list(self.pdf1_ebm_pages),
+            "pdf1_motor_models": [x.to_dict() for x in self.pdf1_motor_models],
+            "pdf2_motor_models": [x.to_dict() for x in self.pdf2_motor_models],
+            "pdf2_motor_fuses": [x.to_dict() for x in self.pdf2_motor_fuses],
         }
 
 
@@ -109,14 +117,19 @@ def _scan_single_pdf(path, side):
             equipment = discover_pdf1_unit_reference(list(pages), document=doc)
             ids = equipment.unique_ids(); equipment_id = ids[0] if ids else None
             motors = _scan_pdf1_motors(pages, equipment_id, path=resolved, document=doc)
-            ebm_pages = tuple(sorted({r.page_number for r in motors if (r.model_brand or "").strip().casefold() == "ebm-papst"}))
-            return MasterPDFScan(str(resolved), side, pages, project, equipment, pdf1_motors=motors, pdf1_ebm_pages=ebm_pages)
+            ebm_pages = tuple(sorted({r.page_number for r in motors if is_special_motor_brand(r.model_brand)}))
+            motor_models = discover_selection_motor_models(document=doc)
+            return MasterPDFScan(str(resolved), side, pages, project, equipment, pdf1_motors=motors,
+                pdf1_ebm_pages=ebm_pages, pdf1_motor_models=motor_models)
         if side == "PDF2":
             pages = tuple(page.get_text("text") or "" for page in doc)
             project = _pdf2_coordinate_project(doc); equipment = _pdf2_coordinate_ahu(doc)
             ids = equipment.unique_ids(); equipment_id = ids[0] if ids else None
             motors = _scan_pdf2_motors(doc, equipment_id)
-            return MasterPDFScan(str(resolved), side, pages, project, equipment, pdf2_motors=motors)
+            motor_models = discover_coordinate_pdf2_motor_models(doc)
+            motor_fuses = discover_coordinate_pdf2_motor_fuses(doc)
+            return MasterPDFScan(str(resolved), side, pages, project, equipment, pdf2_motors=motors,
+                pdf2_motor_models=motor_models, pdf2_motor_fuses=motor_fuses)
         raise ValueError(f"Unknown PDF side: {side}")
     finally:
         doc.close()

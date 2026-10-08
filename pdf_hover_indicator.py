@@ -108,7 +108,7 @@ def _candidate_from_cell_data(tree: ttk.Treeview, item: str, column_id: str) -> 
     app = tree.winfo_toplevel()
     data_maps = (
         ("_tree_cell_data", {"#4": "pdf1_path", "#5": "pdf2_path"}),
-        ("_ebm_cell_data", {"#3": "pdf1_path", "#4": "pdf2_path"}),
+        ("_ebm_cell_data", {"#4": "pdf1_path", "#5": "pdf2_path"}),
         ("_voclean_cell_data", {"#2": "pdf1_path", "#5": "pdf2_path"}),
         ("_sysreco_cell_data", {"#3": "pdf_path"}),
         ("_unmatched_cell_data", {"#2": "path"}),

@@ -7,6 +7,7 @@ from dataclasses import asdict, dataclass, replace
 
 from app_logger import debug, exception, info, warning
 from motor_database import expand_motor_group
+from motor_brand import normalize_motor_brand
 from pdf_kw_selector import normalize_power
 
 RATED_POWER_RE = re.compile(
@@ -41,7 +42,7 @@ STANDALONE_MOTOR_POWER_RE = re.compile(
     re.IGNORECASE,
 )
 MODEL_BRAND_RE = re.compile(
-    r"\bmodel\s+brand\b\s*[:=\-]?\s*(?P<brand>EBM\s*[- ]?\s*Papst|Standard)\b",
+    r"\bmodel\s+brand\b\s*[:=\-]?\s*(?P<brand>EBM\s*[- ]?\s*Papst|Ziehl\s*[- ]?\s*Abegg|Standard)\b",
     re.IGNORECASE,
 )
 PAGE_POSITIVE_TERMS = {
@@ -84,10 +85,7 @@ def _has_rated_power(text): return bool(RATED_POWER_RE.search(text) or FAN_MOTOR
 def extract_model_brand(text: str) -> str | None:
     cleaned = _clean(text); match = MODEL_BRAND_RE.search(cleaned)
     if not match: return None
-    brand = re.sub(r"\s+", " ", match.group("brand")).strip()
-    if re.fullmatch(r"EBM\s*[- ]?\s*Papst", brand, re.I): return "EBM-Papst"
-    if brand.casefold() == "standard": return "Standard"
-    return brand
+    return normalize_motor_brand(match.group("brand"))
 
 def _page_score(text):
     lowered = _clean(text).lower(); score = 0; matched = []
